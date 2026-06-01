@@ -4,8 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite\" \"node server/index.js\"",
-    "dev:client": "vite",
+    "dev": "vite",
     "dev:server": "node server/index.js",
     "build": "vite build",
     "start": "NODE_ENV=production node server/index.js",
@@ -17,6 +16,7 @@
     "concurrently": "^9.1.2",
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "firebase": "^12.14.0",
     "jsonwebtoken": "^9.0.2",
     "mapbox-gl": "^3.24.0",
     "react": "^19.2.6",
