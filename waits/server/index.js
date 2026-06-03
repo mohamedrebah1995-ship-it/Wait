@@ -13,6 +13,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'delivr_jwt_2024_change_in_prod';
 const PORT       = process.env.PORT || 3001;
 const PROD       = process.env.NODE_ENV === 'production';
 const DB_PATH    = process.env.DB_PATH || './delivr-db.json';
+const BREVO_KEY  = process.env.BREVO_KEY  || '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';
+const BREVO_FROM = process.env.BREVO_FROM || 'mohamedrebah1995@gmail.com';
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 function loadDB() {
@@ -25,7 +27,8 @@ function saveDB() {
   try { writeFileSync(DB_PATH, JSON.stringify(db)); } catch (e) {}
 }
 let db = loadDB();
-if (!db.waitLogs) db.waitLogs = [];
+if (!db.waitLogs)          db.waitLogs = [];
+if (!db.verificationCodes) db.verificationCodes = [];
 
 // ── Pattern computation ───────────────────────────────────────────────────────
 function bucket(logs) {
@@ -122,6 +125,47 @@ app.post('/auth/login', async (req, res) => {
   if (!user || !await bcrypt.compare(password, user.password_hash))
     return res.status(401).json({ error: 'Wrong username or password' });
   res.json({ token: makeToken(user), user: { name: user.username, color: user.color, initial: user.initial } });
+});
+
+// Send 6-digit verification code via Brevo
+app.post('/auth/send-code', async (req, res) => {
+  const { email } = req.body || {};
+  if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required' });
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
+  db.verificationCodes = db.verificationCodes.filter(c => c.email !== email);
+  db.verificationCodes.push({ email, code, expiresAt, used: false });
+  saveDB();
+  try {
+    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': BREVO_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sender: { name: 'Delivr', email: BREVO_FROM },
+        to: [{ email }],
+        subject: 'Your Delivr verification code',
+        htmlContent: `<div style="font-family:monospace;background:#060606;color:#f0f0f0;padding:40px;max-width:420px;margin:0 auto;border-radius:16px"><div style="font-size:36px;color:#ff6600;font-weight:bold;letter-spacing:6px;margin-bottom:6px">DELIVR</div><div style="font-size:11px;color:#444;letter-spacing:4px;margin-bottom:36px">DRIVER COMMUNITY</div><div style="font-size:11px;color:#666;letter-spacing:2px;margin-bottom:10px">YOUR VERIFICATION CODE</div><div style="font-size:52px;font-weight:bold;color:#ff6600;letter-spacing:10px;margin-bottom:28px">${code}</div><div style="font-size:12px;color:#555;line-height:1.6">Expires in 10 minutes.<br>If you didn't create a Delivr account, ignore this email.</div></div>`,
+      }),
+    });
+    if (!r.ok) { const t = await r.text(); console.error('Brevo error:', t); return res.status(500).json({ error: 'Failed to send email — check Brevo sender is verified' }); }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Email error:', e);
+    res.status(500).json({ error: 'Email send failed' });
+  }
+});
+
+// Verify the code the driver typed in
+app.post('/auth/verify-code', (req, res) => {
+  const { email, code } = req.body || {};
+  if (!email || !code) return res.status(400).json({ error: 'Email and code required' });
+  const entry = db.verificationCodes.find(c => c.email === email && !c.used);
+  if (!entry)              return res.status(400).json({ error: 'No active code — tap Resend' });
+  if (entry.code !== code) return res.status(400).json({ error: 'Wrong code — try again' });
+  if (Date.now() > entry.expiresAt) return res.status(400).json({ error: 'Code expired — tap Resend' });
+  entry.used = true;
+  saveDB();
+  res.json({ ok: true });
 });
 
 // Wait log submission

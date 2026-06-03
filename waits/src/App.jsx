@@ -6,6 +6,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  updateProfile,
 } from "firebase/auth";
 import {
   doc, setDoc, getDoc,
@@ -20,21 +21,47 @@ FL.href = "https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+
 document.head.appendChild(FL);
 
 const MAPBOX_TOKEN = "pk.eyJ1Ijoia2luZ29mbWFkbmVzcyIsImEiOiJjbXAzZTFoNDYwbGNtMnBzODZuYnNiY3FvIn0.yVEwZEGgiP8gqqOIycdJWA";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const GOOGLE_MAPS_KEY = "AIzaSyARDTROkeGrhMw_ZKsYw8SuLnw3skQf2yk";
 const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 3 };
 
 const RESTAURANTS = [
-  { id:"mcdonalds",  name:"McDonald's",  baseWait:4,  rel:0.86, label:"Usually fast" },
-  { id:"kfc",        name:"KFC",         baseWait:13, rel:0.42, label:"High queue risk" },
-  { id:"burgerking", name:"Burger King", baseWait:6,  rel:0.70, label:"Moderate wait" },
-  { id:"greggs",     name:"Greggs",      baseWait:2,  rel:0.93, label:"Very fast" },
-  { id:"nandos",     name:"Nando's",     baseWait:17, rel:0.45, label:"Unpredictable" },
-  { id:"fiveguys",   name:"Five Guys",   baseWait:12, rel:0.55, label:"Wait likely" },
-  { id:"dominos",    name:"Domino's",    baseWait:8,  rel:0.72, label:"Usually on time" },
-  { id:"pizzahut",   name:"Pizza Hut",   baseWait:10, rel:0.60, label:"Variable" },
-  { id:"subway",     name:"Subway",      baseWait:5,  rel:0.80, label:"Mostly quick" },
-  { id:"pret",       name:"Pret",        baseWait:3,  rel:0.88, label:"Fast grab" },
-  { id:"wingstop",   name:"Wingstop",    baseWait:14, rel:0.50, label:"Often delayed" },
-  { id:"leon",       name:"Leon",        baseWait:7,  rel:0.75, label:"Reliable" },
+  { id:"mcdonalds",       name:"McDonald's Braintree",                      baseWait:4,  rel:0.86, label:"Usually fast" },
+  { id:"kfc",             name:"KFC Braintree - Galleys Island",            baseWait:13, rel:0.42, label:"High queue risk" },
+  { id:"nandos",          name:"Nando's Braintree",                         baseWait:17, rel:0.45, label:"Unpredictable" },
+  { id:"fiveguys",        name:"Five Guys Braintree",                       baseWait:12, rel:0.55, label:"Wait likely" },
+  { id:"subway",          name:"Subway Manor Street Braintree",             baseWait:5,  rel:0.82, label:"Mostly quick" },
+  { id:"pizzahut",        name:"Pizza Hut Braintree",                       baseWait:10, rel:0.62, label:"Variable" },
+  { id:"timhortons",      name:"Tim Hortons Braintree",                     baseWait:5,  rel:0.80, label:"Usually fast" },
+  { id:"starbucks",       name:"Starbucks Braintree",                       baseWait:6,  rel:0.75, label:"Moderate wait" },
+  { id:"wagamama",        name:"wagamama Braintree Village",                baseWait:16, rel:0.48, label:"Wait likely" },
+  { id:"zizzi",           name:"Zizzi Braintree",                           baseWait:15, rel:0.50, label:"Sit-down wait" },
+  { id:"pizzaexpress",    name:"PizzaExpress Braintree",                    baseWait:13, rel:0.55, label:"Variable" },
+  { id:"prezzo",          name:"Prezzo Braintree",                          baseWait:14, rel:0.52, label:"Sit-down wait" },
+  { id:"wildwood",        name:"Wildwood Braintree",                        baseWait:14, rel:0.52, label:"Variable" },
+  { id:"realgreek",       name:"The Real Greek Braintree",                  baseWait:13, rel:0.58, label:"Moderate wait" },
+  { id:"bills",           name:"Bill's Braintree Restaurant",               baseWait:15, rel:0.50, label:"Sit-down wait" },
+  { id:"cocodimama",      name:"Coco di Mama Braintree",                    baseWait:8,  rel:0.70, label:"Moderate wait" },
+  { id:"tobycarvery",     name:"Toby Carvery Braintree",                    baseWait:18, rel:0.45, label:"Often delayed" },
+  { id:"fowlersfarm",     name:"The Fowler's Farm Braintree",               baseWait:12, rel:0.60, label:"Variable" },
+  { id:"hasturk",         name:"Hasturk Braintree",                         baseWait:10, rel:0.65, label:"Moderate wait" },
+  { id:"bfcperiperi",     name:"BFC Peri Peri Braintree",                   baseWait:8,  rel:0.72, label:"Usually fast" },
+  { id:"salamis",         name:"Salamis Fish and Chips Braintree",          baseWait:10, rel:0.65, label:"Moderate wait" },
+  { id:"kaspas",          name:"Kaspa's Braintree",                         baseWait:8,  rel:0.68, label:"Usually fast" },
+  { id:"mosaic",          name:"Mosaic Mediterranean Restaurant Braintree", baseWait:12, rel:0.60, label:"Moderate wait" },
+  { id:"yumy",            name:"Yumy Braintree",                            baseWait:10, rel:0.65, label:"Moderate wait" },
+  { id:"bagels",          name:"Braintree Bagels",                          baseWait:4,  rel:0.85, label:"Very fast" },
+  { id:"thaitree",        name:"Braintree Thai Restaurant",                 baseWait:12, rel:0.62, label:"Variable" },
+  { id:"oysters",         name:"Oysters Braintree",                         baseWait:10, rel:0.65, label:"Moderate wait" },
+  { id:"sainsburys",      name:"Sainsbury's Braintree",                     baseWait:6,  rel:0.78, label:"Usually quick" },
+  { id:"tesco",           name:"Tesco Superstore Braintree",                baseWait:5,  rel:0.80, label:"Usually quick" },
+  { id:"tescoexpress",    name:"Tesco Express Braintree",                   baseWait:4,  rel:0.85, label:"Very fast" },
+  { id:"coopchallislane", name:"Co-op Food Challis Lane Braintree",         baseWait:4,  rel:0.85, label:"Very fast" },
+  { id:"coopchurchst",    name:"Co-op Food Church Street Braintree",        baseWait:4,  rel:0.85, label:"Very fast" },
+  { id:"coopgalleys",     name:"Co-op Food Galleys Corner Braintree",       baseWait:3,  rel:0.88, label:"Very fast" },
+  { id:"morrisonsdaily",  name:"Morrisons Daily Braintree",                 baseWait:4,  rel:0.85, label:"Usually quick" },
+  { id:"onestop",         name:"One Stop Braintree",                        baseWait:3,  rel:0.88, label:"Very fast" },
+  { id:"bp",              name:"BP Braintree",                              baseWait:3,  rel:0.90, label:"Very fast" },
 ];
 
 const AVATAR_COLORS = ["#ff6600","#00e87a","#ff3232","#00aaff","#ffd600","#aa00ff","#ff8000","#00ccbc"];
@@ -70,9 +97,6 @@ function fbAuthError(err) {
   return err?.message || "Something went wrong";
 }
 
-// We store users as {username}@delivr.app in Firebase Auth so
-// drivers never have to deal with emails
-function toEmail(username) { return `${username.trim().toLowerCase()}@delivr.app`; }
 
 // ── Pattern computation (runs client-side from Firestore logs) ────────────────
 function bucketStats(logs) {
@@ -154,6 +178,25 @@ async function findNearbyBranches(lat,lng) {
   return results.filter(Boolean);
 }
 
+// Single-restaurant live geocode using Google Places API (more reliable than Mapbox for chains)
+async function geocodeBranch(lat,lng,name) {
+  try{
+    const res=await fetch("https://places.googleapis.com/v1/places:searchText",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.location,places.displayName"},
+      body:JSON.stringify({
+        textQuery:name,
+        locationBias:{circle:{center:{latitude:lat,longitude:lng},radius:2000}},
+        maxResultCount:1,
+      }),
+    });
+    const g=await res.json();
+    if(!g.places?.length)return null;
+    const loc=g.places[0].location;
+    return{lat:loc.latitude,lng:loc.longitude};
+  }catch(e){return null;}
+}
+
 function getPersonalWait(restId,now,waitLog) {
   const h=now.getHours(),dow=now.getDay(),per=timePeriod(h);
   const logs=waitLog.filter(l=>l.restaurantId===restId);
@@ -206,9 +249,10 @@ function PasswordInput({value,onChange,placeholder}) {
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-function LoginScreen({onLogin}) {
+function LoginScreen({onLogin,onRegistered}) {
   const [mode,setMode]=useState("login");
   const [username,setUsername]=useState("");
+  const [email,setEmail]=useState("");
   const [password,setPassword]=useState("");
   const [confirm,setConfirm]=useState("");
   const [colorIdx,setColorIdx]=useState(0);
@@ -216,30 +260,45 @@ function LoginScreen({onLogin}) {
   const [error,setError]=useState("");
   const color=AVATAR_COLORS[colorIdx];
 
-  function switchMode(m){setMode(m);setError("");setPassword("");setConfirm("");}
+  // Firebase Auth requires an email — we derive one from username internally
+  const toEmail=name=>`${name.trim().toLowerCase().replace(/\s+/g,"")}@delivr.app`;
+
+  function switchMode(m){setMode(m);setError("");setPassword("");setConfirm("");setEmail("");}
 
   async function submit(e) {
     e.preventDefault();setError("");
-    if(!username.trim()||!password){setError("Fill in all fields");return;}
-    if(mode==="register"){
-      if(username.trim().length<2){setError("Username must be at least 2 characters");return;}
-      if(password.length<6){setError("Password must be at least 6 characters");return;}
-      if(password!==confirm){setError("Passwords do not match");return;}
-    }
+    if(!username.trim()||username.trim().length<2){setError("Driver name must be at least 2 characters");return;}
+    if(mode==="register"&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){setError("Enter a valid email address");return;}
+    if(!password||password.length<6){setError("Password must be at least 6 characters");return;}
+    if(mode==="register"&&password!==confirm){setError("Passwords do not match");return;}
     setLoading(true);
     try{
-      const email=toEmail(username);
+      const firebaseEmail=toEmail(username);
       if(mode==="register"){
-        const cred=await createUserWithEmailAndPassword(auth,email,password);
-        const profile={username:username.trim(),color,initial:username.trim()[0].toUpperCase(),joinedAt:new Date().toISOString()};
-        await setDoc(doc(db,"users",cred.user.uid),profile);
-        onLogin({name:profile.username,color:profile.color,initial:profile.initial},cred.user.uid);
+        const cred=await createUserWithEmailAndPassword(auth,firebaseEmail,password);
+        const profile={name:username.trim(),color,initial:username.trim()[0].toUpperCase(),email:email.trim()};
+        await updateProfile(cred.user,{displayName:JSON.stringify(profile)});
+        try{ await setDoc(doc(db,"users",cred.user.uid),{username:profile.name,color,initial:profile.initial,email:email.trim(),emailVerified:false,joinedAt:new Date().toISOString()}); }catch(e){}
+        // Send verification code via backend
+        const r=await fetch(`${API_URL}/auth/send-code`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email.trim()})});
+        if(!r.ok){const d=await r.json();setError(d.error||"Could not send verification email");return;}
+        onRegistered(profile,email.trim());
       }else{
         const cred=await signInWithEmailAndPassword(auth,email,password);
-        const snap=await getDoc(doc(db,"users",cred.user.uid));
-        if(!snap.exists()){setError("Account not found");return;}
-        const p=snap.data();
-        onLogin({name:p.username,color:p.color,initial:p.initial},cred.user.uid);
+        // Read profile from Auth displayName — works even if Firestore is locked
+        let profile=null;
+        if(cred.user.displayName){
+          try{ profile=JSON.parse(cred.user.displayName); }catch(e){}
+        }
+        // Fallback to Firestore if displayName not set (old accounts)
+        if(!profile){
+          try{
+            const snap=await getDoc(doc(db,"users",cred.user.uid));
+            if(snap.exists()){ const p=snap.data(); profile={name:p.username,color:p.color,initial:p.initial}; }
+          }catch(e){}
+        }
+        if(!profile){setError("Account not found — please register");return;}
+        onLogin(profile);
       }
     }catch(err){
       setError(fbAuthError(err));
@@ -271,6 +330,14 @@ function LoginScreen({onLogin}) {
             style={{width:"100%",background:"#0d0d0d",border:"1px solid #222",borderRadius:14,padding:"16px 18px",color:"#f0f0f0",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
             onFocus={e=>{e.target.style.borderColor="#ff6600";}} onBlur={e=>{e.target.style.borderColor="#222";}}/>
         </div>
+        {mode==="register"&&(
+          <div>
+            <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:7}}>EMAIL ADDRESS</div>
+            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" type="email" autoComplete="email"
+              style={{width:"100%",background:"#0d0d0d",border:"1px solid #222",borderRadius:14,padding:"16px 18px",color:"#f0f0f0",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
+              onFocus={e=>{e.target.style.borderColor="#ff6600";}} onBlur={e=>{e.target.style.borderColor="#222";}}/>
+          </div>
+        )}
         <div>
           <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:7}}>PASSWORD {mode==="register"&&<span style={{color:"#2a2a2a"}}>(min 6 chars)</span>}</div>
           <PasswordInput value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"/>
@@ -311,8 +378,72 @@ function LoginScreen({onLogin}) {
   );
 }
 
+// ── VERIFY CODE SCREEN ────────────────────────────────────────────────────────
+function VerifyCodeScreen({email,onVerified,onBack}) {
+  const [code,setCode]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [resending,setResending]=useState(false);
+  const [resent,setResent]=useState(false);
+
+  async function verify(){
+    if(code.length!==6){setError("Enter the full 6-digit code");return;}
+    setLoading(true);setError("");
+    try{
+      const r=await fetch(`${API_URL}/auth/verify-code`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,code})});
+      const d=await r.json();
+      if(!r.ok){setError(d.error||"Wrong code");return;}
+      onVerified();
+    }catch(e){setError("Cannot reach server — make sure it is running");}
+    finally{setLoading(false);}
+  }
+
+  async function resend(){
+    setResending(true);setResent(false);setError("");
+    try{
+      await fetch(`${API_URL}/auth/send-code`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
+      setResent(true);setTimeout(()=>setResent(false),5000);
+    }catch(e){}
+    setResending(false);
+  }
+
+  return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 24px 60px",background:"linear-gradient(160deg,#0e0600 0%,#060606 55%)"}}>
+      <div style={{textAlign:"center",marginBottom:40}}>
+        <div style={{fontSize:56,marginBottom:16}}>📨</div>
+        <div style={{...B,fontSize:40,color:"#ff6600",letterSpacing:3,marginBottom:8}}>CHECK YOUR EMAIL</div>
+        <div style={{fontSize:13,...M,color:"#555",lineHeight:1.7}}>We sent a 6-digit code to</div>
+        <div style={{fontSize:14,...M,color:"#f0f0f0",fontWeight:700,marginTop:4}}>{email}</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div>
+          <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:7}}>ENTER YOUR CODE</div>
+          <input value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,6))}
+            placeholder="000000" maxLength={6} inputMode="numeric" autoFocus
+            style={{width:"100%",background:"#0d0d0d",border:"1px solid #222",borderRadius:14,padding:"20px 18px",color:"#ff6600",fontSize:32,...M,fontWeight:700,outline:"none",boxSizing:"border-box",letterSpacing:8,textAlign:"center"}}
+            onFocus={e=>e.target.style.borderColor="#ff6600"} onBlur={e=>e.target.style.borderColor="#222"}
+            onKeyDown={e=>{if(e.key==="Enter")verify();}}/>
+        </div>
+        {error&&<div style={{background:"#1a0505",border:"1px solid #ff323244",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#ff3232"}}>{error}</div>}
+        <button onClick={verify} disabled={loading||code.length!==6}
+          style={{minHeight:64,background:loading||code.length!==6?"#1a1a1a":"#ff6600",border:"none",borderRadius:14,...B,fontSize:28,letterSpacing:4,color:loading||code.length!==6?"#333":"#000",cursor:loading||code.length!==6?"default":"pointer",boxShadow:loading||code.length!==6?"none":"0 0 40px #ff660040",transition:"all 0.2s"}}>
+          {loading?"VERIFYING...":"VERIFY →"}
+        </button>
+        <button onClick={resend} disabled={resending||resent}
+          style={{minHeight:52,background:"none",border:"1px solid "+(resent?"#00e87a":"#2a2a2a"),borderRadius:12,...B,fontSize:18,letterSpacing:2,color:resent?"#00e87a":"#555",cursor:resending||resent?"default":"pointer",transition:"all 0.2s"}}>
+          {resending?"SENDING...":(resent?"✓ CODE SENT":"RESEND CODE")}
+        </button>
+        <button onClick={onBack}
+          style={{minHeight:44,background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:11,...M,letterSpacing:1}}>
+          Use a different account
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,onArrived,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,checkingId,arrivalError,onArrived,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const per=timePeriod(now.getHours());
   const meta=communityPatterns._meta;
@@ -348,8 +479,10 @@ function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,onArri
             const d=distMap[r.id];
             const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
             const best=personal?.hasEnough?personal.avg:(community?.avg??null);
+            const isChecking=checkingId===r.id;
+            const hasError=arrivalError?.restaurantId===r.id;
             return(
-              <button key={r.id} onClick={()=>{onArrived(r.id);setPicking(false);}} style={{background:"#0d0d0d",border:"1px solid #1e1e1e",borderRadius:12,padding:"14px 16px",cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
+              <button key={r.id} onClick={async()=>{const ok=await onArrived(r.id);if(ok)setPicking(false);}} disabled={isChecking} style={{background:"#0d0d0d",border:"1px solid "+(hasError?"#ff323244":"#1e1e1e"),borderRadius:12,padding:"14px 16px",cursor:isChecking?"default":"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <div>
                   <div style={{...B,fontSize:20,letterSpacing:1,color:"#f0f0f0"}}>{r.name}</div>
                   <div style={{fontSize:10,color:"#555",marginTop:2}}>
@@ -357,7 +490,9 @@ function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,onArri
                     {best!=null?<span style={{color:"#00e87a"}}>{"~"+best+"m"}</span>:("est: "+r.baseWait+"m")}
                   </div>
                 </div>
-                <span style={{...B,fontSize:26,color:"#ff6600"}}>→</span>
+                <span style={{...B,fontSize:isChecking||hasError?10:26,color:hasError?"#ff3232":isChecking?"#555":"#ff6600",letterSpacing:1}}>
+                  {isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"→"}
+                </span>
               </button>
             );
           })}
@@ -425,6 +560,8 @@ function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,onArri
           const myLogs=waitLog.filter(l=>l.restaurantId===r.id);
           const d=distMap[r.id];
           const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
+          const isChecking=checkingId===r.id;
+          const hasError=arrivalError?.restaurantId===r.id;
 
           return(
             <div key={r.id} style={{background:isActive?"#150900":"#0d0d0d",borderRadius:12,border:"1px solid "+(isActive?"#ff6600":riskColor+"33"),padding:"14px 16px"}}>
@@ -484,7 +621,7 @@ function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,onArri
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:9,background:riskColor+"22",color:riskColor,border:"1px solid "+riskColor+"44",borderRadius:5,padding:"3px 8px"}}>{riskLabel}</span>
                 {myLogs.length>0&&<span style={{fontSize:9,color:"#444"}}>{myLogs.length+" visit"+(myLogs.length!==1?"s":"")}</span>}
-                {!isActive&&<button onClick={()=>onArrived(r.id)} style={{marginLeft:"auto",background:"#ff6600",border:"none",borderRadius:7,...B,fontSize:13,letterSpacing:1,color:"#000",cursor:"pointer",padding:"6px 14px",minHeight:32}}>ARRIVED</button>}
+                {!isActive&&<button onClick={()=>onArrived(r.id)} disabled={isChecking} style={{marginLeft:"auto",background:isChecking?"#1a0a00":hasError?"#1a0505":"#ff6600",border:isChecking?"1px solid #ff660044":hasError?"1px solid #ff323244":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#ff6600":hasError?"#ff3232":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"ARRIVED"}</button>}
                 {isActive&&<span style={{marginLeft:"auto",fontSize:10,...B,color:"#ff6600",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>● TIMING NOW</span>}
               </div>
             </div>
@@ -655,7 +792,8 @@ function BottomNav({screen,onNav,activeWait,unreadChat}) {
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user,setUser]    =useState(()=>store.get("delivr_user")||null);
+  const [user,setUser]          =useState(()=>store.get("delivr_user")||null);
+  const [pendingVerify,setPendingVerify]=useState(null);
   const [screen,setScreen]=useState("waits");
   const [now,setNow]      =useState(new Date());
   const [nearby,setNearby]=useState(()=>store.get("delivr_nearby")||[]);
@@ -663,23 +801,32 @@ export default function App() {
   const [activeWait,setActiveWait]=useState(()=>store.get("delivr_activewait")||null);
   const [communityPatterns,setCommunityPatterns]=useState({});
   const [unreadChat,setUnreadChat]=useState(false);
+  const [checkingId,setCheckingId]=useState(null);
+  const [arrivalError,setArrivalError]=useState(null);
   const lastFetchRef=useRef({lat:null,lng:null});
+  const autoPickupTimerRef=useRef(null);
+  const handlePickedUpRef=useRef(null);
   const gps=useGPS();
 
-  // Restore Firebase auth session on reload
+  // Restore session on page reload
   useEffect(()=>{
     const unsub=onAuthStateChanged(auth,async fbUser=>{
       if(!fbUser){setUser(null);store.del("delivr_user");return;}
-      // If we already have user in state, keep it
+      // Already have user in state (just logged in)
       if(user)return;
-      try{
-        const snap=await getDoc(doc(db,"users",fbUser.uid));
-        if(snap.exists()){
-          const p=snap.data();
-          const u={name:p.username,color:p.color,initial:p.initial};
-          setUser(u);store.set("delivr_user",u);
-        }
-      }catch(e){}
+      // Try to restore from Auth displayName first
+      let profile=null;
+      if(fbUser.displayName){
+        try{ profile=JSON.parse(fbUser.displayName); }catch(e){}
+      }
+      // Fallback to Firestore
+      if(!profile){
+        try{
+          const snap=await getDoc(doc(db,"users",fbUser.uid));
+          if(snap.exists()){ const p=snap.data(); profile={name:p.username,color:p.color,initial:p.initial}; }
+        }catch(e){}
+      }
+      if(profile){ setUser(profile);store.set("delivr_user",profile); }
     });
     return unsub;
   },[]);
@@ -711,15 +858,43 @@ export default function App() {
     setUser(userData);store.set("delivr_user",userData);
   }
 
+  function handleRegistered(profile,email){
+    setPendingVerify({profile,email});
+  }
+
+  function handleVerified(){
+    const profile={...pendingVerify.profile,emailVerified:true};
+    setUser(profile);store.set("delivr_user",profile);
+    setPendingVerify(null);
+  }
+
   async function handleLogout(){
     await signOut(auth);
     setUser(null);store.del("delivr_user");
     setScreen("waits");
   }
 
-  function handleArrived(restaurantId){
+  async function handleArrived(restaurantId){
+    const restaurant=RESTAURANTS.find(r=>r.id===restaurantId);
+    if(!restaurant)return false;
+    // Live distance check — only runs when GPS is active
+    if(gps.status==="active"&&gps.lat!=null){
+      setCheckingId(restaurantId);setArrivalError(null);
+      const branch=await geocodeBranch(gps.lat,gps.lng,restaurant.name);
+      if(branch){
+        const dist=distMeters(gps.lat,gps.lng,branch.lat,branch.lng);
+        if(dist!=null&&dist>50){
+          setArrivalError({restaurantId,dist:Math.round(dist)});
+          setCheckingId(null);
+          setTimeout(()=>setArrivalError(a=>a?.restaurantId===restaurantId?null:a),4000);
+          return false;
+        }
+      }
+      setCheckingId(null);
+    }
     const a={restaurantId,startedAt:new Date().toISOString()};
     setActiveWait(a);store.set("delivr_activewait",a);
+    return true;
   }
 
   async function handlePickedUp(){
@@ -745,7 +920,30 @@ export default function App() {
     }catch(e){}
   }
 
+  handlePickedUpRef.current=handlePickedUp;
+
   function handleCancelWait(){setActiveWait(null);store.set("delivr_activewait",null);}
+
+  // Auto-trigger PICKED UP when driver moves >30m from restaurant and stays away 20s
+  useEffect(()=>{
+    if(!activeWait||gps.status!=="active"||gps.lat==null||!nearby.length){
+      if(autoPickupTimerRef.current){clearTimeout(autoPickupTimerRef.current);autoPickupTimerRef.current=null;}
+      return;
+    }
+    const branch=nearby.find(n=>n.id===activeWait.restaurantId);
+    if(!branch)return;
+    const dist=distMeters(gps.lat,gps.lng,branch.branchLat,branch.branchLng);
+    if(dist==null)return;
+    if(dist>30){
+      if(!autoPickupTimerRef.current){
+        autoPickupTimerRef.current=setTimeout(()=>{autoPickupTimerRef.current=null;handlePickedUpRef.current?.();},20000);
+      }
+    }else{
+      if(autoPickupTimerRef.current){clearTimeout(autoPickupTimerRef.current);autoPickupTimerRef.current=null;}
+    }
+  },[gps.lat,gps.lng,gps.status,activeWait?.restaurantId,nearby]);
+
+  useEffect(()=>()=>{if(autoPickupTimerRef.current)clearTimeout(autoPickupTimerRef.current);},[]);
 
   const CSS=`
     *{box-sizing:border-box;margin:0;padding:0}
@@ -758,8 +956,14 @@ export default function App() {
   `;
 
   if(!user){
-    return <div style={ROOT}><style>{CSS}</style><LoginScreen onLogin={handleLogin}/></div>;
+    if(pendingVerify){
+      return <div style={ROOT}><style>{CSS}</style>
+        <VerifyCodeScreen email={pendingVerify.email} onVerified={handleVerified} onBack={()=>setPendingVerify(null)}/>
+      </div>;
+    }
+    return <div style={ROOT}><style>{CSS}</style><LoginScreen onLogin={handleLogin} onRegistered={handleRegistered}/></div>;
   }
+
 
   return(
     <div>
@@ -768,7 +972,7 @@ export default function App() {
         <div style={{height:"calc(100vh - 56px)",overflowY:"auto"}}>
           {screen==="waits"&&(
             <WaitsScreen now={now} gps={gps} nearby={nearby} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns}
+              communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError}
               onArrived={handleArrived} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           )}
           {screen==="chat"&&<ChatScreen user={user} onLogout={handleLogout}/>}
