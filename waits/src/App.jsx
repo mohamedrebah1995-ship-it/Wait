@@ -212,10 +212,10 @@ async function geocodeBranch(lat,lng,name) {
 
 // Search restaurants by name — used in the picker so drivers can find any restaurant anywhere
 async function searchRestaurants(query,lat,lng) {
-  if(!query||query.length<2)return[];
+  if(!query||query.trim().length<2)return[];
   try{
-    const body={textQuery:query,maxResultCount:10,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.formattedAddress,places.types"};
-    if(lat!=null)body.locationBias={circle:{center:{latitude:lat,longitude:lng},radius:50000}};
+    const body={textQuery:query.trim(),maxResultCount:20};
+    if(lat!=null&&lng!=null)body.locationBias={circle:{center:{latitude:lat,longitude:lng},radius:50000}};
     const res=await fetch("https://places.googleapis.com/v1/places:searchText",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.formattedAddress"},
@@ -231,7 +231,7 @@ async function searchRestaurants(query,lat,lng) {
       branchLng:p.location.longitude,
       baseWait:10,rel:0.70,label:"",
     }));
-  }catch(e){return[];}
+  }catch(e){console.error("searchRestaurants error:",e);return[];}
 }
 
 function getPersonalWait(restId,now,waitLog) {
@@ -479,9 +479,109 @@ function VerifyCodeScreen({email,onVerified,onBack}) {
   );
 }
 
+// ── RESTAURANT DETAIL ─────────────────────────────────────────────────────────
+function RestaurantDetail({r,now,waitLog,communityPatterns,distMap,checkingId,arrivalError,activeWait,onArrived,onBack}) {
+  const personal=getPersonalWait(r.id,now,waitLog);
+  const community=getCommunityWait(r.id,now,communityPatterns);
+  const usePersonal=personal?.hasEnough;
+  const useCommunity=!usePersonal&&community!=null;
+  const displayWait=usePersonal?personal.avg:useCommunity?community.avg:Math.round(r.baseWait/r.rel);
+  const riskColor=displayWait>18?"#ff3232":displayWait>10?"#ffd600":"#00e87a";
+  const d=distMap[r.id];
+  const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
+  const isChecking=checkingId===r.id;
+  const hasError=arrivalError?.restaurantId===r.id;
+  const isActive=activeWait?.restaurantId===r.id;
+  const myLogs=waitLog.filter(l=>l.restaurantId===r.id);
+  const periods=["morning","lunch","afternoon","evening","late night"];
+  const p=communityPatterns[r.id];
+
+  return(
+    <div style={{padding:"20px 16px 120px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+        <button onClick={onBack} style={{background:"none",border:"none",color:"#ff6600",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
+        <div style={{flex:1}}>
+          <div style={{...B,fontSize:22,color:"#f0f0f0",letterSpacing:1}}>{r.name}</div>
+          <div style={{fontSize:9,color:"#555",marginTop:2}}>{r.label}{dStr&&<span style={{color:"#ff6600"}}>{" · "+dStr+" away"}</span>}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{...B,fontSize:38,color:riskColor,letterSpacing:1,lineHeight:1}}>{displayWait}m</div>
+          <div style={{fontSize:9,color:"#444"}}>EST. WAIT</div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        <div style={{flex:1,background:"#001a0d",border:"1px solid #00e87a22",borderRadius:10,padding:"12px 14px"}}>
+          <div style={{fontSize:8,color:"#00e87a",letterSpacing:2,marginBottom:4}}>YOUR DATA</div>
+          {personal?(<>
+            <div style={{...B,fontSize:24,color:"#00e87a"}}>{personal.avg}m</div>
+            <div style={{fontSize:9,color:"#00a055",marginTop:2}}>{personal.count} visit{personal.count!==1?"s":""} · {personal.context}</div>
+          </>):<div style={{...B,fontSize:14,color:"#1e1e1e"}}>NO VISITS YET</div>}
+        </div>
+        <div style={{flex:1,background:"#000d1a",border:"1px solid #00aaff22",borderRadius:10,padding:"12px 14px"}}>
+          <div style={{fontSize:8,color:"#00aaff",letterSpacing:2,marginBottom:4}}>COMMUNITY</div>
+          {community?(<>
+            <div style={{...B,fontSize:24,color:"#00aaff"}}>{community.avg}m</div>
+            <div style={{fontSize:9,color:"#005580",marginTop:2}}>{community.count} logs · {community.drivers} driver{community.drivers!==1?"s":""}</div>
+          </>):<div style={{...B,fontSize:14,color:"#1e1e1e"}}>NO DATA YET</div>}
+        </div>
+      </div>
+
+      {p?.byPeriod&&Object.keys(p.byPeriod).length>0&&(
+        <div style={{background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+          <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:12}}>WAIT BY TIME OF DAY</div>
+          {periods.filter(per=>p.byPeriod[per]).map(per=>{
+            const b=p.byPeriod[per];
+            const pct=Math.min(100,(b.avg/40)*100);
+            const c=b.avg>18?"#ff3232":b.avg>10?"#ffd600":"#00e87a";
+            return(
+              <div key={per} style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                  <span style={{fontSize:10,...M,color:"#555",textTransform:"capitalize"}}>{per}</span>
+                  <span style={{...B,fontSize:12,color:c}}>{b.avg}m</span>
+                </div>
+                <div style={{background:"#1a1a1a",borderRadius:3,height:4}}>
+                  <div style={{height:4,borderRadius:3,width:pct+"%",background:c}}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {myLogs.length>0&&(
+        <div style={{background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+          <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:10}}>YOUR VISITS</div>
+          {myLogs.slice().reverse().map(l=>{
+            const c=l.waitMins>15?"#ff3232":l.waitMins>8?"#ffd600":"#00e87a";
+            return(
+              <div key={l.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:8,borderBottom:"1px solid #141414",marginBottom:8}}>
+                <div style={{fontSize:10,...M,color:"#555"}}>{new Date(l.ts).toLocaleString("en-GB",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>
+                <div style={{...B,fontSize:16,color:c}}>{l.waitMins}m</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{position:"fixed",bottom:56,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,padding:"12px 16px",background:"#0a0a0a",borderTop:"1px solid #141414"}}>
+        {!isActive?(
+          <button onClick={()=>onArrived(r)} disabled={isChecking}
+            style={{width:"100%",minHeight:64,background:isChecking?"#1a0a00":hasError?"#1a0505":"#ff6600",border:isChecking?"1px solid #ff660044":hasError?"1px solid #ff323244":"none",borderRadius:12,...B,fontSize:24,letterSpacing:3,color:isChecking?"#ff6600":hasError?"#ff3232":"#000",cursor:isChecking?"default":"pointer",boxShadow:isChecking||hasError?"none":"0 0 30px #ff660040"}}>
+            {isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"📍 ARRIVED HERE"}
+          </button>
+        ):(
+          <div style={{...B,fontSize:16,color:"#ff6600",letterSpacing:2,textAlign:"center",padding:"14px 0"}}>● TIMING NOW — GO BACK TO LOG</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
 function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,onArrived,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
+  const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
   const [searchResults,setSearchResults]=useState([]);
   const [searching,setSearching]=useState(false);
@@ -520,6 +620,12 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
   }
 
   function closePicker(){setPicking(false);setSearchQuery("");setSearchResults([]);}
+
+  if(selectedRestaurant){
+    return <RestaurantDetail r={selectedRestaurant} now={now} waitLog={waitLog} communityPatterns={communityPatterns}
+      distMap={distMap} checkingId={checkingId} arrivalError={arrivalError} activeWait={activeWait}
+      onArrived={onArrived} onBack={()=>setSelectedRestaurant(null)}/>;
+  }
 
   if(picking){
     const displayList=searchQuery.trim().length>=2?searchResults:restaurants.slice().sort((a,b)=>{const da=distMap[a.id],db=distMap[b.id];if(da!=null&&db!=null)return da-db;if(da!=null)return -1;if(db!=null)return 1;return 0;});
@@ -632,7 +738,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
           const hasError=arrivalError?.restaurantId===r.id;
 
           return(
-            <div key={r.id} style={{background:isActive?"#150900":"#0d0d0d",borderRadius:12,border:"1px solid "+(isActive?"#ff6600":riskColor+"33"),padding:"14px 16px"}}>
+            <div key={r.id} onClick={()=>setSelectedRestaurant(r)} style={{background:isActive?"#150900":"#0d0d0d",borderRadius:12,border:"1px solid "+(isActive?"#ff6600":riskColor+"33"),padding:"14px 16px",cursor:"pointer"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{...B,fontSize:19,letterSpacing:1,color:"#f0f0f0"}}>
@@ -689,7 +795,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:9,background:riskColor+"22",color:riskColor,border:"1px solid "+riskColor+"44",borderRadius:5,padding:"3px 8px"}}>{riskLabel}</span>
                 {myLogs.length>0&&<span style={{fontSize:9,color:"#444"}}>{myLogs.length+" visit"+(myLogs.length!==1?"s":"")}</span>}
-                {!isActive&&<button onClick={()=>onArrived(r.id)} disabled={isChecking} style={{marginLeft:"auto",background:isChecking?"#1a0a00":hasError?"#1a0505":"#ff6600",border:isChecking?"1px solid #ff660044":hasError?"1px solid #ff323244":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#ff6600":hasError?"#ff3232":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"ARRIVED"}</button>}
+                {!isActive&&<button onClick={e=>{e.stopPropagation();onArrived(r);}} disabled={isChecking} style={{marginLeft:"auto",background:isChecking?"#1a0a00":hasError?"#1a0505":"#ff6600",border:isChecking?"1px solid #ff660044":hasError?"1px solid #ff323244":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#ff6600":hasError?"#ff3232":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"ARRIVED"}</button>}
                 {isActive&&<span style={{marginLeft:"auto",fontSize:10,...B,color:"#ff6600",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>● TIMING NOW</span>}
               </div>
             </div>
@@ -864,7 +970,7 @@ export default function App() {
   const [pendingVerify,setPendingVerify]=useState(null);
   const [screen,setScreen]=useState("waits");
   const [now,setNow]      =useState(new Date());
-  const [restaurants,setRestaurants]=useState(()=>store.get("delivr_nearby")||RESTAURANTS);
+  const [restaurants,setRestaurants]=useState(RESTAURANTS);
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
   const [activeWait,setActiveWait]=useState(()=>store.get("delivr_activewait")||null);
   const [communityPatterns,setCommunityPatterns]=useState({});
@@ -914,12 +1020,18 @@ export default function App() {
     if(gps.status!=="active"||gps.lat==null)return;
     const last=lastFetchRef.current;
     const far=last.lat==null||distMeters(last.lat,last.lng,gps.lat,gps.lng)>500;
-    if(far){
-      lastFetchRef.current={lat:gps.lat,lng:gps.lng};
-      fetchNearbyRestaurants(gps.lat,gps.lng).then(res=>{
-        if(res.length>0){setRestaurants(res);store.set("delivr_nearby",res);}
-      }).catch(()=>{});
-    }
+    if(!far)return;
+    lastFetchRef.current={lat:gps.lat,lng:gps.lng};
+    // Fetch nearby places and match to our restaurant list to get coordinates
+    fetchNearbyRestaurants(gps.lat,gps.lng).then(places=>{
+      if(!places.length)return;
+      const augmented=RESTAURANTS.map(r=>{
+        const key=r.name.toLowerCase().replace(/\s+(braintree|restaurant|ltd).*/i,"").split(/[\s-]/)[0];
+        const match=places.find(p=>p.name.toLowerCase().includes(key)||key.includes(p.name.toLowerCase().split(" ")[0]));
+        return match?{...r,branchLat:match.branchLat,branchLng:match.branchLng}:r;
+      });
+      setRestaurants(augmented);
+    }).catch(()=>{});
   },[gps.status,gps.lat,gps.lng]);
 
   function handleNav(s){if(s==="chat")setUnreadChat(false);setScreen(s);}
