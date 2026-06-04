@@ -7,9 +7,12 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
 } from "firebase/auth";
 import {
-  doc, setDoc, getDoc,
+  doc, setDoc, getDoc, updateDoc,
   collection, addDoc, query, orderBy, limitToLast,
   onSnapshot, getDocs, serverTimestamp,
 } from "firebase/firestore";
@@ -280,6 +283,168 @@ function PasswordInput({value,onChange,placeholder}) {
       <button type="button" onClick={()=>setShow(s=>!s)}
         style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#444",padding:4}}>
         {show?"🙈":"👁"}
+      </button>
+    </div>
+  );
+}
+
+// ── GPS GATE ──────────────────────────────────────────────────────────────────
+function GPSGateScreen({status,onRetry}) {
+  const acquiring=status==="pending"||status==="acquiring";
+  return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 28px",background:"linear-gradient(160deg,#0e0600 0%,#060606 55%)"}}>
+      <div style={{textAlign:"center",marginBottom:40}}>
+        <div style={{fontSize:64,marginBottom:20}}>{acquiring?"🛰️":"📍"}</div>
+        <div style={{...B,fontSize:38,color:"#ff6600",letterSpacing:3,marginBottom:12}}>
+          {acquiring?"GETTING LOCATION":"LOCATION REQUIRED"}
+        </div>
+        <div style={{fontSize:13,...M,color:"#555",lineHeight:1.9,maxWidth:320,margin:"0 auto"}}>
+          {acquiring
+            ?"Waiting for GPS signal — make sure location is enabled in your browser."
+            :"DELIVR needs your GPS to show nearby restaurants, verify arrivals, and track wait times."}
+        </div>
+      </div>
+      {!acquiring&&(
+        <div style={{width:"100%",maxWidth:360,display:"flex",flexDirection:"column",gap:14}}>
+          <button onClick={onRetry} style={{minHeight:64,background:"#ff6600",border:"none",borderRadius:14,...B,fontSize:26,letterSpacing:3,color:"#000",cursor:"pointer",boxShadow:"0 0 40px #ff660040"}}>
+            ALLOW LOCATION →
+          </button>
+          <div style={{fontSize:10,...M,color:"#333",textAlign:"center",lineHeight:1.7}}>
+            Tap above after allowing location in your browser settings
+          </div>
+        </div>
+      )}
+      {acquiring&&(
+        <div style={{...B,fontSize:14,color:"#ff6600",letterSpacing:3,animation:"criticalPulse 1.5s ease-in-out infinite"}}>ACQUIRING...</div>
+      )}
+    </div>
+  );
+}
+
+// ── PROFILE SCREEN ────────────────────────────────────────────────────────────
+function ProfileScreen({user,waitLog,gps,onBack,onLogout,onSave}) {
+  const [name,setName]=useState(user.name||"");
+  const [phone,setPhone]=useState(user.phone||"");
+  const [area,setArea]=useState(user.area||"");
+  const [saving,setSaving]=useState(false);
+  const [saved,setSaved]=useState(false);
+  const [showPw,setShowPw]=useState(false);
+  const [curPw,setCurPw]=useState("");
+  const [newPw,setNewPw]=useState("");
+  const [pwMsg,setPwMsg]=useState("");
+  const [pwLoading,setPwLoading]=useState(false);
+
+  const totalLogs=waitLog.length;
+  const totalRestaurants=new Set(waitLog.map(l=>l.restaurantId)).size;
+  const avgWait=totalLogs>0?(waitLog.reduce((s,l)=>s+l.waitMins,0)/totalLogs).toFixed(1):"—";
+
+  async function save(){
+    setSaving(true);setSaved(false);
+    await onSave({name:name.trim()||user.name,phone:phone.trim(),area:area.trim()});
+    setSaving(false);setSaved(true);
+    setTimeout(()=>setSaved(false),3000);
+  }
+
+  async function changePw(){
+    if(!curPw||newPw.length<6){setPwMsg("New password must be at least 6 characters");return;}
+    setPwLoading(true);setPwMsg("");
+    try{
+      const toEmail=n=>`${n.trim().toLowerCase().replace(/\s+/g,"")}@delivr.app`;
+      const cred=EmailAuthProvider.credential(toEmail(user.name),curPw);
+      await reauthenticateWithCredential(auth.currentUser,cred);
+      await updatePassword(auth.currentUser,newPw);
+      setPwMsg("✓ Password changed");setCurPw("");setNewPw("");setShowPw(false);
+    }catch(e){
+      setPwMsg(e.code==="auth/wrong-password"?"Wrong current password":"Could not change password");
+    }
+    setPwLoading(false);
+  }
+
+  const stat=(val,label)=>(
+    <div style={{flex:1,background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:10,padding:"14px 10px",textAlign:"center"}}>
+      <div style={{...B,fontSize:28,color:"#ff6600",letterSpacing:1}}>{val}</div>
+      <div style={{fontSize:8,...M,color:"#444",marginTop:3,letterSpacing:1}}>{label}</div>
+    </div>
+  );
+
+  return(
+    <div style={{padding:"20px 16px 120px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
+        <button onClick={onBack} style={{background:"none",border:"none",color:"#ff6600",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
+        <div style={{...B,fontSize:28,color:"#ff6600",letterSpacing:2}}>DRIVER PROFILE</div>
+      </div>
+
+      {/* Avatar + info */}
+      <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20,background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:14,padding:"16px"}}>
+        <div style={{width:56,height:56,borderRadius:"50%",background:user.color,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 0 20px "+user.color+"55"}}>
+          <span style={{...B,fontSize:26,color:"#000"}}>{user.initial}</span>
+        </div>
+        <div>
+          <div style={{...B,fontSize:22,color:"#f0f0f0",letterSpacing:1}}>{user.name}</div>
+          <div style={{fontSize:10,...M,color:"#555",marginTop:2}}>{user.email||"—"}</div>
+          <div style={{marginTop:6,background:"#1a1a00",border:"1px solid #ffd60044",borderRadius:5,padding:"3px 10px",display:"inline-block"}}>
+            <span style={{...B,fontSize:11,color:"#ffd600",letterSpacing:2}}>FREE PLAN</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{display:"flex",gap:8,marginBottom:20}}>
+        {stat(totalLogs,"TOTAL LOGS")}
+        {stat(totalRestaurants,"RESTAURANTS")}
+        {stat(avgWait+"m","AVG WAIT")}
+      </div>
+
+      {/* Edit fields */}
+      <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
+        <div>
+          <div style={{fontSize:9,...M,color:"#444",letterSpacing:2,marginBottom:6}}>DRIVER NAME</div>
+          <input value={name} onChange={e=>setName(e.target.value)}
+            style={{width:"100%",background:"#0d0d0d",border:"1px solid #222",borderRadius:12,padding:"14px 16px",color:"#f0f0f0",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#ff6600"} onBlur={e=>e.target.style.borderColor="#222"}/>
+        </div>
+        <div>
+          <div style={{fontSize:9,...M,color:"#444",letterSpacing:2,marginBottom:6}}>PHONE (OPTIONAL)</div>
+          <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+44 7700 000000" type="tel"
+            style={{width:"100%",background:"#0d0d0d",border:"1px solid #222",borderRadius:12,padding:"14px 16px",color:"#f0f0f0",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#ff6600"} onBlur={e=>e.target.style.borderColor="#222"}/>
+        </div>
+        <div>
+          <div style={{fontSize:9,...M,color:"#444",letterSpacing:2,marginBottom:6}}>YOUR AREA</div>
+          <input value={area} onChange={e=>setArea(e.target.value)} placeholder="e.g. Braintree, Chelmsford..."
+            style={{width:"100%",background:"#0d0d0d",border:"1px solid #222",borderRadius:12,padding:"14px 16px",color:"#f0f0f0",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#ff6600"} onBlur={e=>e.target.style.borderColor="#222"}/>
+          <div style={{fontSize:9,...M,color:"#333",marginTop:5}}>Sets your chat room and local restaurant list</div>
+        </div>
+      </div>
+
+      <button onClick={save} disabled={saving}
+        style={{width:"100%",minHeight:56,background:saving?"#1a1a1a":saved?"#00e87a":"#ff6600",border:"none",borderRadius:12,...B,fontSize:22,letterSpacing:3,color:saving?"#333":"#000",cursor:saving?"default":"pointer",marginBottom:20,boxShadow:saving?"none":saved?"0 0 30px #00e87a30":"0 0 30px #ff660030",transition:"all 0.2s"}}>
+        {saving?"SAVING...":saved?"✓ SAVED":"SAVE CHANGES"}
+      </button>
+
+      {/* Change password */}
+      <button onClick={()=>{setShowPw(s=>!s);setPwMsg("");}}
+        style={{width:"100%",minHeight:52,background:"none",border:"1px solid #2a2a2a",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"#555",cursor:"pointer",marginBottom:showPw?0:16}}>
+        {showPw?"↑ HIDE":"CHANGE PASSWORD"}
+      </button>
+      {showPw&&(
+        <div style={{background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:12,padding:"16px",marginBottom:16,display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+          <input value={curPw} onChange={e=>setCurPw(e.target.value)} type="password" placeholder="Current password"
+            style={{background:"#060606",border:"1px solid #222",borderRadius:10,padding:"12px 14px",color:"#f0f0f0",fontSize:14,...M,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+          <input value={newPw} onChange={e=>setNewPw(e.target.value)} type="password" placeholder="New password (min 6)"
+            style={{background:"#060606",border:"1px solid #222",borderRadius:10,padding:"12px 14px",color:"#f0f0f0",fontSize:14,...M,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+          {pwMsg&&<div style={{fontSize:11,...M,color:pwMsg.startsWith("✓")?"#00e87a":"#ff3232"}}>{pwMsg}</div>}
+          <button onClick={changePw} disabled={pwLoading}
+            style={{minHeight:48,background:"#ff6600",border:"none",borderRadius:10,...B,fontSize:18,letterSpacing:2,color:"#000",cursor:"pointer"}}>
+            {pwLoading?"UPDATING...":"UPDATE PASSWORD"}
+          </button>
+        </div>
+      )}
+
+      <button onClick={onLogout}
+        style={{width:"100%",minHeight:52,background:"none",border:"1px solid #2a2a2a",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"#444",cursor:"pointer"}}>
+        SIGN OUT
       </button>
     </div>
   );
@@ -826,7 +991,8 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
 }
 
 // ── CHAT SCREEN (Firestore real-time) ─────────────────────────────────────────
-function ChatScreen({user,onLogout}) {
+function ChatScreen({user,onLogout,area}) {
+  const chatRoom="chat_"+(area||"general").toLowerCase().replace(/\s+/g,"_");
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [ready,setReady]=useState(false);
@@ -835,7 +1001,7 @@ function ChatScreen({user,onLogout}) {
 
   // Live listener — fires instantly for every connected device
   useEffect(()=>{
-    const q=query(collection(db,"messages"),orderBy("ts","asc"),limitToLast(100));
+    const q=query(collection(db,chatRoom),orderBy("ts","asc"),limitToLast(100));
     const unsub=onSnapshot(q,snap=>{
       setMessages(snap.docs.map(d=>({id:d.id,...d.data()})));
       setReady(true);
@@ -850,7 +1016,7 @@ function ChatScreen({user,onLogout}) {
     if(!text)return;
     setInput("");
     try{
-      await addDoc(collection(db,"messages"),{
+      await addDoc(collection(db,chatRoom),{
         user:  user.name,
         color: user.color,
         initial:user.initial,
@@ -869,6 +1035,7 @@ function ChatScreen({user,onLogout}) {
       <div style={{padding:"10px 16px",borderBottom:"1px solid #111",background:"#080808",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div>
           <div style={{...B,fontSize:24,color:"#ff6600",letterSpacing:2}}>DRIVER CHAT</div>
+            <div style={{fontSize:9,color:"#444",letterSpacing:1,marginTop:1}}>{(area||"GENERAL").toUpperCase()} ROOM</div>
           <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
             <div style={{width:6,height:6,borderRadius:"50%",background:ready?"#00e87a":"#ffd600",boxShadow:"0 0 6px "+(ready?"#00e87a":"#ffd600"),animation:ready?"criticalPulse 2.5s ease-in-out infinite":"none"}}/>
             <span style={{fontSize:9,color:"#444",letterSpacing:1}}>{ready?"LIVE · FIREBASE":"CONNECTING..."}</span>
@@ -1069,6 +1236,7 @@ export default function App() {
   const [user,setUser]          =useState(()=>store.get("delivr_user")||null);
   const [pendingVerify,setPendingVerify]=useState(null);
   const [screen,setScreen]=useState("waits");
+  const [showProfile,setShowProfile]=useState(false);
   const [now,setNow]      =useState(new Date());
   const [restaurants,setRestaurants]=useState(RESTAURANTS);
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
@@ -1155,7 +1323,32 @@ export default function App() {
   async function handleLogout(){
     await signOut(auth);
     setUser(null);store.del("delivr_user");
-    setScreen("waits");
+    setScreen("waits");setShowProfile(false);
+  }
+
+  async function handleSaveProfile(updates){
+    const updated={...user,...updates};
+    setUser(updated);store.set("delivr_user",updated);
+    try{ await updateDoc(doc(db,"users",auth.currentUser.uid),{...updates}); }catch(e){}
+    if(auth.currentUser&&updates.name&&updates.name!==user.name){
+      try{ await updateProfile(auth.currentUser,{displayName:JSON.stringify(updated)}); }catch(e){}
+    }
+    // If area changed, geocode it and fetch area restaurants
+    if(updates.area&&updates.area!==user.area){
+      const coords=await geocodeBranch(null,null,updates.area+" UK");
+      if(coords){
+        lastFetchRef.current={lat:null,lng:null}; // force refetch
+        fetchNearbyRestaurants(coords.lat,coords.lng).then(places=>{
+          if(!places.length)return;
+          const augmented=RESTAURANTS.map(r=>{
+            const key=r.name.toLowerCase().replace(/\s+(braintree|restaurant|ltd).*/i,"").split(/[\s-]/)[0];
+            const match=places.find(p=>p.name.toLowerCase().includes(key)||key.includes(p.name.toLowerCase().split(" ")[0]));
+            return match?{...r,branchLat:match.branchLat,branchLng:match.branchLng}:r;
+          });
+          setRestaurants(augmented);
+        }).catch(()=>{});
+      }
+    }
   }
 
   async function handleArrived(restaurantOrId){
@@ -1256,21 +1449,38 @@ export default function App() {
     return <div style={ROOT}><style>{CSS}</style><LoginScreen onLogin={handleLogin} onRegistered={handleRegistered}/></div>;
   }
 
+  // Block app if GPS is denied or errored
+  if(gps.status==="denied"||gps.status==="error"){
+    return <div style={ROOT}><style>{CSS}</style><GPSGateScreen status={gps.status} onRetry={gps.retry}/></div>;
+  }
 
   return(
     <div>
       <style>{CSS}</style>
       <div style={ROOT}>
+        {/* Profile avatar button — fixed top right */}
+        {!showProfile&&(
+          <button onClick={()=>setShowProfile(true)}
+            style={{position:"fixed",top:14,right:14,zIndex:300,width:38,height:38,borderRadius:"50%",background:user.color,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px "+user.color+"55"}}>
+            <span style={{...B,fontSize:17,color:"#000"}}>{user.initial}</span>
+          </button>
+        )}
+
         <div style={{height:"calc(100vh - 56px)",overflowY:"auto"}}>
-          {screen==="waits"&&(
+          {showProfile?(
+            <ProfileScreen user={user} waitLog={waitLog} gps={gps}
+              onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}/>
+          ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={restaurants} waitLog={waitLog} activeWait={activeWait}
               communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError}
               onArrived={handleArrived} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
+          ):screen==="check"?(
+            <CheckScreen restaurants={restaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps}/>
+          ):(
+            <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"}/>
           )}
-          {screen==="check"&&<CheckScreen restaurants={restaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps}/>}
-          {screen==="chat"&&<ChatScreen user={user} onLogout={handleLogout}/>}
         </div>
-        <BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>
+        {!showProfile&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
       </div>
     </div>
   );
