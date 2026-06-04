@@ -173,8 +173,8 @@ async function fetchNearbyRestaurants(lat,lng) {
       headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.types"},
       body:JSON.stringify({
         includedTypes:["restaurant","fast_food_restaurant","cafe","bakery","meal_takeaway","sandwich_shop","pizza_restaurant","coffee_shop","supermarket","convenience_store","grocery_store"],
-        maxResultCount:20,
-        locationRestriction:{circle:{center:{latitude:lat,longitude:lng},radius:1000}},
+        maxResultCount:50,
+        locationRestriction:{circle:{center:{latitude:lat,longitude:lng},radius:5000}},
       }),
     });
     const g=await res.json();
@@ -208,6 +208,30 @@ async function geocodeBranch(lat,lng,name) {
     const loc=g.places[0].location;
     return{lat:loc.latitude,lng:loc.longitude};
   }catch(e){return null;}
+}
+
+// Search restaurants by name — used in the picker so drivers can find any restaurant anywhere
+async function searchRestaurants(query,lat,lng) {
+  if(!query||query.length<2)return[];
+  try{
+    const body={textQuery:query,maxResultCount:10,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.formattedAddress,places.types"};
+    if(lat!=null)body.locationBias={circle:{center:{latitude:lat,longitude:lng},radius:50000}};
+    const res=await fetch("https://places.googleapis.com/v1/places:searchText",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.formattedAddress"},
+      body:JSON.stringify(body),
+    });
+    const g=await res.json();
+    if(!g.places?.length)return[];
+    return g.places.map(p=>({
+      id:p.id,
+      name:p.displayName?.text||"Unknown",
+      address:p.formattedAddress||"",
+      branchLat:p.location.latitude,
+      branchLng:p.location.longitude,
+      baseWait:10,rel:0.70,label:"",
+    }));
+  }catch(e){return[];}
 }
 
 function getPersonalWait(restId,now,waitLog) {
@@ -458,6 +482,10 @@ function VerifyCodeScreen({email,onVerified,onBack}) {
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
 function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,onArrived,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
+  const [searchQuery,setSearchQuery]=useState("");
+  const [searchResults,setSearchResults]=useState([]);
+  const [searching,setSearching]=useState(false);
+  const searchTimer=useRef(null);
   const per=timePeriod(now.getHours());
   const meta=communityPatterns._meta;
 
@@ -479,35 +507,58 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
     return(b.baseWait/b.rel)-(a.baseWait/a.rel);
   });
 
+  function handleSearchInput(q){
+    setSearchQuery(q);
+    clearTimeout(searchTimer.current);
+    if(!q.trim()){setSearchResults([]);return;}
+    setSearching(true);
+    searchTimer.current=setTimeout(async()=>{
+      const results=await searchRestaurants(q,gps.lat,gps.lng);
+      setSearchResults(results);
+      setSearching(false);
+    },400);
+  }
+
+  function closePicker(){setPicking(false);setSearchQuery("");setSearchResults([]);}
+
   if(picking){
+    const displayList=searchQuery.trim().length>=2?searchResults:restaurants.slice().sort((a,b)=>{const da=distMap[a.id],db=distMap[b.id];if(da!=null&&db!=null)return da-db;if(da!=null)return -1;if(db!=null)return 1;return 0;});
     return(
       <div style={{padding:"20px 16px 100px"}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-          <button onClick={()=>setPicking(false)} style={{background:"none",border:"none",color:"#ff6600",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
-          <div>
-            <div style={{...B,fontSize:28,color:"#ff6600",letterSpacing:2}}>ARRIVED AT</div>
-            <div style={{fontSize:9,color:"#444",letterSpacing:1}}>{Object.keys(distMap).length>0?"SORTED BY DISTANCE":"WHICH RESTAURANT?"}</div>
-          </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <button onClick={closePicker} style={{background:"none",border:"none",color:"#ff6600",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
+          <div style={{...B,fontSize:28,color:"#ff6600",letterSpacing:2}}>ARRIVED AT</div>
         </div>
+        <div style={{position:"relative",marginBottom:14}}>
+          <input value={searchQuery} onChange={e=>handleSearchInput(e.target.value)}
+            placeholder="Type restaurant name..." autoFocus
+            style={{width:"100%",background:"#0d0d0d",border:"1px solid #ff660066",borderRadius:12,padding:"14px 18px",color:"#f0f0f0",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#ff6600"} onBlur={e=>e.target.style.borderColor="#ff660066"}/>
+          {searching&&<div style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",fontSize:10,color:"#ff6600",...B,letterSpacing:1}}>SEARCHING...</div>}
+        </div>
+        {searchQuery.length>=2&&searchResults.length===0&&!searching&&(
+          <div style={{fontSize:11,color:"#444",textAlign:"center",padding:"20px 0",...M}}>No results found — try a different name</div>
+        )}
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {restaurants.slice().sort((a,b)=>{const da=distMap[a.id],db=distMap[b.id];if(da!=null&&db!=null)return da-db;if(da!=null)return -1;if(db!=null)return 1;return 0;}).map(r=>{
-            const personal=getPersonalWait(r.id,now,waitLog);
-            const community=getCommunityWait(r.id,now,communityPatterns);
+          {displayList.map(r=>{
             const d=distMap[r.id];
             const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
+            const personal=getPersonalWait(r.id,now,waitLog);
+            const community=getCommunityWait(r.id,now,communityPatterns);
             const best=personal?.hasEnough?personal.avg:(community?.avg??null);
             const isChecking=checkingId===r.id;
             const hasError=arrivalError?.restaurantId===r.id;
             return(
-              <button key={r.id} onClick={async()=>{const ok=await onArrived(r.id);if(ok)setPicking(false);}} disabled={isChecking} style={{background:"#0d0d0d",border:"1px solid "+(hasError?"#ff323244":"#1e1e1e"),borderRadius:12,padding:"14px 16px",cursor:isChecking?"default":"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
-                <div>
-                  <div style={{...B,fontSize:20,letterSpacing:1,color:"#f0f0f0"}}>{r.name}</div>
-                  <div style={{fontSize:10,color:"#555",marginTop:2}}>
+              <button key={r.id} onClick={async()=>{const ok=await onArrived(r);if(ok)closePicker();}} disabled={isChecking}
+                style={{background:"#0d0d0d",border:"1px solid "+(hasError?"#ff323244":"#1e1e1e"),borderRadius:12,padding:"14px 16px",cursor:isChecking?"default":"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{...B,fontSize:18,letterSpacing:1,color:"#f0f0f0"}}>{r.name}</div>
+                  <div style={{fontSize:10,color:"#555",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
                     {dStr&&<span style={{color:"#ff6600"}}>{dStr+" · "}</span>}
-                    {best!=null?<span style={{color:"#00e87a"}}>{"~"+best+"m"}</span>:("est: "+r.baseWait+"m")}
+                    {r.address||( best!=null?<span style={{color:"#00e87a"}}>{"~"+best+"m wait"}</span>:("est. "+r.baseWait+"m"))}
                   </div>
                 </div>
-                <span style={{...B,fontSize:isChecking||hasError?10:26,color:hasError?"#ff3232":isChecking?"#555":"#ff6600",letterSpacing:1}}>
+                <span style={{...B,fontSize:isChecking||hasError?10:26,color:hasError?"#ff3232":isChecking?"#555":"#ff6600",letterSpacing:1,flexShrink:0,marginLeft:10}}>
                   {isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"→"}
                 </span>
               </button>
@@ -893,12 +944,19 @@ export default function App() {
     setScreen("waits");
   }
 
-  async function handleArrived(restaurantId){
-    const restaurant=restaurants.find(r=>r.id===restaurantId);
+  async function handleArrived(restaurantOrId){
+    // Accept either a full restaurant object or just an ID
+    const restaurant=typeof restaurantOrId==="string"
+      ?restaurants.find(r=>r.id===restaurantOrId)
+      :restaurantOrId;
     if(!restaurant)return false;
+    const restaurantId=restaurant.id;
+    // Register in restaurants state if not already there
+    if(!restaurants.find(r=>r.id===restaurantId)){
+      setRestaurants(prev=>[restaurant,...prev]);
+    }
     if(gps.status==="active"&&gps.lat!=null){
       setCheckingId(restaurantId);setArrivalError(null);
-      // Use known coordinates if available, otherwise live geocode
       let branch=restaurant.branchLat!=null?{lat:restaurant.branchLat,lng:restaurant.branchLng}:null;
       if(!branch)branch=await geocodeBranch(gps.lat,gps.lng,restaurant.name);
       if(branch){
