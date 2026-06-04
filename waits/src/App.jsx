@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import {
@@ -26,6 +26,9 @@ document.head.appendChild(FL);
 const MAPBOX_TOKEN = "pk.eyJ1Ijoia2luZ29mbWFkbmVzcyIsImEiOiJjbXAzZTFoNDYwbGNtMnBzODZuYnNiY3FvIn0.yVEwZEGgiP8gqqOIycdJWA";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const GOOGLE_MAPS_KEY = "AIzaSyARDTROkeGrhMw_ZKsYw8SuLnw3skQf2yk";
+const ADSENSE_CLIENT = "ca-pub-3527173535512943";
+const ADSENSE_SLOT   = "";  // ← paste your AdSense ad-unit slot ID here once AdSense is approved
+const SUB_PRICE = "£4.99";
 const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 3 };
 
 const RESTAURANTS = [
@@ -288,6 +291,90 @@ function PasswordInput({value,onChange,placeholder}) {
   );
 }
 
+// ── AD BANNER ─────────────────────────────────────────────────────────────────
+// Shows a real AdSense unit once ADSENSE_SLOT is set & approved; otherwise a placeholder.
+// Hidden entirely for premium subscribers.
+function AdBanner({premium}) {
+  const ref=useRef(null);
+  const pushed=useRef(false);
+  useEffect(()=>{
+    if(premium||!ADSENSE_SLOT||pushed.current)return;
+    try{(window.adsbygoogle=window.adsbygoogle||[]).push({});pushed.current=true;}catch(e){}
+  },[premium]);
+  if(premium)return null;
+  // Placeholder shown until AdSense slot is configured/approved
+  if(!ADSENSE_SLOT){
+    return(
+      <div style={{background:"#0d0d0d",border:"1px dashed #2a2a2a",borderRadius:12,padding:"18px 16px",textAlign:"center",marginBottom:8}}>
+        <div style={{fontSize:8,color:"#333",letterSpacing:2,marginBottom:4}}>ADVERTISEMENT</div>
+        <div style={{...B,fontSize:15,color:"#444",letterSpacing:1}}>YOUR AD HERE</div>
+        <div style={{fontSize:9,color:"#2a2a2a",marginTop:4}}>Go premium to remove ads · {SUB_PRICE}/mo</div>
+      </div>
+    );
+  }
+  return(
+    <div style={{marginBottom:8}}>
+      <ins ref={ref} className="adsbygoogle" style={{display:"block"}}
+        data-ad-client={ADSENSE_CLIENT} data-ad-slot={ADSENSE_SLOT}
+        data-ad-format="auto" data-full-width-responsive="true"/>
+    </div>
+  );
+}
+
+// ── UPGRADE / SUBSCRIPTION ────────────────────────────────────────────────────
+function UpgradeScreen({premium,onBack,onSubscribe,onCancel}) {
+  const perks=[
+    {icon:"🚫",title:"No ads",desc:"Clean, distraction-free experience"},
+    {icon:"📊",title:"Full community data",desc:"See every driver's logs & full history"},
+    {icon:"💬",title:"All area chats",desc:"Access driver chat in any town, not just yours"},
+    {icon:"📁",title:"Export your logs",desc:"Download your wait history as CSV"},
+  ];
+  return(
+    <div style={{padding:"20px 16px 120px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
+        <button onClick={onBack} style={{background:"none",border:"none",color:"#ff6600",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
+        <div style={{...B,fontSize:28,color:"#ff6600",letterSpacing:2}}>DELIVR PREMIUM</div>
+      </div>
+
+      <div style={{textAlign:"center",marginBottom:28}}>
+        <div style={{fontSize:52,marginBottom:8}}>⭐</div>
+        <div style={{...B,fontSize:48,color:"#ff6600",letterSpacing:1,lineHeight:1}}>{SUB_PRICE}<span style={{fontSize:18,color:"#555"}}>/month</span></div>
+        <div style={{fontSize:11,...M,color:"#555",marginTop:6}}>Cancel anytime</div>
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:28}}>
+        {perks.map((p,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:14,background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:12,padding:"14px 16px"}}>
+            <div style={{fontSize:26}}>{p.icon}</div>
+            <div>
+              <div style={{...B,fontSize:17,color:"#f0f0f0",letterSpacing:1}}>{p.title}</div>
+              <div style={{fontSize:10,...M,color:"#555",marginTop:2}}>{p.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {premium?(
+        <>
+          <div style={{background:"linear-gradient(135deg,#001a0d,#000d06)",border:"1px solid #00e87a44",borderRadius:14,padding:"18px",textAlign:"center",marginBottom:16}}>
+            <div style={{...B,fontSize:22,color:"#00e87a",letterSpacing:2}}>✓ YOU'RE PREMIUM</div>
+            <div style={{fontSize:10,...M,color:"#00a055",marginTop:4}}>Thanks for supporting Delivr</div>
+          </div>
+          <button onClick={onCancel}
+            style={{width:"100%",minHeight:48,background:"none",border:"1px solid #2a2a2a",borderRadius:12,...B,fontSize:16,letterSpacing:2,color:"#444",cursor:"pointer"}}>
+            CANCEL SUBSCRIPTION
+          </button>
+        </>
+      ):(
+        <button onClick={onSubscribe}
+          style={{width:"100%",minHeight:64,background:"#ff6600",border:"none",borderRadius:14,...B,fontSize:24,letterSpacing:3,color:"#000",cursor:"pointer",boxShadow:"0 0 40px #ff660040"}}>
+          UPGRADE NOW →
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── GPS GATE ──────────────────────────────────────────────────────────────────
 function GPSGateScreen({status,onRetry}) {
   const acquiring=status==="pending"||status==="acquiring";
@@ -322,7 +409,7 @@ function GPSGateScreen({status,onRetry}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,onBack,onLogout,onSave}) {
+function ProfileScreen({user,waitLog,gps,premium,onBack,onLogout,onSave,onUpgrade}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -382,11 +469,21 @@ function ProfileScreen({user,waitLog,gps,onBack,onLogout,onSave}) {
         <div>
           <div style={{...B,fontSize:22,color:"#f0f0f0",letterSpacing:1}}>{user.name}</div>
           <div style={{fontSize:10,...M,color:"#555",marginTop:2}}>{user.email||"—"}</div>
-          <div style={{marginTop:6,background:"#1a1a00",border:"1px solid #ffd60044",borderRadius:5,padding:"3px 10px",display:"inline-block"}}>
-            <span style={{...B,fontSize:11,color:"#ffd600",letterSpacing:2}}>FREE PLAN</span>
+          <div style={{marginTop:6,background:premium?"#001a0d":"#1a1a00",border:"1px solid "+(premium?"#00e87a44":"#ffd60044"),borderRadius:5,padding:"3px 10px",display:"inline-block"}}>
+            <span style={{...B,fontSize:11,color:premium?"#00e87a":"#ffd600",letterSpacing:2}}>{premium?"⭐ PREMIUM":"FREE PLAN"}</span>
           </div>
         </div>
       </div>
+
+      {/* Subscription card */}
+      <button onClick={onUpgrade}
+        style={{width:"100%",background:premium?"linear-gradient(135deg,#001a0d,#000d06)":"linear-gradient(135deg,#1a0a00,#100700)",border:"1px solid "+(premium?"#00e87a44":"#ff660066"),borderRadius:14,padding:"16px",marginBottom:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+        <div>
+          <div style={{...B,fontSize:18,color:premium?"#00e87a":"#ff6600",letterSpacing:1}}>{premium?"PREMIUM ACTIVE":"GO PREMIUM"}</div>
+          <div style={{fontSize:10,...M,color:"#555",marginTop:3}}>{premium?"Manage your subscription":"No ads + full data · "+SUB_PRICE+"/mo"}</div>
+        </div>
+        <span style={{...B,fontSize:24,color:premium?"#00e87a":"#ff6600"}}>›</span>
+      </button>
 
       {/* Stats */}
       <div style={{display:"flex",gap:8,marginBottom:20}}>
@@ -744,7 +841,7 @@ function RestaurantDetail({r,now,waitLog,communityPatterns,distMap,checkingId,ar
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,onArrived,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,premium,onArrived,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -885,8 +982,10 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
         </button>
       )}
 
+      {!premium&&<AdBanner premium={premium}/>}
+
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {sorted.map(r=>{
+        {sorted.map((r,idx)=>{
           const personal=getPersonalWait(r.id,now,waitLog);
           const community=getCommunityWait(r.id,now,communityPatterns);
           const usePersonal=personal?.hasEnough;
@@ -903,7 +1002,9 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
           const hasError=arrivalError?.restaurantId===r.id;
 
           return(
-            <div key={r.id} onClick={()=>setSelectedRestaurant(r)} style={{background:isActive?"#150900":"#0d0d0d",borderRadius:12,border:"1px solid "+(isActive?"#ff6600":riskColor+"33"),padding:"14px 16px",cursor:"pointer"}}>
+            <Fragment key={r.id}>
+            {!premium&&idx===6&&<AdBanner premium={premium}/>}
+            <div onClick={()=>setSelectedRestaurant(r)} style={{background:isActive?"#150900":"#0d0d0d",borderRadius:12,border:"1px solid "+(isActive?"#ff6600":riskColor+"33"),padding:"14px 16px",cursor:"pointer"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{...B,fontSize:19,letterSpacing:1,color:"#f0f0f0"}}>
@@ -964,6 +1065,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
                 {isActive&&<span style={{marginLeft:"auto",fontSize:10,...B,color:"#ff6600",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>● TIMING NOW</span>}
               </div>
             </div>
+            </Fragment>
           );
         })}
       </div>
@@ -992,38 +1094,40 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
 
 // ── CHAT SCREEN (Firestore real-time) ─────────────────────────────────────────
 function ChatScreen({user,onLogout,area}) {
-  const chatRoom="chat_"+(area||"general").toLowerCase().replace(/\s+/g,"_");
+  const room=(area||"general").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")||"general";
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [ready,setReady]=useState(false);
+  const [sendError,setSendError]=useState(false);
   const bottomRef=useRef(null);
   const inputRef=useRef(null);
 
-  // Live listener — fires instantly for every connected device
+  // Live listener — re-subscribes whenever the room (area) changes
   useEffect(()=>{
-    const q=query(collection(db,chatRoom),orderBy("ts","asc"),limitToLast(100));
+    setReady(false);setMessages([]);
+    const q=query(collection(db,"chats",room,"messages"),orderBy("ts","asc"),limitToLast(100));
     const unsub=onSnapshot(q,snap=>{
       setMessages(snap.docs.map(d=>({id:d.id,...d.data()})));
       setReady(true);
-    },()=>setReady(true));
+    },err=>{console.error("chat listen error:",err);setReady(true);});
     return unsub;
-  },[]);
+  },[room]);
 
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages.length]);
 
   async function send(){
     const text=input.trim();
     if(!text)return;
-    setInput("");
+    setInput("");setSendError(false);
     try{
-      await addDoc(collection(db,chatRoom),{
+      await addDoc(collection(db,"chats",room,"messages"),{
         user:  user.name,
         color: user.color,
         initial:user.initial,
         text,
         ts: new Date().toISOString(),
       });
-    }catch(e){}
+    }catch(e){console.error("chat send error:",e);setSendError(true);setInput(text);}
     inputRef.current?.focus();
   }
 
@@ -1091,6 +1195,7 @@ function ChatScreen({user,onLogout,area}) {
         <div ref={bottomRef}/>
       </div>
 
+      {sendError&&<div style={{padding:"8px 16px",background:"#1a0505",borderTop:"1px solid #ff323233",fontSize:11,...M,color:"#ff3232",textAlign:"center"}}>Message failed to send — check connection</div>}
       <div style={{padding:"10px 12px 14px",borderTop:"1px solid #111",background:"#080808",flexShrink:0,display:"flex",gap:10,alignItems:"center"}}>
         <div style={{flex:1,background:"#111",border:"1px solid #222",borderRadius:24,padding:"11px 18px",display:"flex",alignItems:"center"}}>
           <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKey}
@@ -1237,6 +1342,8 @@ export default function App() {
   const [pendingVerify,setPendingVerify]=useState(null);
   const [screen,setScreen]=useState("waits");
   const [showProfile,setShowProfile]=useState(false);
+  const [showUpgrade,setShowUpgrade]=useState(false);
+  const premium=!!user?.premium;
   const [now,setNow]      =useState(new Date());
   const [restaurants,setRestaurants]=useState(RESTAURANTS);
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
@@ -1324,6 +1431,25 @@ export default function App() {
     await signOut(auth);
     setUser(null);store.del("delivr_user");
     setScreen("waits");setShowProfile(false);
+  }
+
+  async function setPremium(val){
+    const updated={...user,premium:val};
+    setUser(updated);store.set("delivr_user",updated);
+    try{ await updateDoc(doc(db,"users",auth.currentUser.uid),{premium:val}); }catch(e){}
+    try{ await updateProfile(auth.currentUser,{displayName:JSON.stringify(updated)}); }catch(e){}
+  }
+
+  async function handleSubscribe(){
+    // TODO: wire to Stripe Checkout once Stripe keys are added.
+    // For now, flip premium on locally so the UI/perks work end-to-end.
+    await setPremium(true);
+    setShowUpgrade(false);
+  }
+
+  async function handleCancelSub(){
+    await setPremium(false);
+    setShowUpgrade(false);
   }
 
   async function handleSaveProfile(updates){
@@ -1459,7 +1585,7 @@ export default function App() {
       <style>{CSS}</style>
       <div style={ROOT}>
         {/* Profile avatar button — fixed top right */}
-        {!showProfile&&(
+        {!showProfile&&!showUpgrade&&(
           <button onClick={()=>setShowProfile(true)}
             style={{position:"fixed",top:14,right:14,zIndex:300,width:38,height:38,borderRadius:"50%",background:user.color,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px "+user.color+"55"}}>
             <span style={{...B,fontSize:17,color:"#000"}}>{user.initial}</span>
@@ -1467,12 +1593,15 @@ export default function App() {
         )}
 
         <div style={{height:"calc(100vh - 56px)",overflowY:"auto"}}>
-          {showProfile?(
-            <ProfileScreen user={user} waitLog={waitLog} gps={gps}
-              onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}/>
+          {showUpgrade?(
+            <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
+          ):showProfile?(
+            <ProfileScreen user={user} waitLog={waitLog} gps={gps} premium={premium}
+              onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
+              onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={restaurants} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError}
+              communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError} premium={premium}
               onArrived={handleArrived} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
             <CheckScreen restaurants={restaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps}/>
@@ -1480,7 +1609,7 @@ export default function App() {
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"}/>
           )}
         </div>
-        {!showProfile&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
+        {!showProfile&&!showUpgrade&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
       </div>
     </div>
   );
