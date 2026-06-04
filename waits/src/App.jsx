@@ -150,12 +150,18 @@ function useGPS() {
   const wid=useRef(null);
   const start=useCallback(()=>{
     if(!("geolocation" in navigator)){setG(x=>({...x,status:"error"}));return;}
-    setG(x=>({...x,status:"acquiring"}));
+    setG(x=>({...x,status:x.status==="active"?"active":"acquiring"}));
     if(wid.current!=null)navigator.geolocation.clearWatch(wid.current);
     wid.current=navigator.geolocation.watchPosition(
       p=>setG(x=>({...x,lat:p.coords.latitude,lng:p.coords.longitude,accuracy:Math.round(p.coords.accuracy),speedKmh:p.coords.speed!=null?Math.round(p.coords.speed*3.6):null,status:"active",denied:false})),
-      e=>setG(x=>({...x,status:e.code===1?"denied":"error",denied:e.code===1})),
-      {enableHighAccuracy:true,timeout:10000,maximumAge:5000}
+      e=>setG(x=>{
+        // Only permission denial (code 1) should block the app.
+        if(e.code===1)return{...x,status:"denied",denied:true};
+        // Timeout (3) / position-unavailable (2): keep any fix we already have,
+        // otherwise stay "acquiring" — never hard-block on these.
+        return{...x,status:x.lat!=null?"active":"acquiring",denied:false};
+      }),
+      {enableHighAccuracy:true,timeout:30000,maximumAge:15000}
     );
   },[]);
   useEffect(()=>{start();return ()=>{if(wid.current!=null)navigator.geolocation.clearWatch(wid.current);};},[start]);
@@ -1575,8 +1581,9 @@ export default function App() {
     return <div style={ROOT}><style>{CSS}</style><LoginScreen onLogin={handleLogin} onRegistered={handleRegistered}/></div>;
   }
 
-  // Block app if GPS is denied or errored
-  if(gps.status==="denied"||gps.status==="error"){
+  // Block app only if the user actually denied location permission.
+  // Slow fixes / timeouts no longer trap the user on this screen.
+  if(gps.status==="denied"){
     return <div style={ROOT}><style>{CSS}</style><GPSGateScreen status={gps.status} onRetry={gps.retry}/></div>;
   }
 
