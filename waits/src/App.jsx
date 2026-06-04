@@ -1399,6 +1399,24 @@ export default function App() {
 
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),15000);return ()=>clearInterval(id);},[]);
 
+  // After returning from Stripe Checkout, verify payment and flip premium on
+  useEffect(()=>{
+    if(!user)return;
+    const params=new URLSearchParams(window.location.search);
+    if(params.get("stripe")!=="success")return;
+    const sid=params.get("session_id");
+    // Clean the URL so it doesn't re-trigger on refresh
+    window.history.replaceState({},"",window.location.pathname);
+    if(!sid)return;
+    (async()=>{
+      try{
+        const r=await fetch(`${API_URL}/stripe/verify-session?session_id=${encodeURIComponent(sid)}`);
+        const d=await r.json();
+        if(d.paid){ await setPremium(true,d.subscriptionId); setShowUpgrade(false); setShowProfile(true); }
+      }catch(e){}
+    })();
+  },[user]);
+
   useEffect(()=>{
     if(gps.status!=="active"||gps.lat==null)return;
     const last=lastFetchRef.current;
@@ -1439,21 +1457,34 @@ export default function App() {
     setScreen("waits");setShowProfile(false);
   }
 
-  async function setPremium(val){
-    const updated={...user,premium:val};
+  async function setPremium(val,subscriptionId){
+    const updated={...user,premium:val,subscriptionId:val?(subscriptionId??user?.subscriptionId??null):null};
     setUser(updated);store.set("delivr_user",updated);
-    try{ await updateDoc(doc(db,"users",auth.currentUser.uid),{premium:val}); }catch(e){}
+    try{ await updateDoc(doc(db,"users",auth.currentUser.uid),{premium:val,subscriptionId:updated.subscriptionId}); }catch(e){}
     try{ await updateProfile(auth.currentUser,{displayName:JSON.stringify(updated)}); }catch(e){}
   }
 
   async function handleSubscribe(){
-    // TODO: wire to Stripe Checkout once Stripe keys are added.
-    // For now, flip premium on locally so the UI/perks work end-to-end.
-    await setPremium(true);
-    setShowUpgrade(false);
+    try{
+      const r=await fetch(`${API_URL}/stripe/create-checkout-session`,{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({email:user?.email||""}),
+      });
+      const d=await r.json();
+      if(d.url){ window.location.href=d.url; }      // redirect to Stripe hosted checkout
+      else { alert(d.error||"Could not start checkout"); }
+    }catch(e){ alert("Could not reach payment server"); }
   }
 
   async function handleCancelSub(){
+    if(user?.subscriptionId){
+      try{
+        await fetch(`${API_URL}/stripe/cancel`,{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({subscriptionId:user.subscriptionId}),
+        });
+      }catch(e){}
+    }
     await setPremium(false);
     setShowUpgrade(false);
   }

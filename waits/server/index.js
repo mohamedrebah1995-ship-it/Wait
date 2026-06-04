@@ -3,6 +3,7 @@ import { WebSocketServer } from 'ws';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cors from 'cors';
+import Stripe from 'stripe';
 import { createServer } from 'http';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -15,6 +16,10 @@ const PROD       = process.env.NODE_ENV === 'production';
 const DB_PATH    = process.env.DB_PATH || './delivr-db.json';
 const BREVO_KEY  = process.env.BREVO_KEY  || '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';
 const BREVO_FROM = process.env.BREVO_FROM || 'mohamedrebah1995@gmail.com';
+const STRIPE_SECRET = process.env.STRIPE_SECRET || '';
+const STRIPE_PRICE  = process.env.STRIPE_PRICE  || '';   // price_... for £4.99/mo
+const APP_URL       = process.env.APP_URL       || 'https://drivers-eyes.web.app';
+const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 function loadDB() {
@@ -166,6 +171,57 @@ app.post('/auth/verify-code', (req, res) => {
   entry.used = true;
   saveDB();
   res.json({ ok: true });
+});
+
+// ── Stripe subscription ─────────────────────────────────────────────────────
+// Create a Checkout Session and return its URL
+app.post('/stripe/create-checkout-session', async (req, res) => {
+  if (!stripe || !STRIPE_PRICE) return res.status(500).json({ error: 'Payments not configured' });
+  const { email } = req.body || {};
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ price: STRIPE_PRICE, quantity: 1 }],
+      customer_email: email || undefined,
+      client_reference_id: email || undefined,
+      success_url: `${APP_URL}/?stripe=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:  `${APP_URL}/?stripe=cancel`,
+      allow_promotion_codes: true,
+    });
+    res.json({ url: session.url });
+  } catch (e) {
+    console.error('Stripe session error:', e.message);
+    res.status(500).json({ error: 'Could not start checkout' });
+  }
+});
+
+// Verify a completed session — frontend calls this on return from Stripe
+app.get('/stripe/verify-session', async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Payments not configured' });
+  const { session_id } = req.query || {};
+  if (!session_id) return res.status(400).json({ error: 'Missing session_id' });
+  try {
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+    const paid = session.payment_status === 'paid' || session.status === 'complete';
+    res.json({ paid, subscriptionId: session.subscription || null, email: session.customer_email || null });
+  } catch (e) {
+    console.error('Stripe verify error:', e.message);
+    res.status(500).json({ error: 'Could not verify payment' });
+  }
+});
+
+// Cancel a subscription (at period end)
+app.post('/stripe/cancel', async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Payments not configured' });
+  const { subscriptionId } = req.body || {};
+  if (!subscriptionId) return res.status(400).json({ error: 'Missing subscriptionId' });
+  try {
+    await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Stripe cancel error:', e.message);
+    res.status(500).json({ error: 'Could not cancel subscription' });
+  }
 });
 
 // Wait log submission

@@ -19,6 +19,7 @@
     "firebase": "^12.14.0",
     "jsonwebtoken": "^9.0.2",
     "mapbox-gl": "^3.24.0",
+    "stripe": "^18.5.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "ws": "^8.18.2"
