@@ -164,18 +164,31 @@ function distMeters(lat1,lng1,lat2,lng2) {
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-async function findNearbyBranches(lat,lng) {
-  if(!MAPBOX_TOKEN||lat==null||lng==null)return[];
-  const results=await Promise.all(RESTAURANTS.map(async r=>{
-    try{
-      const res=await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(r.name)}.json?proximity=${lng},${lat}&types=poi&limit=1&access_token=${MAPBOX_TOKEN}`);
-      const g=await res.json();
-      if(!g.features?.length)return null;
-      const c=g.features[0].center;
-      return{id:r.id,name:r.name,branchLat:c[1],branchLng:c[0]};
-    }catch(e){return null;}
-  }));
-  return results.filter(Boolean);
+// Fetch real nearby restaurants from Google Places based on driver's GPS position
+async function fetchNearbyRestaurants(lat,lng) {
+  if(!GOOGLE_MAPS_KEY||lat==null||lng==null)return[];
+  try{
+    const res=await fetch("https://places.googleapis.com/v1/places:searchNearby",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.types"},
+      body:JSON.stringify({
+        includedTypes:["restaurant","fast_food_restaurant","cafe","bakery","meal_takeaway","sandwich_shop","pizza_restaurant","coffee_shop","supermarket","convenience_store","grocery_store"],
+        maxResultCount:20,
+        locationRestriction:{circle:{center:{latitude:lat,longitude:lng},radius:1000}},
+      }),
+    });
+    const g=await res.json();
+    if(!g.places?.length)return[];
+    return g.places.map(p=>{
+      const types=p.types||[];
+      let baseWait=10,rel=0.70,label="Variable";
+      if(types.some(t=>["fast_food_restaurant","hamburger_restaurant","sandwich_shop","meal_takeaway"].includes(t))){baseWait=5;rel=0.80;label="Usually fast";}
+      else if(types.some(t=>["cafe","coffee_shop","bakery"].includes(t))){baseWait=4;rel=0.85;label="Quick grab";}
+      else if(types.includes("pizza_restaurant")){baseWait=10;rel=0.68;label="Variable";}
+      else if(types.some(t=>["supermarket","convenience_store","grocery_store"].includes(t))){baseWait=5;rel=0.82;label="Usually quick";}
+      return{id:p.id,name:p.displayName?.text||"Unknown",branchLat:p.location.latitude,branchLng:p.location.longitude,baseWait,rel,label};
+    });
+  }catch(e){return[];}
 }
 
 // Single-restaurant live geocode using Google Places API (more reliable than Mapbox for chains)
@@ -443,17 +456,21 @@ function VerifyCodeScreen({email,onVerified,onBack}) {
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,checkingId,arrivalError,onArrived,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,onArrived,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const per=timePeriod(now.getHours());
   const meta=communityPatterns._meta;
 
   const distMap={};
-  if(gps.status==="active"&&nearby?.length){
-    nearby.forEach(n=>{const d=distMeters(gps.lat,gps.lng,n.branchLat,n.branchLng);if(d!=null)distMap[n.id]=d;});
+  if(gps.status==="active"&&restaurants?.length){
+    restaurants.forEach(r=>{
+      const lat=r.branchLat??r.lat,lng=r.branchLng??r.lng;
+      const d=distMeters(gps.lat,gps.lng,lat,lng);
+      if(d!=null)distMap[r.id]=d;
+    });
   }
 
-  const sorted=RESTAURANTS.slice().sort((a,b)=>{
+  const sorted=restaurants.slice().sort((a,b)=>{
     if(activeWait?.restaurantId===a.id)return -1;
     if(activeWait?.restaurantId===b.id)return 1;
     const da=distMap[a.id],db=distMap[b.id];
@@ -473,7 +490,7 @@ function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,checki
           </div>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {RESTAURANTS.slice().sort((a,b)=>{const da=distMap[a.id],db=distMap[b.id];if(da!=null&&db!=null)return da-db;if(da!=null)return -1;if(db!=null)return 1;return 0;}).map(r=>{
+          {restaurants.slice().sort((a,b)=>{const da=distMap[a.id],db=distMap[b.id];if(da!=null&&db!=null)return da-db;if(da!=null)return -1;if(db!=null)return 1;return 0;}).map(r=>{
             const personal=getPersonalWait(r.id,now,waitLog);
             const community=getCommunityWait(r.id,now,communityPatterns);
             const d=distMap[r.id];
@@ -531,7 +548,7 @@ function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,checki
         <div style={{background:"linear-gradient(135deg,#1a0a00,#100700)",border:"2px solid #ff6600",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #ff660018"}}>
           <div style={{fontSize:9,color:"#ff6600",letterSpacing:2,marginBottom:6}}>⏱ WAITING AT</div>
           <div style={{...B,fontSize:28,color:"#f0f0f0",letterSpacing:1,marginBottom:14}}>
-            {(RESTAURANTS.find(r=>r.id===activeWait.restaurantId)||{name:"Unknown"}).name}
+            {(restaurants.find(r=>r.id===activeWait.restaurantId)||{name:"Unknown"}).name}
           </div>
           <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><LiveTimer startedAt={activeWait.startedAt}/></div>
           <div style={{display:"flex",gap:10}}>
@@ -633,7 +650,7 @@ function WaitsScreen({now,gps,nearby,waitLog,activeWait,communityPatterns,checki
         <div style={{marginTop:20}}>
           <div style={{...B,fontSize:16,color:"#2a2a2a",letterSpacing:2,marginBottom:8}}>RECENT WAIT LOGS</div>
           {waitLog.slice().reverse().slice(0,6).map(l=>{
-            const r=RESTAURANTS.find(x=>x.id===l.restaurantId);
+            const r=restaurants.find(x=>x.id===l.restaurantId);
             const c=l.waitMins>15?"#ff3232":l.waitMins>8?"#ffd600":"#00e87a";
             return(
               <div key={l.id} style={{background:"#0d0d0d",borderRadius:8,padding:"10px 14px",border:"1px solid #141414",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
@@ -796,7 +813,7 @@ export default function App() {
   const [pendingVerify,setPendingVerify]=useState(null);
   const [screen,setScreen]=useState("waits");
   const [now,setNow]      =useState(new Date());
-  const [nearby,setNearby]=useState(()=>store.get("delivr_nearby")||[]);
+  const [restaurants,setRestaurants]=useState(()=>store.get("delivr_nearby")||RESTAURANTS);
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
   const [activeWait,setActiveWait]=useState(()=>store.get("delivr_activewait")||null);
   const [communityPatterns,setCommunityPatterns]=useState({});
@@ -843,14 +860,16 @@ export default function App() {
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),15000);return ()=>clearInterval(id);},[]);
 
   useEffect(()=>{
-    if(gps.status!=="active"||gps.lat==null||!MAPBOX_TOKEN)return;
+    if(gps.status!=="active"||gps.lat==null)return;
     const last=lastFetchRef.current;
-    const far=last.lat==null||distMeters(last.lat,last.lng,gps.lat,gps.lng)>800;
-    if(nearby.length===0||far){
+    const far=last.lat==null||distMeters(last.lat,last.lng,gps.lat,gps.lng)>500;
+    if(far){
       lastFetchRef.current={lat:gps.lat,lng:gps.lng};
-      findNearbyBranches(gps.lat,gps.lng).then(res=>{setNearby(res);store.set("delivr_nearby",res);}).catch(()=>{});
+      fetchNearbyRestaurants(gps.lat,gps.lng).then(res=>{
+        if(res.length>0){setRestaurants(res);store.set("delivr_nearby",res);}
+      }).catch(()=>{});
     }
-  },[gps.status,gps.lat,gps.lng,nearby.length]);
+  },[gps.status,gps.lat,gps.lng]);
 
   function handleNav(s){if(s==="chat")setUnreadChat(false);setScreen(s);}
 
@@ -875,12 +894,13 @@ export default function App() {
   }
 
   async function handleArrived(restaurantId){
-    const restaurant=RESTAURANTS.find(r=>r.id===restaurantId);
+    const restaurant=restaurants.find(r=>r.id===restaurantId);
     if(!restaurant)return false;
-    // Live distance check — only runs when GPS is active
     if(gps.status==="active"&&gps.lat!=null){
       setCheckingId(restaurantId);setArrivalError(null);
-      const branch=await geocodeBranch(gps.lat,gps.lng,restaurant.name);
+      // Use known coordinates if available, otherwise live geocode
+      let branch=restaurant.branchLat!=null?{lat:restaurant.branchLat,lng:restaurant.branchLng}:null;
+      if(!branch)branch=await geocodeBranch(gps.lat,gps.lng,restaurant.name);
       if(branch){
         const dist=distMeters(gps.lat,gps.lng,branch.lat,branch.lng);
         if(dist!=null&&dist>50){
@@ -926,13 +946,13 @@ export default function App() {
 
   // Auto-trigger PICKED UP when driver moves >30m from restaurant and stays away 20s
   useEffect(()=>{
-    if(!activeWait||gps.status!=="active"||gps.lat==null||!nearby.length){
+    if(!activeWait||gps.status!=="active"||gps.lat==null||!restaurants.length){
       if(autoPickupTimerRef.current){clearTimeout(autoPickupTimerRef.current);autoPickupTimerRef.current=null;}
       return;
     }
-    const branch=nearby.find(n=>n.id===activeWait.restaurantId);
+    const branch=restaurants.find(n=>n.id===activeWait.restaurantId);
     if(!branch)return;
-    const dist=distMeters(gps.lat,gps.lng,branch.branchLat,branch.branchLng);
+    const dist=distMeters(gps.lat,gps.lng,branch.branchLat??branch.lat,branch.branchLng??branch.lng);
     if(dist==null)return;
     if(dist>30){
       if(!autoPickupTimerRef.current){
@@ -941,7 +961,7 @@ export default function App() {
     }else{
       if(autoPickupTimerRef.current){clearTimeout(autoPickupTimerRef.current);autoPickupTimerRef.current=null;}
     }
-  },[gps.lat,gps.lng,gps.status,activeWait?.restaurantId,nearby]);
+  },[gps.lat,gps.lng,gps.status,activeWait?.restaurantId,restaurants]);
 
   useEffect(()=>()=>{if(autoPickupTimerRef.current)clearTimeout(autoPickupTimerRef.current);},[]);
 
@@ -971,7 +991,7 @@ export default function App() {
       <div style={ROOT}>
         <div style={{height:"calc(100vh - 56px)",overflowY:"auto"}}>
           {screen==="waits"&&(
-            <WaitsScreen now={now} gps={gps} nearby={nearby} waitLog={waitLog} activeWait={activeWait}
+            <WaitsScreen now={now} gps={gps} restaurants={restaurants} waitLog={waitLog} activeWait={activeWait}
               communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError}
               onArrived={handleArrived} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           )}
