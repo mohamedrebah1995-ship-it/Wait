@@ -944,15 +944,37 @@ function ChatScreen({user,onLogout}) {
 }
 
 // ── CHECK SCREEN ─────────────────────────────────────────────────────────────
-function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now}) {
+function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gps}) {
   const [query,setQuery]=useState("");
   const [results,setResults]=useState([]);
+  const [searching,setSearching]=useState(false);
+  const searchTimer=useRef(null);
 
-  useEffect(()=>{
-    if(!query.trim()){setResults([]);return;}
-    const q=query.toLowerCase();
-    setResults(restaurants.filter(r=>r.name.toLowerCase().includes(q)));
-  },[query,restaurants]);
+  function handleInput(q){
+    setQuery(q);
+    clearTimeout(searchTimer.current);
+    if(!q.trim()){setResults([]);return;}
+    setSearching(true);
+    searchTimer.current=setTimeout(async()=>{
+      const places=await searchRestaurants(q,gps.lat,gps.lng);
+      // Augment each place with community/personal data by matching name to known restaurants
+      const augmented=places.map(p=>{
+        const pKey=p.name.toLowerCase().split(/[\s,'-]/)[0];
+        const known=restaurants.find(r=>r.name.toLowerCase().includes(pKey)||pKey.includes(r.name.toLowerCase().split(/[\s,'-]/)[0]));
+        const dist=gps.status==="active"&&gps.lat!=null?distMeters(gps.lat,gps.lng,p.branchLat,p.branchLng):null;
+        return{...p,knownId:known?.id||null,dist};
+      });
+      // Sort by distance
+      augmented.sort((a,b)=>{
+        if(a.dist!=null&&b.dist!=null)return a.dist-b.dist;
+        if(a.dist!=null)return -1;
+        if(b.dist!=null)return 1;
+        return 0;
+      });
+      setResults(augmented);
+      setSearching(false);
+    },400);
+  }
 
   function logsLastHour(restId){
     const cutoff=Date.now()-60*60*1000;
@@ -963,58 +985,55 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now}) 
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{marginBottom:16}}>
         <div style={{...B,fontSize:34,color:"#ff6600",letterSpacing:2}}>CHECK RESTAURANT</div>
-        <div style={{fontSize:10,color:"#444",letterSpacing:1,marginTop:2}}>SEARCH FOR LIVE WAIT DATA</div>
+        <div style={{fontSize:10,color:"#444",letterSpacing:1,marginTop:2}}>SEARCH ANY BRANCH · SORTED BY DISTANCE</div>
       </div>
-      <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Type restaurant name..." autoFocus
-        style={{width:"100%",background:"#0d0d0d",border:"1px solid #ff660066",borderRadius:12,padding:"14px 18px",color:"#f0f0f0",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box",marginBottom:14}}
-        onFocus={e=>e.target.style.borderColor="#ff6600"} onBlur={e=>e.target.style.borderColor="#ff660066"}/>
-      {query.trim()&&results.length===0&&(
-        <div style={{fontSize:11,color:"#444",textAlign:"center",padding:"40px 0",...M}}>No restaurants found</div>
+      <div style={{position:"relative",marginBottom:14}}>
+        <input value={query} onChange={e=>handleInput(e.target.value)} placeholder="e.g. KFC, Sainsbury's, McDonald's..." autoFocus
+          style={{width:"100%",background:"#0d0d0d",border:"1px solid #ff660066",borderRadius:12,padding:"14px 18px",color:"#f0f0f0",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+          onFocus={e=>e.target.style.borderColor="#ff6600"} onBlur={e=>e.target.style.borderColor="#ff660066"}/>
+        {searching&&<div style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",fontSize:10,color:"#ff6600",...B,letterSpacing:1}}>SEARCHING...</div>}
+      </div>
+      {query.trim()&&!searching&&results.length===0&&(
+        <div style={{fontSize:11,color:"#444",textAlign:"center",padding:"40px 0",...M}}>No results found</div>
       )}
       {!query.trim()&&(
-        <div style={{fontSize:11,color:"#333",textAlign:"center",padding:"40px 0",...M}}>Start typing a restaurant name above</div>
+        <div style={{fontSize:11,color:"#333",textAlign:"center",padding:"40px 0",...M}}>Type a restaurant or shop name to search all branches near you</div>
       )}
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        {results.map(r=>{
-          const personal=getPersonalWait(r.id,now,waitLog);
-          const community=getCommunityWait(r.id,now,communityPatterns);
-          const displayWait=personal?.hasEnough?personal.avg:community?.avg??Math.round(r.baseWait/r.rel);
-          const riskColor=displayWait>18?"#ff3232":displayWait>10?"#ffd600":"#00e87a";
-          const riskLabel=displayWait>18?"HIGH RISK":displayWait>10?"MODERATE":"LOW RISK";
-          const recentLogs=logsLastHour(r.id);
-          const myLogs=waitLog.filter(l=>l.restaurantId===r.id);
+        {results.map((r,i)=>{
+          const lid=r.knownId||r.id;
+          const personal=getPersonalWait(lid,now,waitLog);
+          const community=getCommunityWait(lid,now,communityPatterns);
+          const recentLogs=logsLastHour(lid);
+          const hasData=personal||community||recentLogs.length>0;
+          const dStr=r.dist!=null?(r.dist<1000?Math.round(r.dist)+"m":(r.dist/1000).toFixed(1)+"km"):null;
           return(
-            <div key={r.id} style={{background:"#0d0d0d",border:"1px solid "+riskColor+"33",borderRadius:12,padding:"16px"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-                <div>
-                  <div style={{...B,fontSize:19,color:"#f0f0f0",letterSpacing:1}}>{r.name}</div>
-                  <div style={{display:"flex",gap:6,marginTop:4,alignItems:"center"}}>
-                    <span style={{fontSize:9,background:riskColor+"22",color:riskColor,border:"1px solid "+riskColor+"44",borderRadius:5,padding:"2px 7px"}}>{riskLabel}</span>
-                    {myLogs.length>0&&<span style={{fontSize:9,color:"#444"}}>{myLogs.length} personal visit{myLogs.length!==1?"s":""}</span>}
+            <div key={r.id+i} style={{background:"#0d0d0d",border:"1px solid #1e1e1e",borderRadius:12,padding:"14px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{...B,fontSize:18,color:"#f0f0f0",letterSpacing:1}}>{r.name}</div>
+                  <div style={{fontSize:9,color:"#555",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}</div>
+                </div>
+                {dStr&&<div style={{...B,fontSize:16,color:"#ff6600",letterSpacing:1,flexShrink:0,marginLeft:10}}>{dStr}</div>}
+              </div>
+              {hasData?(
+                <div style={{display:"flex",gap:8}}>
+                  <div style={{flex:1,background:"#111",border:"1px solid "+(recentLogs.length>0?"#ff660044":"#1e1e1e"),borderRadius:8,padding:"8px",textAlign:"center"}}>
+                    <div style={{...B,fontSize:22,color:recentLogs.length>0?"#ff6600":"#2a2a2a"}}>{recentLogs.length}</div>
+                    <div style={{fontSize:8,color:"#555",letterSpacing:1}}>LAST HOUR</div>
+                  </div>
+                  <div style={{flex:1,background:"#001a0d",border:"1px solid #00e87a22",borderRadius:8,padding:"8px",textAlign:"center"}}>
+                    <div style={{...B,fontSize:22,color:personal?"#00e87a":"#2a2a2a"}}>{personal?personal.avg+"m":"—"}</div>
+                    <div style={{fontSize:8,color:"#555",letterSpacing:1}}>YOUR AVG</div>
+                  </div>
+                  <div style={{flex:1,background:"#000d1a",border:"1px solid #00aaff22",borderRadius:8,padding:"8px",textAlign:"center"}}>
+                    <div style={{...B,fontSize:22,color:community?"#00aaff":"#2a2a2a"}}>{community?community.avg+"m":"—"}</div>
+                    <div style={{fontSize:8,color:"#555",letterSpacing:1}}>COMMUNITY</div>
                   </div>
                 </div>
-                <div style={{textAlign:"right"}}>
-                  <div style={{...B,fontSize:38,color:riskColor,lineHeight:1}}>{displayWait}m</div>
-                  <div style={{fontSize:9,color:"#444"}}>EST. WAIT</div>
-                </div>
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <div style={{flex:1,background:"#111",border:"1px solid "+(recentLogs.length>0?"#ff660044":"#1e1e1e"),borderRadius:8,padding:"10px",textAlign:"center"}}>
-                  <div style={{...B,fontSize:26,color:recentLogs.length>0?"#ff6600":"#2a2a2a"}}>{recentLogs.length}</div>
-                  <div style={{fontSize:8,color:"#555",letterSpacing:1,marginTop:2}}>LOGS LAST HOUR</div>
-                  {recentLogs.length>0&&<div style={{fontSize:8,color:"#664400",marginTop:2}}>avg {Math.round(recentLogs.reduce((s,l)=>s+l.waitMins,0)/recentLogs.length*10)/10}m</div>}
-                </div>
-                <div style={{flex:1,background:"#001a0d",border:"1px solid #00e87a22",borderRadius:8,padding:"10px",textAlign:"center"}}>
-                  <div style={{...B,fontSize:26,color:personal?"#00e87a":"#2a2a2a"}}>{personal?personal.avg+"m":"—"}</div>
-                  <div style={{fontSize:8,color:"#555",letterSpacing:1,marginTop:2}}>YOUR AVG</div>
-                  {personal&&<div style={{fontSize:8,color:"#00a055",marginTop:2}}>{personal.count} visit{personal.count!==1?"s":""}</div>}
-                </div>
-                <div style={{flex:1,background:"#000d1a",border:"1px solid #00aaff22",borderRadius:8,padding:"10px",textAlign:"center"}}>
-                  <div style={{...B,fontSize:26,color:community?"#00aaff":"#2a2a2a"}}>{community?community.avg+"m":"—"}</div>
-                  <div style={{fontSize:8,color:"#555",letterSpacing:1,marginTop:2}}>COMMUNITY</div>
-                  {community&&<div style={{fontSize:8,color:"#005580",marginTop:2}}>{community.drivers} driver{community.drivers!==1?"s":""}</div>}
-                </div>
-              </div>
+              ):(
+                <div style={{fontSize:10,color:"#2a2a2a",...M}}>No wait data yet — be the first to log here</div>
+              )}
             </div>
           );
         })}
@@ -1248,7 +1267,7 @@ export default function App() {
               communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError}
               onArrived={handleArrived} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           )}
-          {screen==="check"&&<CheckScreen restaurants={restaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now}/>}
+          {screen==="check"&&<CheckScreen restaurants={restaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps}/>}
           {screen==="chat"&&<ChatScreen user={user} onLogout={handleLogout}/>}
         </div>
         <BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>
