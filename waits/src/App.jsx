@@ -74,7 +74,7 @@ const RESTAURANTS = [
 const AVATAR_COLORS = ["#00b8a9","#06c167","#ff5a2d","#2b8fff","#f5a623","#a855f7","#ef4444","#ec4899"];
 const B = { fontFamily:"'Poppins',sans-serif" };
 const M = { fontFamily:"'Nunito',sans-serif" };
-const ROOT = { ...M, background:"#f4f6f8", color:"#16242b", minHeight:"100vh", maxWidth:430, margin:"0 auto", userSelect:"none" };
+const ROOT = { ...M, background:"var(--bg)", color:"var(--ink)", minHeight:"100vh", maxWidth:430, margin:"0 auto", userSelect:"none" };
 
 const store = {
   get:  k     => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):null; } catch(e) { return null; } },
@@ -300,11 +300,11 @@ function PasswordInput({value,onChange,placeholder}) {
   return(
     <div style={{position:"relative"}}>
       <input type={show?"text":"password"} value={value} onChange={onChange} placeholder={placeholder||"Password"}
-        style={{width:"100%",background:"#ffffff",border:"1px solid #dfe4e8",borderRadius:14,padding:"16px 48px 16px 18px",color:"#16242b",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:show?1:3}}
-        onFocus={e=>{e.target.style.borderColor="#00b8a9";}} onBlur={e=>{e.target.style.borderColor="#dfe4e8";}}
+        style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:14,padding:"16px 48px 16px 18px",color:"var(--ink)",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:show?1:3}}
+        onFocus={e=>{e.target.style.borderColor="#00b8a9";}} onBlur={e=>{e.target.style.borderColor="var(--border2)";}}
       />
       <button type="button" onClick={()=>setShow(s=>!s)}
-        style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#8a97a0",padding:4}}>
+        style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16,color:"var(--muted2)",padding:4}}>
         {show?"🙈":"👁"}
       </button>
     </div>
@@ -325,10 +325,10 @@ function AdBanner({premium}) {
   // Placeholder shown until AdSense slot is configured/approved
   if(!ADSENSE_SLOT){
     return(
-      <div style={{background:"#ffffff",border:"1px dashed #cdd4d9",borderRadius:12,padding:"18px 16px",textAlign:"center",marginBottom:8}}>
-        <div style={{fontSize:8,color:"#aab4ba",letterSpacing:2,marginBottom:4}}>ADVERTISEMENT</div>
-        <div style={{...B,fontSize:15,color:"#8a97a0",letterSpacing:1}}>YOUR AD HERE</div>
-        <div style={{fontSize:9,color:"#cdd4d9",marginTop:4}}>Go premium to remove ads · {SUB_PRICE}/mo</div>
+      <div style={{background:"var(--card)",border:"1px dashed var(--faint2)",borderRadius:12,padding:"18px 16px",textAlign:"center",marginBottom:8}}>
+        <div style={{fontSize:8,color:"var(--faint)",letterSpacing:2,marginBottom:4}}>ADVERTISEMENT</div>
+        <div style={{...B,fontSize:15,color:"var(--muted2)",letterSpacing:1}}>YOUR AD HERE</div>
+        <div style={{fontSize:9,color:"var(--faint2)",marginTop:4}}>Go premium to remove ads · {SUB_PRICE}/mo</div>
       </div>
     );
   }
@@ -358,17 +358,17 @@ function UpgradeScreen({premium,onBack,onSubscribe,onCancel}) {
 
       <div style={{textAlign:"center",marginBottom:28}}>
         <div style={{fontSize:52,marginBottom:8}}>⭐</div>
-        <div style={{...B,fontSize:48,color:"#00b8a9",letterSpacing:1,lineHeight:1}}>{SUB_PRICE}<span style={{fontSize:18,color:"#6b7a82"}}>/month</span></div>
-        <div style={{fontSize:11,...M,color:"#6b7a82",marginTop:6}}>Cancel anytime</div>
+        <div style={{...B,fontSize:48,color:"#00b8a9",letterSpacing:1,lineHeight:1}}>{SUB_PRICE}<span style={{fontSize:18,color:"var(--muted)"}}>/month</span></div>
+        <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:6}}>Cancel anytime</div>
       </div>
 
       <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:28}}>
         {perks.map((p,i)=>(
-          <div key={i} style={{display:"flex",alignItems:"center",gap:14,background:"#ffffff",border:"1px solid #e9edf0",borderRadius:12,padding:"14px 16px"}}>
+          <div key={i} style={{display:"flex",alignItems:"center",gap:14,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px"}}>
             <div style={{fontSize:26}}>{p.icon}</div>
             <div>
-              <div style={{...B,fontSize:17,color:"#16242b",letterSpacing:1}}>{p.title}</div>
-              <div style={{fontSize:10,...M,color:"#6b7a82",marginTop:2}}>{p.desc}</div>
+              <div style={{...B,fontSize:17,color:"var(--ink)",letterSpacing:1}}>{p.title}</div>
+              <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:2}}>{p.desc}</div>
             </div>
           </div>
         ))}
@@ -376,12 +376,12 @@ function UpgradeScreen({premium,onBack,onSubscribe,onCancel}) {
 
       {premium?(
         <>
-          <div style={{background:"linear-gradient(135deg,#e7f7ee,#e7f7ee)",border:"1px solid #06c16744",borderRadius:14,padding:"18px",textAlign:"center",marginBottom:16}}>
+          <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-green))",border:"1px solid #06c16744",borderRadius:14,padding:"18px",textAlign:"center",marginBottom:16}}>
             <div style={{...B,fontSize:22,color:"#06c167",letterSpacing:2}}>✓ YOU'RE PREMIUM</div>
             <div style={{fontSize:10,...M,color:"#0a8f4f",marginTop:4}}>Thanks for supporting Delivr</div>
           </div>
           <button onClick={onCancel}
-            style={{width:"100%",minHeight:48,background:"none",border:"1px solid #cdd4d9",borderRadius:12,...B,fontSize:16,letterSpacing:2,color:"#8a97a0",cursor:"pointer"}}>
+            style={{width:"100%",minHeight:48,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:16,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>
             CANCEL SUBSCRIPTION
           </button>
         </>
@@ -399,13 +399,13 @@ function UpgradeScreen({premium,onBack,onSubscribe,onCancel}) {
 function GPSGateScreen({status,onRetry}) {
   const acquiring=status==="pending"||status==="acquiring";
   return(
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 28px",background:"linear-gradient(160deg,#e6faf8 0%,#f4f6f8 55%)"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 28px",background:"linear-gradient(160deg,var(--tint-teal) 0%,var(--bg) 55%)"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
         <div style={{fontSize:64,marginBottom:20}}>{acquiring?"🛰️":"📍"}</div>
         <div style={{...B,fontSize:38,color:"#00b8a9",letterSpacing:3,marginBottom:12}}>
           {acquiring?"GETTING LOCATION":"LOCATION REQUIRED"}
         </div>
-        <div style={{fontSize:13,...M,color:"#6b7a82",lineHeight:1.9,maxWidth:320,margin:"0 auto"}}>
+        <div style={{fontSize:13,...M,color:"var(--muted)",lineHeight:1.9,maxWidth:320,margin:"0 auto"}}>
           {acquiring
             ?"Waiting for GPS signal — make sure location is enabled in your browser."
             :"DELIVR needs your GPS to show nearby restaurants, verify arrivals, and track wait times."}
@@ -416,7 +416,7 @@ function GPSGateScreen({status,onRetry}) {
           <button onClick={onRetry} style={{minHeight:64,background:"#00b8a9",border:"none",borderRadius:14,...B,fontSize:26,letterSpacing:3,color:"#000",cursor:"pointer",boxShadow:"0 0 40px #00b8a940"}}>
             ALLOW LOCATION →
           </button>
-          <div style={{fontSize:10,...M,color:"#aab4ba",textAlign:"center",lineHeight:1.7}}>
+          <div style={{fontSize:10,...M,color:"var(--faint)",textAlign:"center",lineHeight:1.7}}>
             Tap above after allowing location in your browser settings
           </div>
         </div>
@@ -429,7 +429,7 @@ function GPSGateScreen({status,onRetry}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,premium,onBack,onLogout,onSave,onUpgrade}) {
+function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -468,9 +468,9 @@ function ProfileScreen({user,waitLog,gps,premium,onBack,onLogout,onSave,onUpgrad
   }
 
   const stat=(val,label)=>(
-    <div style={{flex:1,background:"#ffffff",border:"1px solid #e9edf0",borderRadius:10,padding:"14px 10px",textAlign:"center"}}>
+    <div style={{flex:1,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"14px 10px",textAlign:"center"}}>
       <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:1}}>{val}</div>
-      <div style={{fontSize:8,...M,color:"#8a97a0",marginTop:3,letterSpacing:1}}>{label}</div>
+      <div style={{fontSize:8,...M,color:"var(--muted2)",marginTop:3,letterSpacing:1}}>{label}</div>
     </div>
   );
 
@@ -482,14 +482,14 @@ function ProfileScreen({user,waitLog,gps,premium,onBack,onLogout,onSave,onUpgrad
       </div>
 
       {/* Avatar + info */}
-      <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20,background:"#ffffff",border:"1px solid #e9edf0",borderRadius:14,padding:"16px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px"}}>
         <div style={{width:56,height:56,borderRadius:"50%",background:user.color,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 0 20px "+user.color+"55"}}>
           <span style={{...B,fontSize:26,color:"#000"}}>{user.initial}</span>
         </div>
         <div>
-          <div style={{...B,fontSize:22,color:"#16242b",letterSpacing:1}}>{user.name}</div>
-          <div style={{fontSize:10,...M,color:"#6b7a82",marginTop:2}}>{user.email||"—"}</div>
-          <div style={{marginTop:6,background:premium?"#e7f7ee":"#fff7e0",border:"1px solid "+(premium?"#06c16744":"#f5a62344"),borderRadius:5,padding:"3px 10px",display:"inline-block"}}>
+          <div style={{...B,fontSize:22,color:"var(--ink)",letterSpacing:1}}>{user.name}</div>
+          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:2}}>{user.email||"—"}</div>
+          <div style={{marginTop:6,background:premium?"var(--tint-green)":"var(--tint-amber)",border:"1px solid "+(premium?"#06c16744":"#f5a62344"),borderRadius:5,padding:"3px 10px",display:"inline-block"}}>
             <span style={{...B,fontSize:11,color:premium?"#06c167":"#f5a623",letterSpacing:2}}>{premium?"⭐ PREMIUM":"FREE PLAN"}</span>
           </div>
         </div>
@@ -497,10 +497,10 @@ function ProfileScreen({user,waitLog,gps,premium,onBack,onLogout,onSave,onUpgrad
 
       {/* Subscription card */}
       <button onClick={onUpgrade}
-        style={{width:"100%",background:premium?"linear-gradient(135deg,#e7f7ee,#e7f7ee)":"linear-gradient(135deg,#fff1ec,#ffe4d8)",border:"1px solid "+(premium?"#06c16744":"#00b8a966"),borderRadius:14,padding:"16px",marginBottom:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+        style={{width:"100%",background:premium?"linear-gradient(135deg,var(--tint-green),var(--tint-green))":"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"1px solid "+(premium?"#06c16744":"#00b8a966"),borderRadius:14,padding:"16px",marginBottom:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
         <div>
           <div style={{...B,fontSize:18,color:premium?"#06c167":"#00b8a9",letterSpacing:1}}>{premium?"PREMIUM ACTIVE":"GO PREMIUM"}</div>
-          <div style={{fontSize:10,...M,color:"#6b7a82",marginTop:3}}>{premium?"Manage your subscription":"No ads + full data · "+SUB_PRICE+"/mo"}</div>
+          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>{premium?"Manage your subscription":"No ads + full data · "+SUB_PRICE+"/mo"}</div>
         </div>
         <span style={{...B,fontSize:24,color:premium?"#06c167":"#00b8a9"}}>›</span>
       </button>
@@ -515,42 +515,42 @@ function ProfileScreen({user,waitLog,gps,premium,onBack,onLogout,onSave,onUpgrad
       {/* Edit fields */}
       <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
         <div>
-          <div style={{fontSize:9,...M,color:"#8a97a0",letterSpacing:2,marginBottom:6}}>DRIVER NAME</div>
+          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>DRIVER NAME</div>
           <input value={name} onChange={e=>setName(e.target.value)}
-            style={{width:"100%",background:"#ffffff",border:"1px solid #dfe4e8",borderRadius:12,padding:"14px 16px",color:"#16242b",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
-            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="#dfe4e8"}/>
+            style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
         </div>
         <div>
-          <div style={{fontSize:9,...M,color:"#8a97a0",letterSpacing:2,marginBottom:6}}>PHONE (OPTIONAL)</div>
+          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>PHONE (OPTIONAL)</div>
           <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+44 7700 000000" type="tel"
-            style={{width:"100%",background:"#ffffff",border:"1px solid #dfe4e8",borderRadius:12,padding:"14px 16px",color:"#16242b",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
-            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="#dfe4e8"}/>
+            style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
         </div>
         <div>
-          <div style={{fontSize:9,...M,color:"#8a97a0",letterSpacing:2,marginBottom:6}}>YOUR AREA</div>
+          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>YOUR AREA</div>
           <input value={area} onChange={e=>setArea(e.target.value)} placeholder="e.g. Braintree, Chelmsford..."
-            style={{width:"100%",background:"#ffffff",border:"1px solid #dfe4e8",borderRadius:12,padding:"14px 16px",color:"#16242b",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
-            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="#dfe4e8"}/>
-          <div style={{fontSize:9,...M,color:"#aab4ba",marginTop:5}}>Sets your chat room and local restaurant list</div>
+            style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
+          <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:5}}>Sets your chat room and local restaurant list</div>
         </div>
       </div>
 
       <button onClick={save} disabled={saving}
-        style={{width:"100%",minHeight:56,background:saving?"#e9edf0":saved?"#06c167":"#00b8a9",border:"none",borderRadius:12,...B,fontSize:22,letterSpacing:3,color:saving?"#aab4ba":"#000",cursor:saving?"default":"pointer",marginBottom:20,boxShadow:saving?"none":saved?"0 0 30px #06c16730":"0 0 30px #00b8a930",transition:"all 0.2s"}}>
+        style={{width:"100%",minHeight:56,background:saving?"var(--border)":saved?"#06c167":"#00b8a9",border:"none",borderRadius:12,...B,fontSize:22,letterSpacing:3,color:saving?"var(--faint)":"#000",cursor:saving?"default":"pointer",marginBottom:20,boxShadow:saving?"none":saved?"0 0 30px #06c16730":"0 0 30px #00b8a930",transition:"all 0.2s"}}>
         {saving?"SAVING...":saved?"✓ SAVED":"SAVE CHANGES"}
       </button>
 
       {/* Change password */}
       <button onClick={()=>{setShowPw(s=>!s);setPwMsg("");}}
-        style={{width:"100%",minHeight:52,background:"none",border:"1px solid #cdd4d9",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"#6b7a82",cursor:"pointer",marginBottom:showPw?0:16}}>
+        style={{width:"100%",minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"var(--muted)",cursor:"pointer",marginBottom:showPw?0:16}}>
         {showPw?"↑ HIDE":"CHANGE PASSWORD"}
       </button>
       {showPw&&(
-        <div style={{background:"#ffffff",border:"1px solid #e9edf0",borderRadius:12,padding:"16px",marginBottom:16,display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"16px",marginBottom:16,display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
           <input value={curPw} onChange={e=>setCurPw(e.target.value)} type="password" placeholder="Current password"
-            style={{background:"#f4f6f8",border:"1px solid #dfe4e8",borderRadius:10,padding:"12px 14px",color:"#16242b",fontSize:14,...M,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+            style={{background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:10,padding:"12px 14px",color:"var(--ink)",fontSize:14,...M,outline:"none",boxSizing:"border-box",width:"100%"}}/>
           <input value={newPw} onChange={e=>setNewPw(e.target.value)} type="password" placeholder="New password (min 6)"
-            style={{background:"#f4f6f8",border:"1px solid #dfe4e8",borderRadius:10,padding:"12px 14px",color:"#16242b",fontSize:14,...M,outline:"none",boxSizing:"border-box",width:"100%"}}/>
+            style={{background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:10,padding:"12px 14px",color:"var(--ink)",fontSize:14,...M,outline:"none",boxSizing:"border-box",width:"100%"}}/>
           {pwMsg&&<div style={{fontSize:11,...M,color:pwMsg.startsWith("✓")?"#06c167":"#ef4444"}}>{pwMsg}</div>}
           <button onClick={changePw} disabled={pwLoading}
             style={{minHeight:48,background:"#00b8a9",border:"none",borderRadius:10,...B,fontSize:18,letterSpacing:2,color:"#000",cursor:"pointer"}}>
@@ -559,13 +559,27 @@ function ProfileScreen({user,waitLog,gps,premium,onBack,onLogout,onSave,onUpgrad
         </div>
       )}
 
+      {/* Appearance — light / dark toggle */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+        <div>
+          <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:1}}>APPEARANCE</div>
+          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:2}}>{theme==="dark"?"Dark mode":"Light mode"}</div>
+        </div>
+        <button onClick={onToggleTheme} aria-label="Toggle dark mode"
+          style={{position:"relative",width:64,height:34,borderRadius:18,border:"none",cursor:"pointer",background:theme==="dark"?"#00b8a9":"var(--border2)",transition:"background 0.2s",flexShrink:0}}>
+          <span style={{position:"absolute",top:3,left:theme==="dark"?33:3,width:28,height:28,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 4px rgba(0,0,0,0.3)",transition:"left 0.2s",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>
+            {theme==="dark"?"🌙":"☀️"}
+          </span>
+        </button>
+      </div>
+
       <button onClick={onLogout}
-        style={{width:"100%",minHeight:52,background:"none",border:"1px solid #cdd4d9",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"#8a97a0",cursor:"pointer"}}>
+        style={{width:"100%",minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>
         SIGN OUT
       </button>
 
       <div style={{textAlign:"center",marginTop:18}}>
-        <a href="/privacy.html" style={{fontSize:10,...M,color:"#8a97a0",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>
+        <a href="/privacy.html" style={{fontSize:10,...M,color:"var(--muted2)",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>
       </div>
     </div>
   );
@@ -644,16 +658,16 @@ function LoginScreen({onLogin,onRegistered}) {
   }
 
   return(
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 24px 60px",background:"linear-gradient(160deg,#e6faf8 0%,#f4f6f8 55%)"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 24px 60px",background:"linear-gradient(160deg,var(--tint-teal) 0%,var(--bg) 55%)"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
         <div style={{...B,fontSize:80,color:"#00b8a9",letterSpacing:8,lineHeight:1,textShadow:"0 0 80px #00b8a944"}}>DELIVR</div>
-        <div style={{fontSize:10,color:"#cdd4d9",letterSpacing:5,marginTop:6}}>DRIVER COMMUNITY</div>
+        <div style={{fontSize:10,color:"var(--faint2)",letterSpacing:5,marginTop:6}}>DRIVER COMMUNITY</div>
       </div>
 
-      <div style={{display:"flex",background:"#ffffff",borderRadius:12,padding:4,marginBottom:28,border:"1px solid #e9edf0"}}>
+      <div style={{display:"flex",background:"var(--card)",borderRadius:12,padding:4,marginBottom:28,border:"1px solid var(--border)"}}>
         {["login","register"].map(m=>(
           <button key={m} type="button" onClick={()=>switchMode(m)}
-            style={{flex:1,padding:"11px 0",background:mode===m?"#00b8a9":"none",border:"none",borderRadius:9,cursor:"pointer",...B,fontSize:16,letterSpacing:2,color:mode===m?"#000":"#6b7a82",transition:"all 0.15s"}}>
+            style={{flex:1,padding:"11px 0",background:mode===m?"#00b8a9":"none",border:"none",borderRadius:9,cursor:"pointer",...B,fontSize:16,letterSpacing:2,color:mode===m?"#000":"var(--muted)",transition:"all 0.15s"}}>
             {m==="login"?"SIGN IN":"CREATE ACCOUNT"}
           </button>
         ))}
@@ -662,20 +676,20 @@ function LoginScreen({onLogin,onRegistered}) {
       <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:14}}>
         {mode==="register"&&(
           <div>
-            <div style={{fontSize:9,color:"#8a97a0",letterSpacing:2,marginBottom:7}}>DRIVER NAME</div>
+            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>DRIVER NAME</div>
             <input value={username} onChange={e=>setUsername(e.target.value)} placeholder="e.g. FastRider99" maxLength={20} autoFocus
-              style={{width:"100%",background:"#ffffff",border:"1px solid #dfe4e8",borderRadius:14,padding:"16px 18px",color:"#16242b",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
-              onFocus={e=>{e.target.style.borderColor="#00b8a9";}} onBlur={e=>{e.target.style.borderColor="#dfe4e8";}}/>
+              style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:14,padding:"16px 18px",color:"var(--ink)",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
+              onFocus={e=>{e.target.style.borderColor="#00b8a9";}} onBlur={e=>{e.target.style.borderColor="var(--border2)";}}/>
           </div>
         )}
         <div>
-          <div style={{fontSize:9,color:"#8a97a0",letterSpacing:2,marginBottom:7}}>EMAIL ADDRESS</div>
+          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>EMAIL ADDRESS</div>
           <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" type="email" autoComplete="email" autoFocus={mode==="login"}
-            style={{width:"100%",background:"#ffffff",border:"1px solid #dfe4e8",borderRadius:14,padding:"16px 18px",color:"#16242b",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
-            onFocus={e=>{e.target.style.borderColor="#00b8a9";}} onBlur={e=>{e.target.style.borderColor="#dfe4e8";}}/>
+            style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:14,padding:"16px 18px",color:"var(--ink)",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
+            onFocus={e=>{e.target.style.borderColor="#00b8a9";}} onBlur={e=>{e.target.style.borderColor="var(--border2)";}}/>
         </div>
         <div>
-          <div style={{fontSize:9,color:"#8a97a0",letterSpacing:2,marginBottom:7}}>PASSWORD {mode==="register"&&<span style={{color:"#cdd4d9"}}>(min 6 chars)</span>}</div>
+          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>PASSWORD {mode==="register"&&<span style={{color:"var(--faint2)"}}>(min 6 chars)</span>}</div>
           <PasswordInput value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"/>
           {mode==="login"&&(
             <div style={{textAlign:"right",marginTop:8}}>
@@ -685,11 +699,11 @@ function LoginScreen({onLogin,onRegistered}) {
         </div>
         {mode==="register"&&<>
           <div>
-            <div style={{fontSize:9,color:"#8a97a0",letterSpacing:2,marginBottom:7}}>CONFIRM PASSWORD</div>
+            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>CONFIRM PASSWORD</div>
             <PasswordInput value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Repeat password"/>
           </div>
           <div>
-            <div style={{fontSize:9,color:"#8a97a0",letterSpacing:2,marginBottom:10}}>YOUR COLOUR</div>
+            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:10}}>YOUR COLOUR</div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
               {AVATAR_COLORS.map((c,i)=>(
                 <button key={i} type="button" onClick={()=>setColorIdx(i)}
@@ -698,26 +712,26 @@ function LoginScreen({onLogin,onRegistered}) {
             </div>
           </div>
           {username.trim().length>=1&&(
-            <div style={{display:"flex",alignItems:"center",gap:14,background:"#ffffff",borderRadius:12,padding:"12px 16px",border:"1px solid #e9edf0"}}>
+            <div style={{display:"flex",alignItems:"center",gap:14,background:"var(--card)",borderRadius:12,padding:"12px 16px",border:"1px solid var(--border)"}}>
               <div style={{width:44,height:44,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 0 20px "+color+"66"}}>
                 <span style={{...B,fontSize:22,color:"#000"}}>{username.trim()[0].toUpperCase()}</span>
               </div>
               <div>
-                <div style={{...B,fontSize:20,letterSpacing:1,color:"#16242b"}}>{username.trim()}</div>
-                <div style={{fontSize:9,color:"#6b7a82",marginTop:2,letterSpacing:1}}>NEW DRIVER</div>
+                <div style={{...B,fontSize:20,letterSpacing:1,color:"var(--ink)"}}>{username.trim()}</div>
+                <div style={{fontSize:9,color:"var(--muted)",marginTop:2,letterSpacing:1}}>NEW DRIVER</div>
               </div>
             </div>
           )}
         </>}
-        {error&&<div style={{background:"#fdecec",border:"1px solid #ef444444",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#ef4444"}}>{error}</div>}
-        {resetMsg&&<div style={{background:"#e7f7ee",border:"1px solid #06c16744",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#06c167"}}>{resetMsg}</div>}
+        {error&&<div style={{background:"var(--tint-red)",border:"1px solid #ef444444",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#ef4444"}}>{error}</div>}
+        {resetMsg&&<div style={{background:"var(--tint-green)",border:"1px solid #06c16744",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#06c167"}}>{resetMsg}</div>}
         <button type="submit" disabled={loading}
-          style={{minHeight:64,background:loading?"#e9edf0":"#00b8a9",border:"none",borderRadius:14,...B,fontSize:28,letterSpacing:4,color:loading?"#aab4ba":"#000",cursor:loading?"default":"pointer",marginTop:6,boxShadow:loading?"none":"0 0 40px #00b8a940",transition:"all 0.2s"}}>
+          style={{minHeight:64,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontSize:28,letterSpacing:4,color:loading?"var(--faint)":"#000",cursor:loading?"default":"pointer",marginTop:6,boxShadow:loading?"none":"0 0 40px #00b8a940",transition:"all 0.2s"}}>
           {loading?"LOADING...":(mode==="login"?"SIGN IN →":"CREATE ACCOUNT →")}
         </button>
       </form>
       <div style={{textAlign:"center",marginTop:28}}>
-        <a href="/privacy.html" style={{fontSize:10,...M,color:"#8a97a0",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>
+        <a href="/privacy.html" style={{fontSize:10,...M,color:"var(--muted2)",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>
       </div>
     </div>
   );
@@ -753,33 +767,33 @@ function VerifyCodeScreen({email,onVerified,onBack}) {
   }
 
   return(
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 24px 60px",background:"linear-gradient(160deg,#e6faf8 0%,#f4f6f8 55%)"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 24px 60px",background:"linear-gradient(160deg,var(--tint-teal) 0%,var(--bg) 55%)"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
         <div style={{fontSize:56,marginBottom:16}}>📨</div>
         <div style={{...B,fontSize:40,color:"#00b8a9",letterSpacing:3,marginBottom:8}}>CHECK YOUR EMAIL</div>
-        <div style={{fontSize:13,...M,color:"#6b7a82",lineHeight:1.7}}>We sent a 6-digit code to</div>
-        <div style={{fontSize:14,...M,color:"#16242b",fontWeight:700,marginTop:4}}>{email}</div>
+        <div style={{fontSize:13,...M,color:"var(--muted)",lineHeight:1.7}}>We sent a 6-digit code to</div>
+        <div style={{fontSize:14,...M,color:"var(--ink)",fontWeight:700,marginTop:4}}>{email}</div>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
         <div>
-          <div style={{fontSize:9,color:"#8a97a0",letterSpacing:2,marginBottom:7}}>ENTER YOUR CODE</div>
+          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>ENTER YOUR CODE</div>
           <input value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,6))}
             placeholder="000000" maxLength={6} inputMode="numeric" autoFocus
-            style={{width:"100%",background:"#ffffff",border:"1px solid #dfe4e8",borderRadius:14,padding:"20px 18px",color:"#00b8a9",fontSize:32,...M,fontWeight:700,outline:"none",boxSizing:"border-box",letterSpacing:8,textAlign:"center"}}
-            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="#dfe4e8"}
+            style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:14,padding:"20px 18px",color:"#00b8a9",fontSize:32,...M,fontWeight:700,outline:"none",boxSizing:"border-box",letterSpacing:8,textAlign:"center"}}
+            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}
             onKeyDown={e=>{if(e.key==="Enter")verify();}}/>
         </div>
-        {error&&<div style={{background:"#fdecec",border:"1px solid #ef444444",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#ef4444"}}>{error}</div>}
+        {error&&<div style={{background:"var(--tint-red)",border:"1px solid #ef444444",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#ef4444"}}>{error}</div>}
         <button onClick={verify} disabled={loading||code.length!==6}
-          style={{minHeight:64,background:loading||code.length!==6?"#e9edf0":"#00b8a9",border:"none",borderRadius:14,...B,fontSize:28,letterSpacing:4,color:loading||code.length!==6?"#aab4ba":"#000",cursor:loading||code.length!==6?"default":"pointer",boxShadow:loading||code.length!==6?"none":"0 0 40px #00b8a940",transition:"all 0.2s"}}>
+          style={{minHeight:64,background:loading||code.length!==6?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontSize:28,letterSpacing:4,color:loading||code.length!==6?"var(--faint)":"#000",cursor:loading||code.length!==6?"default":"pointer",boxShadow:loading||code.length!==6?"none":"0 0 40px #00b8a940",transition:"all 0.2s"}}>
           {loading?"VERIFYING...":"VERIFY →"}
         </button>
         <button onClick={resend} disabled={resending||resent}
-          style={{minHeight:52,background:"none",border:"1px solid "+(resent?"#06c167":"#cdd4d9"),borderRadius:12,...B,fontSize:18,letterSpacing:2,color:resent?"#06c167":"#6b7a82",cursor:resending||resent?"default":"pointer",transition:"all 0.2s"}}>
+          style={{minHeight:52,background:"none",border:"1px solid "+(resent?"#06c167":"var(--faint2)"),borderRadius:12,...B,fontSize:18,letterSpacing:2,color:resent?"#06c167":"var(--muted)",cursor:resending||resent?"default":"pointer",transition:"all 0.2s"}}>
           {resending?"SENDING...":(resent?"✓ CODE SENT":"RESEND CODE")}
         </button>
         <button onClick={onBack}
-          style={{minHeight:44,background:"none",border:"none",color:"#aab4ba",cursor:"pointer",fontSize:11,...M,letterSpacing:1}}>
+          style={{minHeight:44,background:"none",border:"none",color:"var(--faint)",cursor:"pointer",fontSize:11,...M,letterSpacing:1}}>
           Use a different account
         </button>
       </div>
@@ -813,35 +827,35 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
         <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
         <div style={{flex:1}}>
-          <div style={{...B,fontSize:22,color:"#16242b",letterSpacing:1}}>{r.name}</div>
-          <div style={{fontSize:9,color:"#6b7a82",marginTop:2}}>{r.label}{dStr&&<span style={{color:"#00b8a9"}}>{" · "+dStr+" away"}</span>}</div>
+          <div style={{...B,fontSize:22,color:"var(--ink)",letterSpacing:1}}>{r.name}</div>
+          <div style={{fontSize:9,color:"var(--muted)",marginTop:2}}>{r.label}{dStr&&<span style={{color:"#00b8a9"}}>{" · "+dStr+" away"}</span>}</div>
         </div>
         <div style={{textAlign:"right"}}>
           <div style={{...B,fontSize:38,color:riskColor,letterSpacing:1,lineHeight:1}}>{displayWait}m</div>
-          <div style={{fontSize:9,color:"#8a97a0"}}>EST. WAIT</div>
+          <div style={{fontSize:9,color:"var(--muted2)"}}>EST. WAIT</div>
         </div>
       </div>
 
       <div style={{display:"flex",gap:8,marginBottom:16}}>
-        <div style={{flex:1,background:"#e7f7ee",border:"1px solid #06c16722",borderRadius:10,padding:"12px 14px"}}>
+        <div style={{flex:1,background:"var(--tint-green)",border:"1px solid #06c16722",borderRadius:10,padding:"12px 14px"}}>
           <div style={{fontSize:8,color:"#06c167",letterSpacing:2,marginBottom:4}}>YOUR DATA</div>
           {personal?(<>
             <div style={{...B,fontSize:24,color:"#06c167"}}>{personal.avg}m</div>
             <div style={{fontSize:9,color:"#0a8f4f",marginTop:2}}>{personal.count} visit{personal.count!==1?"s":""} · {personal.context}</div>
-          </>):<div style={{...B,fontSize:14,color:"#e9edf0"}}>NO VISITS YET</div>}
+          </>):<div style={{...B,fontSize:14,color:"var(--border)"}}>NO VISITS YET</div>}
         </div>
-        <div style={{flex:1,background:"#e8f1ff",border:"1px solid #2b8fff22",borderRadius:10,padding:"12px 14px"}}>
+        <div style={{flex:1,background:"var(--tint-blue)",border:"1px solid #2b8fff22",borderRadius:10,padding:"12px 14px"}}>
           <div style={{fontSize:8,color:"#2b8fff",letterSpacing:2,marginBottom:4}}>COMMUNITY</div>
           {community?(<>
             <div style={{...B,fontSize:24,color:"#2b8fff"}}>{community.avg}m</div>
             <div style={{fontSize:9,color:"#1c6fd0",marginTop:2}}>{community.count} logs · {community.drivers} driver{community.drivers!==1?"s":""}</div>
-          </>):<div style={{...B,fontSize:14,color:"#e9edf0"}}>NO DATA YET</div>}
+          </>):<div style={{...B,fontSize:14,color:"var(--border)"}}>NO DATA YET</div>}
         </div>
       </div>
 
       {p?.byPeriod&&Object.keys(p.byPeriod).length>0&&(
-        <div style={{background:"#ffffff",border:"1px solid #e9edf0",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
-          <div style={{fontSize:9,color:"#8a97a0",letterSpacing:2,marginBottom:12}}>WAIT BY TIME OF DAY</div>
+        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:12}}>WAIT BY TIME OF DAY</div>
           {periods.filter(per=>p.byPeriod[per]).map(per=>{
             const b=p.byPeriod[per];
             const pct=Math.min(100,(b.avg/40)*100);
@@ -849,10 +863,10 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
             return(
               <div key={per} style={{marginBottom:8}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                  <span style={{fontSize:10,...M,color:"#6b7a82",textTransform:"capitalize"}}>{per}</span>
+                  <span style={{fontSize:10,...M,color:"var(--muted)",textTransform:"capitalize"}}>{per}</span>
                   <span style={{...B,fontSize:12,color:c}}>{b.avg}m</span>
                 </div>
-                <div style={{background:"#e9edf0",borderRadius:3,height:4}}>
+                <div style={{background:"var(--border)",borderRadius:3,height:4}}>
                   <div style={{height:4,borderRadius:3,width:pct+"%",background:c}}/>
                 </div>
               </div>
@@ -862,13 +876,13 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
       )}
 
       {myLogs.length>0&&(
-        <div style={{background:"#ffffff",border:"1px solid #e9edf0",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
-          <div style={{fontSize:9,color:"#8a97a0",letterSpacing:2,marginBottom:10}}>YOUR VISITS</div>
+        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:10}}>YOUR VISITS</div>
           {myLogs.slice().reverse().map(l=>{
             const c=l.waitMins>15?"#ef4444":l.waitMins>8?"#f5a623":"#06c167";
             return(
-              <div key={l.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:8,borderBottom:"1px solid #eef1f3",marginBottom:8}}>
-                <div style={{fontSize:10,...M,color:"#6b7a82"}}>{new Date(l.ts).toLocaleString("en-GB",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>
+              <div key={l.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:8,borderBottom:"1px solid var(--border3)",marginBottom:8}}>
+                <div style={{fontSize:10,...M,color:"var(--muted)"}}>{new Date(l.ts).toLocaleString("en-GB",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>
                 <div style={{...B,fontSize:16,color:c}}>{l.waitMins}m</div>
               </div>
             );
@@ -876,16 +890,16 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
         </div>
       )}
 
-      <div style={{position:"fixed",bottom:56,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,padding:"12px 16px",background:"#ffffff",borderTop:"1px solid #eef1f3"}}>
+      <div style={{position:"fixed",bottom:56,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,padding:"12px 16px",background:"var(--card)",borderTop:"1px solid var(--border3)"}}>
         {!isActive?(
           <>
             <button onClick={()=>onArrived(r)} disabled={isChecking}
-              style={{width:"100%",minHeight:64,background:isChecking?"#fff1ec":hasError?"#fdecec":"#ff5a2d",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:16,...B,fontWeight:700,fontSize:22,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#fff",cursor:isChecking?"default":"pointer",boxShadow:isChecking||hasError?"none":"0 8px 20px #ff5a2d40"}}>
+              style={{width:"100%",minHeight:64,background:isChecking?"var(--tint-coral)":hasError?"var(--tint-red)":"#ff5a2d",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:16,...B,fontWeight:700,fontSize:22,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#fff",cursor:isChecking?"default":"pointer",boxShadow:isChecking||hasError?"none":"0 8px 20px #ff5a2d40"}}>
               {isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"📍 ARRIVED HERE"}
             </button>
             {/* Manual Arrive — only active within 300m; logs a location vote to fix the pin */}
             <button onClick={()=>{ if(within300&&!voted) onManualArrive(r); }} disabled={!within300||voted}
-              style={{width:"100%",minHeight:48,marginTop:8,background:voted?"#e7f7ee":"none",border:"1px solid "+(voted?"#06c16766":within300?"#00b8a966":"#dfe4e8"),borderRadius:12,...B,fontSize:16,letterSpacing:2,color:voted?"#06c167":within300?"#00b8a9":"#aab4ba",cursor:within300&&!voted?"pointer":"default"}}>
+              style={{width:"100%",minHeight:48,marginTop:8,background:voted?"var(--tint-green)":"none",border:"1px solid "+(voted?"#06c16766":within300?"#00b8a966":"var(--border2)"),borderRadius:12,...B,fontSize:16,letterSpacing:2,color:voted?"#06c167":within300?"#00b8a9":"var(--faint)",cursor:within300&&!voted?"pointer":"default"}}>
               {voted?"✓ LOCATION VOTED":within300?"MANUAL ARRIVE":(manualDist!=null?"MANUAL ARRIVE · "+(manualDist<1000?Math.round(manualDist)+"m away":(manualDist/1000).toFixed(1)+"km away"):"MANUAL ARRIVE · NO GPS")}
             </button>
           </>
@@ -957,12 +971,12 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
         <div style={{position:"relative",marginBottom:14}}>
           <input value={searchQuery} onChange={e=>handleSearchInput(e.target.value)}
             placeholder="Type restaurant name..." autoFocus
-            style={{width:"100%",background:"#ffffff",border:"1px solid #00b8a966",borderRadius:12,padding:"14px 18px",color:"#16242b",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+            style={{width:"100%",background:"var(--card)",border:"1px solid #00b8a966",borderRadius:12,padding:"14px 18px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
             onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="#00b8a966"}/>
           {searching&&<div style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",fontSize:10,color:"#00b8a9",...B,letterSpacing:1}}>SEARCHING...</div>}
         </div>
         {searchQuery.length>=2&&searchResults.length===0&&!searching&&(
-          <div style={{fontSize:11,color:"#8a97a0",textAlign:"center",padding:"20px 0",...M}}>No results found — try a different name</div>
+          <div style={{fontSize:11,color:"var(--muted2)",textAlign:"center",padding:"20px 0",...M}}>No results found — try a different name</div>
         )}
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {displayList.map(r=>{
@@ -975,15 +989,15 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
             const hasError=arrivalError?.restaurantId===r.id;
             return(
               <button key={r.id} onClick={async()=>{const ok=await onArrived(r);if(ok)closePicker();}} disabled={isChecking}
-                style={{background:"#ffffff",border:"1px solid "+(hasError?"#ef444444":"#e9edf0"),borderRadius:12,padding:"14px 16px",cursor:isChecking?"default":"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
+                style={{background:"var(--card)",border:"1px solid "+(hasError?"#ef444444":"var(--border)"),borderRadius:12,padding:"14px 16px",cursor:isChecking?"default":"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{...B,fontSize:18,letterSpacing:1,color:"#16242b"}}>{r.name}</div>
-                  <div style={{fontSize:10,color:"#6b7a82",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                  <div style={{...B,fontSize:18,letterSpacing:1,color:"var(--ink)"}}>{r.name}</div>
+                  <div style={{fontSize:10,color:"var(--muted)",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
                     {dStr&&<span style={{color:"#00b8a9"}}>{dStr+" · "}</span>}
                     {r.address||( best!=null?<span style={{color:"#06c167"}}>{"~"+best+"m wait"}</span>:("est. "+r.baseWait+"m"))}
                   </div>
                 </div>
-                <span style={{...B,fontSize:isChecking||hasError?10:26,color:hasError?"#ef4444":isChecking?"#6b7a82":"#00b8a9",letterSpacing:1,flexShrink:0,marginLeft:10}}>
+                <span style={{...B,fontSize:isChecking||hasError?10:26,color:hasError?"#ef4444":isChecking?"var(--muted)":"#00b8a9",letterSpacing:1,flexShrink:0,marginLeft:10}}>
                   {isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"→"}
                 </span>
               </button>
@@ -999,16 +1013,16 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
         <div>
           <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>RESTAURANT WAITS</div>
-          <div style={{fontSize:10,color:"#8a97a0",letterSpacing:1,marginTop:2}}>{per.toUpperCase()+" · "+dayLabel(now.getDay()).toUpperCase()}</div>
+          <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>{per.toUpperCase()+" · "+dayLabel(now.getDay()).toUpperCase()}</div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:5,background:"#ffffff",border:"1px solid #e9edf0",borderRadius:8,padding:"6px 10px",marginTop:4}}>
-          <div style={{width:7,height:7,borderRadius:"50%",background:{pending:"#6b7a82",acquiring:"#f5a623",active:"#06c167",error:"#00b8a9",denied:"#ef4444"}[gps.status]||"#6b7a82",boxShadow:"0 0 5px "+({pending:"#6b7a82",acquiring:"#f5a623",active:"#06c167",error:"#00b8a9",denied:"#ef4444"}[gps.status]||"#6b7a82")}}/>
-          <span style={{fontSize:9,color:"#8a97a0",letterSpacing:1}}>{gps.status==="active"?"±"+gps.accuracy+"m":gps.status.toUpperCase()}</span>
+        <div style={{display:"flex",alignItems:"center",gap:5,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",marginTop:4}}>
+          <div style={{width:7,height:7,borderRadius:"50%",background:{pending:"var(--muted)",acquiring:"#f5a623",active:"#06c167",error:"#00b8a9",denied:"#ef4444"}[gps.status]||"var(--muted)",boxShadow:"0 0 5px "+({pending:"var(--muted)",acquiring:"#f5a623",active:"#06c167",error:"#00b8a9",denied:"#ef4444"}[gps.status]||"var(--muted)")}}/>
+          <span style={{fontSize:9,color:"var(--muted2)",letterSpacing:1}}>{gps.status==="active"?"±"+gps.accuracy+"m":gps.status.toUpperCase()}</span>
         </div>
       </div>
 
       {meta?.totalLogs>0&&(
-        <div style={{background:"linear-gradient(135deg,#e7f7ee,#e7f7ee)",border:"1px solid #06c16722",borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-green))",border:"1px solid #06c16722",borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 8px #06c167",animation:"criticalPulse 2.5s ease-in-out infinite"}}/>
             <span style={{...B,fontSize:14,color:"#06c167",letterSpacing:2}}>COMMUNITY DATA LIVE</span>
@@ -1021,17 +1035,17 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
       )}
 
       {activeWait?(
-        <div style={{background:"linear-gradient(135deg,#fff1ec,#ffe4d8)",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
+        <div style={{background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
           <div style={{fontSize:9,color:"#00b8a9",letterSpacing:2,marginBottom:6}}>⏱ WAITING AT</div>
-          <div style={{...B,fontSize:28,color:"#16242b",letterSpacing:1,marginBottom:14}}>
+          <div style={{...B,fontSize:28,color:"var(--ink)",letterSpacing:1,marginBottom:14}}>
             {(restaurants.find(r=>r.id===activeWait.restaurantId)||{name:activeWait.restaurantName||"Unknown"}).name}
           </div>
           <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><LiveTimer startedAt={activeWait.startedAt}/></div>
           <div style={{display:"flex",gap:10}}>
             <button onClick={onPickedUp} style={{flex:1,minHeight:72,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:24,letterSpacing:2,color:"#000",cursor:"pointer",boxShadow:"0 0 20px #06c16733"}}>✓ PICKED UP</button>
-            <button onClick={onCancelWait} style={{minHeight:72,width:72,background:"#e9edf0",border:"1px solid #cdd4d9",borderRadius:12,...B,fontSize:22,color:"#8a97a0",cursor:"pointer"}}>✕</button>
+            <button onClick={onCancelWait} style={{minHeight:72,width:72,background:"var(--border)",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:22,color:"var(--muted2)",cursor:"pointer"}}>✕</button>
           </div>
-          <div style={{fontSize:9,color:"#8a97a0",textAlign:"center",marginTop:10,letterSpacing:1}}>TAP PICKED UP THE MOMENT YOU HAVE THE ORDER</div>
+          <div style={{fontSize:9,color:"var(--muted2)",textAlign:"center",marginTop:10,letterSpacing:1}}>TAP PICKED UP THE MOMENT YOU HAVE THE ORDER</div>
         </div>
       ):(
         <button onClick={()=>setPicking(true)} style={{width:"100%",minHeight:80,background:"#ff5a2d",border:"none",borderRadius:18,...B,fontWeight:700,fontSize:24,letterSpacing:1,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:16,boxShadow:"0 8px 20px #ff5a2d40"}}>
@@ -1061,64 +1075,64 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
           return(
             <Fragment key={r.id}>
             {!premium&&idx===6&&<AdBanner premium={premium}/>}
-            <div onClick={()=>setSelectedRestaurant(r)} style={{background:isActive?"#e6faf8":"#ffffff",borderRadius:12,border:"1px solid "+(isActive?"#00b8a9":riskColor+"33"),padding:"14px 16px",cursor:"pointer"}}>
+            <div onClick={()=>setSelectedRestaurant(r)} style={{background:isActive?"var(--tint-teal)":"var(--card)",borderRadius:12,border:"1px solid "+(isActive?"#00b8a9":riskColor+"33"),padding:"14px 16px",cursor:"pointer"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{...B,fontSize:19,letterSpacing:1,color:"#16242b"}}>
+                  <div style={{...B,fontSize:19,letterSpacing:1,color:"var(--ink)"}}>
                     {r.name}
                     {dStr&&<span style={{fontSize:10,color:"#00b8a9",marginLeft:8,...M,fontWeight:400}}>{dStr}</span>}
                   </div>
-                  <div style={{fontSize:9,color:"#6b7a82",marginTop:2}}>{r.label}</div>
+                  <div style={{fontSize:9,color:"var(--muted)",marginTop:2}}>{r.label}</div>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
                   <div style={{...B,fontSize:34,color:riskColor,letterSpacing:1,lineHeight:1}}>{displayWait}m</div>
-                  <div style={{fontSize:9,color:"#8a97a0",marginTop:1}}>{dataSource}</div>
+                  <div style={{fontSize:9,color:"var(--muted2)",marginTop:1}}>{dataSource}</div>
                 </div>
               </div>
-              <div style={{background:"#e9edf0",borderRadius:4,height:4,marginBottom:10,overflow:"hidden"}}>
+              <div style={{background:"var(--border)",borderRadius:4,height:4,marginBottom:10,overflow:"hidden"}}>
                 <div style={{height:4,borderRadius:4,width:Math.min(100,(displayWait/40)*100)+"%",background:riskColor}}/>
               </div>
               <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
                 {usePersonal?(
-                  <div style={{flex:1,minWidth:80,background:"#e7f7ee",border:"1px solid #06c16733",borderRadius:8,padding:"7px 10px"}}>
+                  <div style={{flex:1,minWidth:80,background:"var(--tint-green)",border:"1px solid #06c16733",borderRadius:8,padding:"7px 10px"}}>
                     <div style={{fontSize:8,color:"#06c167",letterSpacing:2,marginBottom:2}}>YOUR DATA</div>
                     <div style={{...B,fontSize:17,color:"#06c167",letterSpacing:1}}>{personal.avg}m</div>
                     <div style={{fontSize:8,color:"#0a8f4f",marginTop:1}}>{personal.bucketCount}v · {personal.context}</div>
                   </div>
                 ):personal&&!personal.hasEnough?(
-                  <div style={{flex:1,minWidth:80,background:"#ffffff",border:"1px solid #00b8a933",borderRadius:8,padding:"7px 10px"}}>
+                  <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid #00b8a933",borderRadius:8,padding:"7px 10px"}}>
                     <div style={{fontSize:8,color:"#00b8a9",letterSpacing:2,marginBottom:2}}>YOUR DATA</div>
                     <div style={{...B,fontSize:17,color:"#00b8a9",letterSpacing:1}}>{personal.avg}m</div>
-                    <div style={{fontSize:8,color:"#8a97a0",marginTop:1}}>1 visit</div>
+                    <div style={{fontSize:8,color:"var(--muted2)",marginTop:1}}>1 visit</div>
                   </div>
                 ):(
-                  <div style={{flex:1,minWidth:80,background:"#ffffff",border:"1px solid #e9edf0",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"#aab4ba",letterSpacing:2,marginBottom:2}}>YOUR DATA</div>
-                    <div style={{...B,fontSize:14,color:"#cdd4d9",letterSpacing:1}}>NONE YET</div>
+                  <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"7px 10px"}}>
+                    <div style={{fontSize:8,color:"var(--faint)",letterSpacing:2,marginBottom:2}}>YOUR DATA</div>
+                    <div style={{...B,fontSize:14,color:"var(--faint2)",letterSpacing:1}}>NONE YET</div>
                   </div>
                 )}
                 {community?(
-                  <div style={{flex:1,minWidth:80,background:"#e8f1ff",border:"1px solid #2b8fff33",borderRadius:8,padding:"7px 10px"}}>
+                  <div style={{flex:1,minWidth:80,background:"var(--tint-blue)",border:"1px solid #2b8fff33",borderRadius:8,padding:"7px 10px"}}>
                     <div style={{fontSize:8,color:"#2b8fff",letterSpacing:2,marginBottom:2}}>COMMUNITY</div>
                     <div style={{...B,fontSize:17,color:"#2b8fff",letterSpacing:1}}>{community.avg}m</div>
                     <div style={{fontSize:8,color:"#1c6fd0",marginTop:1}}>{community.count} logs · {community.drivers}d</div>
                   </div>
                 ):(
-                  <div style={{flex:1,minWidth:80,background:"#ffffff",border:"1px solid #e9edf0",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"#dfe4e8",letterSpacing:2,marginBottom:2}}>COMMUNITY</div>
-                    <div style={{...B,fontSize:14,color:"#e9edf0",letterSpacing:1}}>NO DATA</div>
+                  <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"7px 10px"}}>
+                    <div style={{fontSize:8,color:"var(--border2)",letterSpacing:2,marginBottom:2}}>COMMUNITY</div>
+                    <div style={{...B,fontSize:14,color:"var(--border)",letterSpacing:1}}>NO DATA</div>
                   </div>
                 )}
-                <div style={{minWidth:72,background:"#ffffff",border:"1px solid #e9edf0",borderRadius:8,padding:"7px 10px"}}>
-                  <div style={{fontSize:8,color:"#aab4ba",letterSpacing:2,marginBottom:2}}>DATABASE</div>
-                  <div style={{...B,fontSize:17,color:"#6b7a82",letterSpacing:1}}>{r.baseWait}m</div>
-                  <div style={{fontSize:8,color:"#cdd4d9",marginTop:1}}>{Math.round(r.rel*100)}% rel.</div>
+                <div style={{minWidth:72,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"7px 10px"}}>
+                  <div style={{fontSize:8,color:"var(--faint)",letterSpacing:2,marginBottom:2}}>DATABASE</div>
+                  <div style={{...B,fontSize:17,color:"var(--muted)",letterSpacing:1}}>{r.baseWait}m</div>
+                  <div style={{fontSize:8,color:"var(--faint2)",marginTop:1}}>{Math.round(r.rel*100)}% rel.</div>
                 </div>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:9,background:riskColor+"22",color:riskColor,border:"1px solid "+riskColor+"44",borderRadius:5,padding:"3px 8px"}}>{riskLabel}</span>
-                {myLogs.length>0&&<span style={{fontSize:9,color:"#8a97a0"}}>{myLogs.length+" visit"+(myLogs.length!==1?"s":"")}</span>}
-                {!isActive&&<button onClick={e=>{e.stopPropagation();onArrived(r);}} disabled={isChecking} style={{marginLeft:"auto",background:isChecking?"#fff1ec":hasError?"#fdecec":"#00b8a9",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"ARRIVED"}</button>}
+                {myLogs.length>0&&<span style={{fontSize:9,color:"var(--muted2)"}}>{myLogs.length+" visit"+(myLogs.length!==1?"s":"")}</span>}
+                {!isActive&&<button onClick={e=>{e.stopPropagation();onArrived(r);}} disabled={isChecking} style={{marginLeft:"auto",background:isChecking?"var(--tint-coral)":hasError?"var(--tint-red)":"#00b8a9",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"ARRIVED"}</button>}
                 {isActive&&<span style={{marginLeft:"auto",fontSize:10,...B,color:"#00b8a9",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>● TIMING NOW</span>}
               </div>
             </div>
@@ -1129,15 +1143,15 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
 
       {waitLog.length>0&&(
         <div style={{marginTop:20}}>
-          <div style={{...B,fontSize:16,color:"#cdd4d9",letterSpacing:2,marginBottom:8}}>RECENT WAIT LOGS</div>
+          <div style={{...B,fontSize:16,color:"var(--faint2)",letterSpacing:2,marginBottom:8}}>RECENT WAIT LOGS</div>
           {waitLog.slice().reverse().slice(0,6).map(l=>{
             const r=restaurants.find(x=>x.id===l.restaurantId);
             const c=l.waitMins>15?"#ef4444":l.waitMins>8?"#f5a623":"#06c167";
             return(
-              <div key={l.id} style={{background:"#ffffff",borderRadius:8,padding:"10px 14px",border:"1px solid #eef1f3",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div key={l.id} style={{background:"var(--card)",borderRadius:8,padding:"10px 14px",border:"1px solid var(--border3)",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                 <div>
-                  <div style={{...B,fontSize:15,letterSpacing:1,color:"#16242b"}}>{r?r.name:(l.restaurantName||"Unknown")}</div>
-                  <div style={{fontSize:9,color:"#8a97a0",marginTop:1}}>{new Date(l.ts).toLocaleString("en-GB",{weekday:"short",hour:"2-digit",minute:"2-digit"})+" · "+l.period}</div>
+                  <div style={{...B,fontSize:15,letterSpacing:1,color:"var(--ink)"}}>{r?r.name:(l.restaurantName||"Unknown")}</div>
+                  <div style={{fontSize:9,color:"var(--muted2)",marginTop:1}}>{new Date(l.ts).toLocaleString("en-GB",{weekday:"short",hour:"2-digit",minute:"2-digit"})+" · "+l.period}</div>
                 </div>
                 <div style={{...B,fontSize:22,color:c,letterSpacing:1}}>{l.waitMins}m</div>
               </div>
@@ -1193,20 +1207,20 @@ function ChatScreen({user,onLogout,area}) {
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)"}}>
-      <div style={{padding:"10px 16px",borderBottom:"1px solid #eef1f3",background:"#ffffff",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div style={{padding:"10px 16px",borderBottom:"1px solid var(--border3)",background:"var(--card)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div>
           <div style={{...B,fontSize:24,color:"#00b8a9",letterSpacing:2}}>DRIVER CHAT</div>
-            <div style={{fontSize:9,color:"#8a97a0",letterSpacing:1,marginTop:1}}>{(area||"GENERAL").toUpperCase()} ROOM</div>
+            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:1,marginTop:1}}>{(area||"GENERAL").toUpperCase()} ROOM</div>
           <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
             <div style={{width:6,height:6,borderRadius:"50%",background:ready?"#06c167":"#f5a623",boxShadow:"0 0 6px "+(ready?"#06c167":"#f5a623"),animation:ready?"criticalPulse 2.5s ease-in-out infinite":"none"}}/>
-            <span style={{fontSize:9,color:"#8a97a0",letterSpacing:1}}>{ready?"LIVE · FIREBASE":"CONNECTING..."}</span>
+            <span style={{fontSize:9,color:"var(--muted2)",letterSpacing:1}}>{ready?"LIVE · FIREBASE":"CONNECTING..."}</span>
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:34,height:34,borderRadius:"50%",background:user.color,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px "+user.color+"55"}}>
             <span style={{...B,fontSize:16,color:"#000"}}>{user.initial}</span>
           </div>
-          <button onClick={onLogout} style={{background:"none",border:"1px solid #e9edf0",borderRadius:8,padding:"6px 10px",color:"#8a97a0",cursor:"pointer",fontSize:9,...B,letterSpacing:1}}>OUT</button>
+          <button onClick={onLogout} style={{background:"none",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",color:"var(--muted2)",cursor:"pointer",fontSize:9,...B,letterSpacing:1}}>OUT</button>
         </div>
       </div>
 
@@ -1214,8 +1228,8 @@ function ChatScreen({user,onLogout,area}) {
         {ready&&messages.length===0&&(
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,paddingBottom:40}}>
             <div style={{fontSize:38,opacity:0.2}}>💬</div>
-            <div style={{...B,fontSize:18,color:"#dfe4e8",letterSpacing:2}}>NO MESSAGES YET</div>
-            <div style={{fontSize:10,color:"#e9edf0"}}>BE THE FIRST TO SAY SOMETHING</div>
+            <div style={{...B,fontSize:18,color:"var(--border2)",letterSpacing:2}}>NO MESSAGES YET</div>
+            <div style={{fontSize:10,color:"var(--border)"}}>BE THE FIRST TO SAY SOMETHING</div>
           </div>
         )}
         {!ready&&(
@@ -1232,7 +1246,7 @@ function ChatScreen({user,onLogout,area}) {
               {isFirst&&(
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,...(isMe?{marginRight:4}:{marginLeft:40})}}>
                   {!isMe&&<span style={{fontSize:10,color:m.color,...M,fontWeight:700}}>{m.user}</span>}
-                  <span style={{fontSize:9,color:"#cdd4d9"}}>{fmt(m.ts)}</span>
+                  <span style={{fontSize:9,color:"var(--faint2)"}}>{fmt(m.ts)}</span>
                   {isMe&&<span style={{fontSize:10,color:m.color,...M,fontWeight:700}}>You</span>}
                 </div>
               )}
@@ -1242,8 +1256,8 @@ function ChatScreen({user,onLogout,area}) {
                     {isFirst&&<span style={{...B,fontSize:13,color:"#000"}}>{m.initial}</span>}
                   </div>
                 )}
-                <div style={{maxWidth:"76%",background:isMe?"#00b8a9":"#eef1f3",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"10px 14px",border:isMe?"none":"1px solid #e9edf0",boxShadow:isMe?"0 2px 16px #00b8a928":"none"}}>
-                  <span style={{fontSize:14,...M,color:isMe?"#000":"#16242b",lineHeight:1.55,wordBreak:"break-word"}}>{m.text}</span>
+                <div style={{maxWidth:"76%",background:isMe?"#00b8a9":"var(--border3)",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"10px 14px",border:isMe?"none":"1px solid var(--border)",boxShadow:isMe?"0 2px 16px #00b8a928":"none"}}>
+                  <span style={{fontSize:14,...M,color:isMe?"#000":"var(--ink)",lineHeight:1.55,wordBreak:"break-word"}}>{m.text}</span>
                 </div>
               </div>
             </div>
@@ -1252,19 +1266,19 @@ function ChatScreen({user,onLogout,area}) {
         <div ref={bottomRef}/>
       </div>
 
-      {sendError&&<div style={{padding:"8px 16px",background:"#fdecec",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>Message failed to send — check connection</div>}
-      <div style={{padding:"10px 12px 14px",borderTop:"1px solid #eef1f3",background:"#ffffff",flexShrink:0,display:"flex",gap:10,alignItems:"center"}}>
-        <div style={{flex:1,background:"#eef1f3",border:"1px solid #dfe4e8",borderRadius:24,padding:"11px 18px",display:"flex",alignItems:"center"}}>
+      {sendError&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>Message failed to send — check connection</div>}
+      <div style={{padding:"10px 12px 14px",borderTop:"1px solid var(--border3)",background:"var(--card)",flexShrink:0,display:"flex",gap:10,alignItems:"center"}}>
+        <div style={{flex:1,background:"var(--border3)",border:"1px solid var(--border2)",borderRadius:24,padding:"11px 18px",display:"flex",alignItems:"center"}}>
           <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKey}
             placeholder={ready?"Say something to the group...":"Connecting..."}
             disabled={!ready} maxLength={500}
-            style={{flex:1,background:"none",border:"none",color:"#16242b",fontSize:14,...M,outline:"none",opacity:ready?1:0.4}}
+            style={{flex:1,background:"none",border:"none",color:"var(--ink)",fontSize:14,...M,outline:"none",opacity:ready?1:0.4}}
             onFocus={e=>{e.target.parentElement.style.borderColor="#00b8a9";}}
-            onBlur={e=>{e.target.parentElement.style.borderColor="#dfe4e8";}}
+            onBlur={e=>{e.target.parentElement.style.borderColor="var(--border2)";}}
           />
         </div>
         <button onClick={send} disabled={!input.trim()||!ready}
-          style={{width:46,height:46,borderRadius:"50%",background:input.trim()&&ready?"#00b8a9":"#e9edf0",border:"none",cursor:input.trim()&&ready?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18,boxShadow:input.trim()&&ready?"0 0 20px #00b8a950":"none",transition:"all 0.15s",color:input.trim()&&ready?"#000":"#aab4ba"}}>
+          style={{width:46,height:46,borderRadius:"50%",background:input.trim()&&ready?"#00b8a9":"var(--border)",border:"none",cursor:input.trim()&&ready?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18,boxShadow:input.trim()&&ready?"0 0 20px #00b8a950":"none",transition:"all 0.15s",color:input.trim()&&ready?"#000":"var(--faint)"}}>
           ↑
         </button>
       </div>
@@ -1314,19 +1328,19 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{marginBottom:16}}>
         <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>CHECK RESTAURANT</div>
-        <div style={{fontSize:10,color:"#8a97a0",letterSpacing:1,marginTop:2}}>SEARCH ANY BRANCH · SORTED BY DISTANCE</div>
+        <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>SEARCH ANY BRANCH · SORTED BY DISTANCE</div>
       </div>
       <div style={{position:"relative",marginBottom:14}}>
         <input value={query} onChange={e=>handleInput(e.target.value)} placeholder="e.g. KFC, Sainsbury's, McDonald's..." autoFocus
-          style={{width:"100%",background:"#ffffff",border:"1px solid #00b8a966",borderRadius:12,padding:"14px 18px",color:"#16242b",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
+          style={{width:"100%",background:"var(--card)",border:"1px solid #00b8a966",borderRadius:12,padding:"14px 18px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
           onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="#00b8a966"}/>
         {searching&&<div style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",fontSize:10,color:"#00b8a9",...B,letterSpacing:1}}>SEARCHING...</div>}
       </div>
       {query.trim()&&!searching&&results.length===0&&(
-        <div style={{fontSize:11,color:"#8a97a0",textAlign:"center",padding:"40px 0",...M}}>No results found</div>
+        <div style={{fontSize:11,color:"var(--muted2)",textAlign:"center",padding:"40px 0",...M}}>No results found</div>
       )}
       {!query.trim()&&(
-        <div style={{fontSize:11,color:"#aab4ba",textAlign:"center",padding:"40px 0",...M}}>Type a restaurant or shop name to search all branches near you</div>
+        <div style={{fontSize:11,color:"var(--faint)",textAlign:"center",padding:"40px 0",...M}}>Type a restaurant or shop name to search all branches near you</div>
       )}
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {results.map((r,i)=>{
@@ -1338,31 +1352,31 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
           const hasData=personal||community||recentLogs.length>0;
           const dStr=r.dist!=null?(r.dist<1000?Math.round(r.dist)+"m":(r.dist/1000).toFixed(1)+"km"):null;
           return(
-            <div key={r.id+i} style={{background:"#ffffff",border:"1px solid #e9edf0",borderRadius:12,padding:"14px 16px"}}>
+            <div key={r.id+i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{...B,fontSize:18,color:"#16242b",letterSpacing:1}}>{r.name}</div>
-                  <div style={{fontSize:9,color:"#6b7a82",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}</div>
+                  <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1}}>{r.name}</div>
+                  <div style={{fontSize:9,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}</div>
                 </div>
                 {dStr&&<div style={{...B,fontSize:16,color:"#00b8a9",letterSpacing:1,flexShrink:0,marginLeft:10}}>{dStr}</div>}
               </div>
               {hasData?(
                 <div style={{display:"flex",gap:8}}>
-                  <div style={{flex:1,background:"#eef1f3",border:"1px solid "+(recentLogs.length>0?"#00b8a944":"#e9edf0"),borderRadius:8,padding:"8px",textAlign:"center"}}>
-                    <div style={{...B,fontSize:22,color:recentLogs.length>0?"#00b8a9":"#cdd4d9"}}>{recentLogs.length}</div>
-                    <div style={{fontSize:8,color:"#6b7a82",letterSpacing:1}}>LAST HOUR</div>
+                  <div style={{flex:1,background:"var(--border3)",border:"1px solid "+(recentLogs.length>0?"#00b8a944":"var(--border)"),borderRadius:8,padding:"8px",textAlign:"center"}}>
+                    <div style={{...B,fontSize:22,color:recentLogs.length>0?"#00b8a9":"var(--faint2)"}}>{recentLogs.length}</div>
+                    <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>LAST HOUR</div>
                   </div>
-                  <div style={{flex:1,background:"#e7f7ee",border:"1px solid #06c16722",borderRadius:8,padding:"8px",textAlign:"center"}}>
-                    <div style={{...B,fontSize:22,color:personal?"#06c167":"#cdd4d9"}}>{personal?personal.avg+"m":"—"}</div>
-                    <div style={{fontSize:8,color:"#6b7a82",letterSpacing:1}}>YOUR AVG</div>
+                  <div style={{flex:1,background:"var(--tint-green)",border:"1px solid #06c16722",borderRadius:8,padding:"8px",textAlign:"center"}}>
+                    <div style={{...B,fontSize:22,color:personal?"#06c167":"var(--faint2)"}}>{personal?personal.avg+"m":"—"}</div>
+                    <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>YOUR AVG</div>
                   </div>
-                  <div style={{flex:1,background:"#e8f1ff",border:"1px solid #2b8fff22",borderRadius:8,padding:"8px",textAlign:"center"}}>
-                    <div style={{...B,fontSize:22,color:community?"#2b8fff":"#cdd4d9"}}>{community?community.avg+"m":"—"}</div>
-                    <div style={{fontSize:8,color:"#6b7a82",letterSpacing:1}}>COMMUNITY</div>
+                  <div style={{flex:1,background:"var(--tint-blue)",border:"1px solid #2b8fff22",borderRadius:8,padding:"8px",textAlign:"center"}}>
+                    <div style={{...B,fontSize:22,color:community?"#2b8fff":"var(--faint2)"}}>{community?community.avg+"m":"—"}</div>
+                    <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>COMMUNITY</div>
                   </div>
                 </div>
               ):(
-                <div style={{fontSize:10,color:"#cdd4d9",...M}}>No wait data yet — be the first to log here</div>
+                <div style={{fontSize:10,color:"var(--faint2)",...M}}>No wait data yet — be the first to log here</div>
               )}
             </div>
           );
@@ -1380,14 +1394,14 @@ function BottomNav({screen,onNav,activeWait,unreadChat}) {
     {id:"chat", icon:"💬",label:"CHAT", dot:unreadChat,  dotColor:"#06c167"},
   ];
   return(
-    <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"#ffffff",borderTop:"1px solid #eef1f3",display:"flex",zIndex:200,height:56}}>
+    <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"var(--card)",borderTop:"1px solid var(--border3)",display:"flex",zIndex:200,height:56}}>
       {tabs.map(t=>(
         <button key={t.id} onClick={()=>onNav(t.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"10px 0 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
           <span style={{fontSize:20,position:"relative"}}>
             {t.icon}
             {t.dot&&<span style={{position:"absolute",top:-3,right:-5,width:8,height:8,borderRadius:"50%",background:t.dotColor,boxShadow:"0 0 8px "+t.dotColor,display:"block"}}/>}
           </span>
-          <span style={{...B,fontSize:11,letterSpacing:1,color:t.id===screen?"#00b8a9":"#aab4ba"}}>{t.label}</span>
+          <span style={{...B,fontSize:11,letterSpacing:1,color:t.id===screen?"#00b8a9":"var(--faint)"}}>{t.label}</span>
         </button>
       ))}
     </div>
@@ -1401,7 +1415,17 @@ export default function App() {
   const [screen,setScreen]=useState("waits");
   const [showProfile,setShowProfile]=useState(false);
   const [showUpgrade,setShowUpgrade]=useState(false);
+  const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
   const premium=!!user?.premium;
+
+  // Apply + persist the colour theme
+  useEffect(()=>{
+    document.documentElement.dataset.theme=theme;
+    store.set("delivr_theme",theme);
+    const meta=document.querySelector('meta[name="theme-color"]');
+    if(meta)meta.setAttribute("content",theme==="dark"?"#0e1316":"#ffffff");
+  },[theme]);
+  const toggleTheme=()=>setTheme(t=>t==="dark"?"light":"dark");
   const [now,setNow]      =useState(new Date());
   const [restaurants,setRestaurants]=useState(RESTAURANTS);
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
@@ -1701,8 +1725,22 @@ export default function App() {
   useEffect(()=>()=>{if(autoPickupTimerRef.current)clearTimeout(autoPickupTimerRef.current);},[]);
 
   const CSS=`
+    :root{
+      --bg:#f4f6f8;--card:#ffffff;--ink:#16242b;
+      --muted:#6b7a82;--muted2:#8a97a0;--faint:#aab4ba;--faint2:#cdd4d9;
+      --border:#e9edf0;--border2:#dfe4e8;--border3:#eef1f3;
+      --tint-green:#e7f7ee;--tint-blue:#e8f1ff;--tint-red:#fdecec;
+      --tint-coral:#fff1ec;--tint-coral2:#ffe4d8;--tint-amber:#fff7e0;--tint-teal:#e6faf8;
+    }
+    [data-theme="dark"]{
+      --bg:#0e1316;--card:#192127;--ink:#eaf0f2;
+      --muted:#9aa7af;--muted2:#7d8a92;--faint:#5e6b73;--faint2:#46535b;
+      --border:#28343a;--border2:#313d44;--border3:#222d33;
+      --tint-green:#10291d;--tint-blue:#112338;--tint-red:#2c1517;
+      --tint-coral:#2a1b13;--tint-coral2:#341f14;--tint-amber:#2a2410;--tint-teal:#0d2927;
+    }
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-    html,body{background:#f4f6f8;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+    html,body{background:var(--bg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
     ::-webkit-scrollbar{display:none}
     button{font-family:'Poppins',sans-serif}
     button:active{opacity:0.85;transform:scale(0.98)}
@@ -1742,7 +1780,7 @@ export default function App() {
           {showUpgrade?(
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
           ):showProfile?(
-            <ProfileScreen user={user} waitLog={waitLog} gps={gps} premium={premium}
+            <ProfileScreen user={user} waitLog={waitLog} gps={gps} premium={premium} theme={theme} onToggleTheme={toggleTheme}
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
               onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}/>
           ):screen==="waits"?(
