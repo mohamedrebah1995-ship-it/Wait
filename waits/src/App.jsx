@@ -13,7 +13,7 @@ import {
   reauthenticateWithCredential,
 } from "firebase/auth";
 import {
-  doc, setDoc, getDoc, updateDoc,
+  doc, setDoc, getDoc, updateDoc, deleteDoc,
   collection, addDoc, query, where, orderBy, limitToLast,
   onSnapshot, getDocs, serverTimestamp,
 } from "firebase/firestore";
@@ -90,7 +90,7 @@ function buildRestaurantList(places) {
   const seed = CURATED.map(c => {
     // nearest Google branch for this chain (places already sorted by distance)
     const m = places.find(p => { const n=(p.name||"").toLowerCase(); return c.keys.some(k=>n.includes(k)); });
-    return m ? { ...c, id:m.id, branchLat:m.branchLat, branchLng:m.branchLng, address:m.address } : c;
+    return m ? { ...c, id:m.id, branchLat:m.branchLat, branchLng:m.branchLng, address:m.address, openNow:m.openNow } : c;
   });
   const extras = places.filter(p => !matchesCurated(p));
   return [...seed, ...extras];
@@ -220,7 +220,7 @@ async function fetchNearbyRestaurants(lat,lng) {
   try{
     const res=await fetch("https://places.googleapis.com/v1/places:searchNearby",{
       method:"POST",
-      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.types"},
+      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.types,places.currentOpeningHours,places.businessStatus"},
       body:JSON.stringify({
         includedTypes:["restaurant","fast_food_restaurant","cafe","bakery","meal_takeaway","sandwich_shop","pizza_restaurant","coffee_shop","supermarket","convenience_store","grocery_store"],
         maxResultCount:20,
@@ -237,7 +237,9 @@ async function fetchNearbyRestaurants(lat,lng) {
       else if(types.some(t=>["cafe","coffee_shop","bakery"].includes(t))){baseWait=4;rel=0.85;label="Quick grab";}
       else if(types.includes("pizza_restaurant")){baseWait=10;rel=0.68;label="Variable";}
       else if(types.some(t=>["supermarket","convenience_store","grocery_store"].includes(t))){baseWait=5;rel=0.82;label="Usually quick";}
-      return{id:p.id,name:p.displayName?.text||"Unknown",branchLat:p.location.latitude,branchLng:p.location.longitude,baseWait,rel,label};
+      // openNow: true/false from Google; undefined when Google has no hours data
+      const openNow=p.businessStatus&&p.businessStatus!=="OPERATIONAL"?false:p.currentOpeningHours?.openNow;
+      return{id:p.id,name:p.displayName?.text||"Unknown",branchLat:p.location.latitude,branchLng:p.location.longitude,baseWait,rel,label,openNow};
     });
   }catch(e){return[];}
 }
@@ -269,7 +271,7 @@ async function searchRestaurants(query,lat,lng) {
     if(lat!=null&&lng!=null)body.locationBias={circle:{center:{latitude:lat,longitude:lng},radius:50000}};
     const res=await fetch("https://places.googleapis.com/v1/places:searchText",{
       method:"POST",
-      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.formattedAddress"},
+      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.formattedAddress,places.currentOpeningHours,places.businessStatus"},
       body:JSON.stringify(body),
     });
     const g=await res.json();
@@ -280,6 +282,7 @@ async function searchRestaurants(query,lat,lng) {
       address:p.formattedAddress||"",
       branchLat:p.location.latitude,
       branchLng:p.location.longitude,
+      openNow:p.businessStatus&&p.businessStatus!=="OPERATIONAL"?false:p.currentOpeningHours?.openNow,
       baseWait:10,rel:0.70,label:"",
     }));
   }catch(e){console.error("searchRestaurants error:",e);return[];}
@@ -1019,7 +1022,7 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,premium,manualVoted,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,premium,manualVoted,activeCounts,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -1176,45 +1179,61 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
           const community=getCommunityWait(r.id,now,communityPatterns);
           const usePersonal=personal?.hasEnough;
           const useCommunity=!usePersonal&&community!=null;
-          const displayWait=usePersonal?personal.avg:useCommunity?community.avg:Math.round(r.baseWait/r.rel);
-          const dataSource=usePersonal?"YOUR DATA":useCommunity?"COMMUNITY":"EST.";
-          const riskColor=displayWait>18?"#ef4444":displayWait>10?"#f5a623":"#06c167";
-          const riskLabel=displayWait>18?"HIGH RISK":displayWait>10?"MODERATE":"LOW RISK";
+          const hasReal=usePersonal||useCommunity;
+          const realAvg=usePersonal?personal.avg:useCommunity?community.avg:null;  // real data only — no guessing
+          const dataSource=usePersonal?"YOUR DATA":useCommunity?"COMMUNITY":null;
+          const closed=r.openNow===false;
+          const waitingNow=activeCounts[r.id]||0;
+          const riskColor=realAvg==null?"var(--muted)":realAvg>18?"#ef4444":realAvg>10?"#f5a623":"#06c167";
+          const riskLabel=realAvg==null?null:realAvg>18?"HIGH RISK":realAvg>10?"MODERATE":"LOW RISK";
           const isActive=activeWait?.restaurantId===r.id;
           const myLogs=waitLog.filter(l=>l.restaurantId===r.id);
           const d=distMap[r.id];
           const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
           const isChecking=checkingId===r.id;
           const hasError=arrivalError?.restaurantId===r.id;
+          const borderCol=closed?"var(--border)":isActive?"#00b8a9":hasReal?riskColor+"33":"var(--border)";
 
           return(
             <Fragment key={r.id}>
             {!premium&&idx===6&&<AdBanner premium={premium}/>}
-            <div onClick={()=>setSelectedRestaurant(r)} style={{background:isActive?"var(--tint-teal)":"var(--card)",borderRadius:12,border:"1px solid "+(isActive?"#00b8a9":riskColor+"33"),padding:"14px 16px",cursor:"pointer"}}>
+            <div onClick={()=>setSelectedRestaurant(r)} style={{background:isActive?"var(--tint-teal)":"var(--card)",borderRadius:12,border:"1px solid "+borderCol,padding:"14px 16px",cursor:"pointer",opacity:closed?0.72:1}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{...B,fontSize:19,letterSpacing:1,color:"var(--ink)"}}>
                     {r.name}
                     {dStr&&<span style={{fontSize:10,color:"#00b8a9",marginLeft:8,...M,fontWeight:400}}>{dStr}</span>}
                   </div>
-                  <div style={{fontSize:9,color:"var(--muted)",marginTop:2}}>{r.label}</div>
+                  <div style={{fontSize:9,marginTop:2}}>
+                    {waitingNow>0
+                      ? <span style={{color:"#06c167",fontWeight:700}}>🟢 {waitingNow} waiting now</span>
+                      : <span style={{color:"var(--muted)"}}>{closed?"Closed right now":"No one waiting now"}</span>}
+                  </div>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
-                  <div style={{...B,fontSize:34,color:riskColor,letterSpacing:1,lineHeight:1}}>{displayWait}m</div>
-                  <div style={{fontSize:9,color:"var(--muted2)",marginTop:1}}>{dataSource}</div>
+                  {closed?(
+                    <div style={{...B,fontSize:20,color:"var(--muted2)",letterSpacing:1}}>CLOSED</div>
+                  ):hasReal?(<>
+                    <div style={{...B,fontSize:34,color:riskColor,letterSpacing:1,lineHeight:1}}>{realAvg}m</div>
+                    <div style={{fontSize:9,color:"var(--muted2)",marginTop:1}}>{dataSource}</div>
+                  </>):(
+                    <div style={{...B,fontSize:15,color:"var(--faint)",letterSpacing:1}}>NO DATA YET</div>
+                  )}
                 </div>
               </div>
-              <div style={{background:"var(--border)",borderRadius:4,height:4,marginBottom:10,overflow:"hidden"}}>
-                <div style={{height:4,borderRadius:4,width:Math.min(100,(displayWait/40)*100)+"%",background:riskColor}}/>
-              </div>
-              <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+              {hasReal&&!closed&&(
+                <div style={{background:"var(--border)",borderRadius:4,height:4,marginBottom:10,overflow:"hidden"}}>
+                  <div style={{height:4,borderRadius:4,width:Math.min(100,(realAvg/40)*100)+"%",background:riskColor}}/>
+                </div>
+              )}
+              <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",marginTop:hasReal&&!closed?0:8}}>
                 {usePersonal?(
                   <div style={{flex:1,minWidth:80,background:"var(--tint-green)",border:"1px solid #06c16733",borderRadius:8,padding:"7px 10px"}}>
                     <div style={{fontSize:8,color:"#06c167",letterSpacing:2,marginBottom:2}}>YOUR DATA</div>
                     <div style={{...B,fontSize:17,color:"#06c167",letterSpacing:1}}>{personal.avg}m</div>
                     <div style={{fontSize:8,color:"#0a8f4f",marginTop:1}}>{personal.bucketCount}v · {personal.context}</div>
                   </div>
-                ):personal&&!personal.hasEnough?(
+                ):personal?(
                   <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid #00b8a933",borderRadius:8,padding:"7px 10px"}}>
                     <div style={{fontSize:8,color:"#00b8a9",letterSpacing:2,marginBottom:2}}>YOUR DATA</div>
                     <div style={{...B,fontSize:17,color:"#00b8a9",letterSpacing:1}}>{personal.avg}m</div>
@@ -1238,14 +1257,20 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
                     <div style={{...B,fontSize:14,color:"var(--border)",letterSpacing:1}}>NO DATA</div>
                   </div>
                 )}
-                <div style={{minWidth:72,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"7px 10px"}}>
-                  <div style={{fontSize:8,color:"var(--faint)",letterSpacing:2,marginBottom:2}}>DATABASE</div>
-                  <div style={{...B,fontSize:17,color:"var(--muted)",letterSpacing:1}}>{r.baseWait}m</div>
-                  <div style={{fontSize:8,color:"var(--faint2)",marginTop:1}}>{Math.round(r.rel*100)}% rel.</div>
+                <div style={{minWidth:72,background:waitingNow>0?"var(--tint-green)":"var(--card)",border:"1px solid "+(waitingNow>0?"#06c16744":"var(--border)"),borderRadius:8,padding:"7px 10px"}}>
+                  <div style={{fontSize:8,color:waitingNow>0?"#06c167":"var(--faint)",letterSpacing:2,marginBottom:2}}>WAITING NOW</div>
+                  <div style={{...B,fontSize:17,color:waitingNow>0?"#06c167":"var(--faint2)",letterSpacing:1}}>{waitingNow}</div>
+                  <div style={{fontSize:8,color:waitingNow>0?"#0a8f4f":"var(--faint2)",marginTop:1}}>live now</div>
                 </div>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:9,background:riskColor+"22",color:riskColor,border:"1px solid "+riskColor+"44",borderRadius:5,padding:"3px 8px"}}>{riskLabel}</span>
+                {closed?(
+                  <span style={{fontSize:9,background:"var(--border)",color:"var(--muted2)",border:"1px solid var(--faint2)",borderRadius:5,padding:"3px 8px"}}>CLOSED</span>
+                ):riskLabel?(
+                  <span style={{fontSize:9,background:riskColor+"22",color:riskColor,border:"1px solid "+riskColor+"44",borderRadius:5,padding:"3px 8px"}}>{riskLabel}</span>
+                ):(
+                  <span style={{fontSize:9,background:"var(--border)",color:"var(--muted2)",border:"1px solid var(--border)",borderRadius:5,padding:"3px 8px"}}>NO DATA YET</span>
+                )}
                 {myLogs.length>0&&<span style={{fontSize:9,color:"var(--muted2)"}}>{myLogs.length+" visit"+(myLogs.length!==1?"s":"")}</span>}
                 {!isActive&&<button onClick={e=>{e.stopPropagation();onArrived(r);}} disabled={isChecking} style={{marginLeft:"auto",background:isChecking?"var(--tint-coral)":hasError?"var(--tint-red)":"#00b8a9",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"ARRIVED"}</button>}
                 {isActive&&<span style={{marginLeft:"auto",fontSize:10,...B,color:"#00b8a9",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>● TIMING NOW</span>}
@@ -1402,7 +1427,7 @@ function ChatScreen({user,onLogout,area}) {
 }
 
 // ── CHECK SCREEN ─────────────────────────────────────────────────────────────
-function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gps}) {
+function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gps,activeCounts}) {
   const [query,setQuery]=useState("");
   const [results,setResults]=useState([]);
   const [searching,setSearching]=useState(false);
@@ -1464,26 +1489,35 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
           const personal=getPersonalWait(lid,now,waitLog);
           const community=getCommunityWait(lid,now,communityPatterns);
           const recentLogs=logsLastHour(lid);
-          const hasData=personal||community||recentLogs.length>0;
+          const waitingNow=activeCounts?.[lid]||0;
+          const closed=r.openNow===false;
+          const hasData=personal||community||recentLogs.length>0||waitingNow>0;
           const dStr=r.dist!=null?(r.dist<1000?Math.round(r.dist)+"m":(r.dist/1000).toFixed(1)+"km"):null;
           return(
-            <div key={r.id+i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px"}}>
+            <div key={r.id+i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",opacity:closed?0.72:1}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1}}>{r.name}</div>
                   <div style={{fontSize:9,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}</div>
+                  <div style={{fontSize:9,marginTop:3}}>
+                    {closed
+                      ? <span style={{color:"var(--muted2)",fontWeight:700}}>● CLOSED right now</span>
+                      : waitingNow>0
+                        ? <span style={{color:"#06c167",fontWeight:700}}>🟢 {waitingNow} waiting now</span>
+                        : <span style={{color:"var(--muted)"}}>No one waiting now</span>}
+                  </div>
                 </div>
                 {dStr&&<div style={{...B,fontSize:16,color:"#00b8a9",letterSpacing:1,flexShrink:0,marginLeft:10}}>{dStr}</div>}
               </div>
-              {hasData?(
+              {closed?null:hasData?(
                 <div style={{display:"flex",gap:8}}>
+                  <div style={{flex:1,background:waitingNow>0?"var(--tint-green)":"var(--border3)",border:"1px solid "+(waitingNow>0?"#06c16744":"var(--border)"),borderRadius:8,padding:"8px",textAlign:"center"}}>
+                    <div style={{...B,fontSize:22,color:waitingNow>0?"#06c167":"var(--faint2)"}}>{waitingNow}</div>
+                    <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>WAITING NOW</div>
+                  </div>
                   <div style={{flex:1,background:"var(--border3)",border:"1px solid "+(recentLogs.length>0?"#00b8a944":"var(--border)"),borderRadius:8,padding:"8px",textAlign:"center"}}>
                     <div style={{...B,fontSize:22,color:recentLogs.length>0?"#00b8a9":"var(--faint2)"}}>{recentLogs.length}</div>
                     <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>LAST HOUR</div>
-                  </div>
-                  <div style={{flex:1,background:"var(--tint-green)",border:"1px solid #06c16722",borderRadius:8,padding:"8px",textAlign:"center"}}>
-                    <div style={{...B,fontSize:22,color:personal?"#06c167":"var(--faint2)"}}>{personal?personal.avg+"m":"—"}</div>
-                    <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>YOUR AVG</div>
                   </div>
                   <div style={{flex:1,background:"var(--tint-blue)",border:"1px solid #2b8fff22",borderRadius:8,padding:"8px",textAlign:"center"}}>
                     <div style={{...B,fontSize:22,color:community?"#2b8fff":"var(--faint2)"}}>{community?community.avg+"m":"—"}</div>
@@ -1554,6 +1588,7 @@ export default function App() {
   const [arrivalError,setArrivalError]=useState(null);
   const [pinnedLocations,setPinnedLocations]=useState({});
   const [manualVoted,setManualVoted]=useState(null);
+  const [activeCounts,setActiveCounts]=useState({});  // restaurantId → # drivers waiting now
   const lastFetchRef=useRef({lat:null,lng:null});
   const autoPickupTimerRef=useRef(null);
   const handlePickedUpRef=useRef(null);
@@ -1603,6 +1638,22 @@ export default function App() {
     const unsub=onSnapshot(collection(db,"restaurantLocations"),snap=>{
       const m={};snap.docs.forEach(d=>{m[d.id]=d.data();});
       setPinnedLocations(m);
+    },()=>{});
+    return unsub;
+  },[]);
+
+  // Live listener for who's waiting right now (real-time presence)
+  useEffect(()=>{
+    const unsub=onSnapshot(collection(db,"activeWaits"),snap=>{
+      const cutoff=Date.now()-60*60*1000; // ignore stale (>60min) entries
+      const counts={};
+      snap.docs.forEach(d=>{
+        const w=d.data();
+        if(w.restaurantId&&new Date(w.startedAt).getTime()>cutoff){
+          counts[w.restaurantId]=(counts[w.restaurantId]||0)+1;
+        }
+      });
+      setActiveCounts(counts);
     },()=>{});
     return unsub;
   },[]);
@@ -1740,6 +1791,8 @@ export default function App() {
     }
     const a={restaurantId,restaurantName:restaurant.name,startedAt:new Date().toISOString()};
     setActiveWait(a);store.set("delivr_activewait",a);
+    // Add to live "waiting now" presence list
+    try{ await setDoc(doc(db,"activeWaits",auth.currentUser.uid),{restaurantId,restaurantName:restaurant.name,startedAt:a.startedAt,username:user?.name||"anon"}); }catch(e){}
     return true;
   }
 
@@ -1809,6 +1862,8 @@ export default function App() {
     const newLog=[...waitLog,entry];
     setWaitLog(newLog);store.set("delivr_waitlog",newLog);
     setActiveWait(null);store.set("delivr_activewait",null);
+    // Remove from live "waiting now" presence list
+    try{ await deleteDoc(doc(db,"activeWaits",auth.currentUser.uid)); }catch(e){}
     // Write to Firestore — triggers live pattern update for all drivers
     try{
       await addDoc(collection(db,"waitLogs"),{...entry,username:user?.name||"anon"});
@@ -1817,7 +1872,10 @@ export default function App() {
 
   handlePickedUpRef.current=handlePickedUp;
 
-  function handleCancelWait(){setActiveWait(null);store.set("delivr_activewait",null);}
+  function handleCancelWait(){
+    setActiveWait(null);store.set("delivr_activewait",null);
+    try{ deleteDoc(doc(db,"activeWaits",auth.currentUser.uid)); }catch(e){}
+  }
 
   // Auto-trigger PICKED UP when driver moves >30m from restaurant and stays away 20s
   useEffect(()=>{
@@ -1907,10 +1965,10 @@ export default function App() {
               onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted}
+              communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts}
               onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
-            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps}/>
+            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts}/>
           ):(
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"}/>
           )}
