@@ -16,9 +16,10 @@ const PROD       = process.env.NODE_ENV === 'production';
 const DB_PATH    = process.env.DB_PATH || './delivr-db.json';
 const BREVO_KEY  = process.env.BREVO_KEY  || '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';
 const BREVO_FROM = process.env.BREVO_FROM || 'mohamedrebah1995@gmail.com';
-const STRIPE_SECRET = process.env.STRIPE_SECRET || '';
-const STRIPE_PRICE  = process.env.STRIPE_PRICE  || '';   // price_... for £4.99/mo
-const APP_URL       = process.env.APP_URL       || 'https://drivers-eyes.web.app';
+// .trim() guards against trailing newlines/spaces accidentally pasted into env vars
+const STRIPE_SECRET = (process.env.STRIPE_SECRET || '').trim();
+const STRIPE_PRICE  = (process.env.STRIPE_PRICE  || '').trim();   // price_... for £4.99/mo
+const APP_URL       = (process.env.APP_URL       || 'https://drivers-eyes.web.app').trim();
 const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
 
 // ── Persistence ───────────────────────────────────────────────────────────────
