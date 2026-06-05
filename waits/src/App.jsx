@@ -104,6 +104,18 @@ async function buildRestaurantList(places, lat, lng) {
   return [...seed, ...extras];
 }
 
+// ── Aggregation key ───────────────────────────────────────────────────────────
+// All logs for the same chain share one key (e.g. every "KFC" → "kfc"), so logs
+// scattered across old static ids and new Google place ids merge back together.
+function chainKeyFromName(name){
+  if(!name)return null;
+  const n=name.toLowerCase();
+  const c=CURATED.find(c=>c.keys.some(k=>n.includes(k)));
+  return c?c.id:null;
+}
+function logKey(l){ return chainKeyFromName(l.restaurantName)||l.restaurantId; }   // for a stored log
+function cardKey(r){ return chainKeyFromName(r.name)||r.id; }                       // for a restaurant card
+
 const AVATAR_COLORS = ["#00b8a9","#06c167","#ff5a2d","#2b8fff","#f5a623","#a855f7","#ef4444","#ec4899"];
 const B = { fontFamily:"'Poppins',sans-serif" };
 const M = { fontFamily:"'Nunito',sans-serif" };
@@ -166,7 +178,8 @@ function bucketStats(logs) {
 function computePatterns(logs) {
   const byRest = {};
   for (const log of logs) {
-    (byRest[log.restaurantId] = byRest[log.restaurantId] || []).push(log);
+    const key = logKey(log);                       // group by chain so logs merge
+    (byRest[key] = byRest[key] || []).push(log);
   }
   const patterns = {};
   for (const [restId, rl] of Object.entries(byRest)) {
@@ -307,7 +320,7 @@ async function searchRestaurants(query,lat,lng) {
 
 function getPersonalWait(restId,now,waitLog) {
   const h=now.getHours(),dow=now.getDay(),per=timePeriod(h);
-  const logs=waitLog.filter(l=>l.restaurantId===restId);
+  const logs=waitLog.filter(l=>logKey(l)===restId);
   if(!logs.length)return null;
   const sameDayPer=logs.filter(l=>l.dow===dow&&l.period===per);
   const samePer=logs.filter(l=>l.period===per);
@@ -968,20 +981,22 @@ function VerifyCodeScreen({email,onVerified,onBack}) {
 
 // ── RESTAURANT DETAIL ─────────────────────────────────────────────────────────
 function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingId,arrivalError,activeWait,manualVoted,onArrived,onManualArrive,onBack}) {
-  const personal=getPersonalWait(r.id,now,waitLog);
-  const community=getCommunityWait(r.id,now,communityPatterns);
+  const ck=cardKey(r);
+  const personal=getPersonalWait(ck,now,waitLog);
+  const community=getCommunityWait(ck,now,communityPatterns);
   const usePersonal=personal?.hasEnough;
   const useCommunity=!usePersonal&&community!=null;
-  const displayWait=usePersonal?personal.avg:useCommunity?community.avg:Math.round(r.baseWait/r.rel);
-  const riskColor=displayWait>18?"#ef4444":displayWait>10?"#f5a623":"#06c167";
+  const hasReal=usePersonal||useCommunity;
+  const displayWait=usePersonal?personal.avg:useCommunity?community.avg:null;
+  const riskColor=displayWait==null?"var(--muted)":displayWait>18?"#ef4444":displayWait>10?"#f5a623":"#06c167";
   const d=distMap[r.id];
   const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
   const isChecking=checkingId===r.id;
   const hasError=arrivalError?.restaurantId===r.id;
   const isActive=activeWait?.restaurantId===r.id;
-  const myLogs=waitLog.filter(l=>l.restaurantId===r.id);
+  const myLogs=waitLog.filter(l=>logKey(l)===ck);
   const periods=["early morning","morning","lunch","afternoon","evening","late night"];
-  const p=communityPatterns[r.id];
+  const p=communityPatterns[ck];
   // Manual Arrive: enabled only within 300m of the restaurant's pinned location
   const manualDist=gps?.status==="active"&&gps.lat!=null?distMeters(gps.lat,gps.lng,r.branchLat??r.lat,r.branchLng??r.lng):null;
   const within300=manualDist!=null&&manualDist<=300;
@@ -996,8 +1011,14 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
           <div style={{fontSize:9,color:"var(--muted)",marginTop:2}}>{r.label}{dStr&&<span style={{color:"#00b8a9"}}>{" · "+dStr+" away"}</span>}</div>
         </div>
         <div style={{textAlign:"right"}}>
-          <div style={{...B,fontSize:38,color:riskColor,letterSpacing:1,lineHeight:1}}>{displayWait}m</div>
-          <div style={{fontSize:9,color:"var(--muted2)"}}>EST. WAIT</div>
+          {r.openNow===false?(
+            <div style={{...B,fontSize:22,color:"var(--muted2)",letterSpacing:1}}>CLOSED</div>
+          ):displayWait!=null?(<>
+            <div style={{...B,fontSize:38,color:riskColor,letterSpacing:1,lineHeight:1}}>{displayWait}m</div>
+            <div style={{fontSize:9,color:"var(--muted2)"}}>{usePersonal?"YOUR AVG":"COMMUNITY"}</div>
+          </>):(
+            <div style={{...B,fontSize:15,color:"var(--faint)",letterSpacing:1}}>NO DATA YET</div>
+          )}
         </div>
       </div>
 
@@ -1020,7 +1041,7 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
 
       {/* Typical wait predicted for right now (this day + hour) */}
       {(()=>{
-        const pred=predictWait(r.id,now.getDay(),now.getHours(),communityPatterns);
+        const pred=predictWait(ck,now.getDay(),now.getHours(),communityPatterns);
         if(!pred)return null;
         const c=pred.avg>18?"#ef4444":pred.avg>10?"#f5a623":"#06c167";
         return(
@@ -1164,7 +1185,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
   // Sort: active wait pinned top → fixed priority chains (in order) → nearest → busiest → estimate
   const PRIORITY=[["mcdonald"],["kfc"],["nando"],["wagamama"],["pizza express","pizzaexpress"],["zizzi"],["coco di mama","cocodimama"],["sainsbury"]];
   const prio=r=>{const n=(r.name||"").toLowerCase();const i=PRIORITY.findIndex(keys=>keys.some(k=>n.includes(k)));return i===-1?999:i;};
-  const logCount=r=>communityPatterns[r.id]?.overall?.count||0;
+  const logCount=r=>communityPatterns[cardKey(r)]?.overall?.count||0;
   const sorted=restaurants.slice().sort((a,b)=>{
     if(activeWait?.restaurantId===a.id)return -1;
     if(activeWait?.restaurantId===b.id)return 1;
@@ -1297,19 +1318,20 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
 
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {sorted.map((r,idx)=>{
-          const personal=getPersonalWait(r.id,now,waitLog);
-          const community=getCommunityWait(r.id,now,communityPatterns);
+          const ck=cardKey(r);
+          const personal=getPersonalWait(ck,now,waitLog);
+          const community=getCommunityWait(ck,now,communityPatterns);
           const usePersonal=personal?.hasEnough;
           const useCommunity=!usePersonal&&community!=null;
           const hasReal=usePersonal||useCommunity;
           const realAvg=usePersonal?personal.avg:useCommunity?community.avg:null;  // real data only — no guessing
           const dataSource=usePersonal?"YOUR DATA":useCommunity?"COMMUNITY":null;
           const closed=r.openNow===false;
-          const waitingNow=activeCounts[r.id]||0;
+          const waitingNow=activeCounts[ck]||0;
           const riskColor=realAvg==null?"var(--muted)":realAvg>18?"#ef4444":realAvg>10?"#f5a623":"#06c167";
           const riskLabel=realAvg==null?null:realAvg>18?"HIGH RISK":realAvg>10?"MODERATE":"LOW RISK";
           const isActive=activeWait?.restaurantId===r.id;
-          const myLogs=waitLog.filter(l=>l.restaurantId===r.id);
+          const myLogs=waitLog.filter(l=>logKey(l)===ck);
           const d=distMap[r.id];
           const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
           const isChecking=checkingId===r.id;
@@ -1583,7 +1605,7 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
 
   function logsLastHour(restId){
     const cutoff=Date.now()-60*60*1000;
-    return communityLogs.filter(l=>l.restaurantId===restId&&new Date(l.ts).getTime()>cutoff);
+    return communityLogs.filter(l=>logKey(l)===restId&&new Date(l.ts).getTime()>cutoff);
   }
 
   return(
@@ -1606,8 +1628,8 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
       )}
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {results.map((r,i)=>{
-          // Use the Google place id directly — same id all drivers log against
-          const lid=r.id;
+          // Chain key — merges all logs for the same chain (matches the waits screen)
+          const lid=cardKey(r);
           const personal=getPersonalWait(lid,now,waitLog);
           const community=getCommunityWait(lid,now,communityPatterns);
           const recentLogs=logsLastHour(lid);
@@ -1667,10 +1689,10 @@ function StatsScreen({communityLogs,communityPatterns,activeCounts,onBack}) {
   const waitingNow=Object.values(activeCounts||{}).reduce((s,n)=>s+n,0);
   const avgAll=totalLogs?Math.round(communityLogs.reduce((s,l)=>s+l.waitMins,0)/totalLogs*10)/10:0;
 
-  // aggregate per restaurant from raw logs
+  // aggregate per chain from raw logs (same key as the rest of the app)
   const byRest={};
   communityLogs.forEach(l=>{
-    const k=l.restaurantId;if(!k)return;
+    const k=logKey(l);if(!k)return;
     (byRest[k]=byRest[k]||{count:0,sum:0,name:l.restaurantName||k}).count++;
     byRest[k].sum+=l.waitMins;
     if(l.restaurantName)byRest[k].name=l.restaurantName;
@@ -1836,7 +1858,8 @@ export default function App() {
       snap.docs.forEach(d=>{
         const w=d.data();
         if(w.restaurantId&&new Date(w.startedAt).getTime()>cutoff){
-          counts[w.restaurantId]=(counts[w.restaurantId]||0)+1;
+          const k=logKey(w);
+          counts[k]=(counts[k]||0)+1;
           list.push(w);
         }
       });
