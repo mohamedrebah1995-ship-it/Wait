@@ -549,6 +549,10 @@ function ProfileScreen({user,waitLog,gps,premium,onBack,onLogout,onSave,onUpgrad
         style={{width:"100%",minHeight:52,background:"none",border:"1px solid #2a2a2a",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"#444",cursor:"pointer"}}>
         SIGN OUT
       </button>
+
+      <div style={{textAlign:"center",marginTop:18}}>
+        <a href="/privacy.html" style={{fontSize:10,...M,color:"#444",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>
+      </div>
     </div>
   );
 }
@@ -679,6 +683,9 @@ function LoginScreen({onLogin,onRegistered}) {
           {loading?"LOADING...":(mode==="login"?"SIGN IN →":"CREATE ACCOUNT →")}
         </button>
       </form>
+      <div style={{textAlign:"center",marginTop:28}}>
+        <a href="/privacy.html" style={{fontSize:10,...M,color:"#444",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>
+      </div>
     </div>
   );
 }
