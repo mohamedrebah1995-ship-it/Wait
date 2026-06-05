@@ -119,6 +119,35 @@ function chainKeyFromName(name){
 function logKey(l){ return chainKeyFromName(l.restaurantName)||l.restaurantId; }   // for a stored log
 function cardKey(r){ return chainKeyFromName(r.name)||r.id; }                       // for a restaurant card
 
+// ── Contributor badges ────────────────────────────────────────────────────────
+const BADGE_TIERS = [
+  { min:1000, emoji:"👑", label:"Legend" },
+  { min:500,  emoji:"🔥", label:"Elite" },
+  { min:100,  emoji:"🏅", label:"Pro" },
+  { min:50,   emoji:"🥈", label:"Regular" },
+  { min:10,   emoji:"🥉", label:"Starter" },
+];
+const QUALITY_MIN_WAIT = 0.5;  // minutes — instant arrive→collect (<30s) doesn't count
+const DAILY_CAP = 15;          // max logs counted per driver per day (anti-spam)
+function badgeFor(count){ return BADGE_TIERS.find(t=>count>=t.min)||null; }
+function nextTier(count){ const sorted=[...BADGE_TIERS].sort((a,b)=>a.min-b.min); return sorted.find(t=>count<t.min)||null; }
+// username → counted quality logs (per-day capped) used for badges & leaderboard
+function computeContributions(logs){
+  const perUserDay={};
+  for(const l of logs){
+    if((l.waitMins||0)<QUALITY_MIN_WAIT)continue;        // skip junk/instant logs
+    const u=l.username||"anon";
+    const day=(l.ts||"").slice(0,10);
+    (perUserDay[u]=perUserDay[u]||{});
+    perUserDay[u][day]=(perUserDay[u][day]||0)+1;
+  }
+  const counts={};
+  for(const [u,days] of Object.entries(perUserDay)){
+    counts[u]=Object.values(days).reduce((s,n)=>s+Math.min(n,DAILY_CAP),0);
+  }
+  return counts;
+}
+
 const AVATAR_COLORS = ["#00b8a9","#06c167","#ff5a2d","#2b8fff","#f5a623","#a855f7","#ef4444","#ec4899"];
 const B = { fontFamily:"'Poppins',sans-serif" };
 const M = { fontFamily:"'Nunito',sans-serif" };
@@ -519,7 +548,7 @@ function GPSGateScreen({status,onRetry}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats}) {
+function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,contribCount}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -596,11 +625,42 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
       </button>
 
       {/* Stats */}
-      <div style={{display:"flex",gap:8,marginBottom:20}}>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
         {stat(totalLogs,"TOTAL LOGS")}
         {stat(totalRestaurants,"RESTAURANTS")}
         {stat(avgWait+"m","AVG WAIT")}
       </div>
+
+      {/* Contributor badge + progress */}
+      {(()=>{
+        const c=contribCount||0;
+        const bg=badgeFor(c);
+        const nx=nextTier(c);
+        const prevMin=bg?bg.min:0;
+        const pct=nx?Math.min(100,Math.round((c-prevMin)/(nx.min-prevMin)*100)):100;
+        return(
+          <div style={{background:"linear-gradient(135deg,var(--tint-amber),var(--tint-coral))",border:"1px solid #f5a62344",borderRadius:14,padding:"16px",marginBottom:20}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:nx?10:0}}>
+              <div>
+                <div style={{fontSize:9,color:"var(--muted)",letterSpacing:2,marginBottom:3}}>CONTRIBUTOR RANK</div>
+                <div style={{...B,fontSize:20,color:"var(--ink)",letterSpacing:1}}>{bg?bg.emoji+" "+bg.label.toUpperCase():"NO BADGE YET"}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{...B,fontSize:24,color:"#f5a623"}}>{c}</div>
+                <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>QUALITY LOGS</div>
+              </div>
+            </div>
+            {nx&&(
+              <>
+                <div style={{background:"var(--border)",borderRadius:4,height:6,overflow:"hidden",marginBottom:5}}>
+                  <div style={{height:6,borderRadius:4,width:pct+"%",background:"#f5a623"}}/>
+                </div>
+                <div style={{fontSize:10,...M,color:"var(--muted)"}}>{nx.min-c} more to {nx.emoji} {nx.label}</div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Edit fields */}
       <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
@@ -1133,7 +1193,7 @@ function relTime(ts){
   const h=Math.floor(m/60); if(h<24)return h+"h ago";
   return Math.floor(h/24)+"d ago";
 }
-function LiveFeed({activeWaitsList,communityLogs}) {
+function LiveFeed({activeWaitsList,communityLogs,contribCounts}) {
   const [,tick]=useState(0);
   useEffect(()=>{const id=setInterval(()=>tick(x=>x+1),30000);return ()=>clearInterval(id);},[]); // refresh relative times
   const cutoff=Date.now()-3*60*60*1000;
@@ -1154,7 +1214,7 @@ function LiveFeed({activeWaitsList,communityLogs}) {
           <div key={i} style={{display:"flex",alignItems:"center",gap:9,fontSize:12,...M}}>
             <span style={{fontSize:14}}>{e.kind==="arrived"?"🟢":"✅"}</span>
             <span style={{color:"var(--ink)",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              <b style={{fontWeight:700}}>{e.user}</b>
+              <b style={{fontWeight:700}}>{e.user}</b>{(()=>{const bg=badgeFor(contribCounts?.[e.user]||0);return bg?<span style={{marginLeft:2}}>{bg.emoji}</span>:null;})()}
               {e.kind==="arrived"?" arrived at ":" picked up at "}
               <b style={{fontWeight:700}}>{e.rest}</b>
               {e.kind==="picked"&&e.waitMins!=null&&<span style={{color:"#06c167"}}>{" · "+e.waitMins}m</span>}
@@ -1168,7 +1228,7 @@ function LiveFeed({activeWaitsList,communityLogs}) {
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,activeWaitsList,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,activeWaitsList,contribCounts,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -1298,7 +1358,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
         </div>
       )}
 
-      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs}/>
+      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs} contribCounts={contribCounts}/>
 
       {activeWait?(
         <div style={{background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
@@ -1453,7 +1513,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
 }
 
 // ── CHAT SCREEN (Firestore real-time) ─────────────────────────────────────────
-function ChatScreen({user,onLogout,area}) {
+function ChatScreen({user,onLogout,area,contribCounts}) {
   const room=(area||"general").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")||"general";
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
@@ -1534,7 +1594,7 @@ function ChatScreen({user,onLogout,area}) {
             <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",marginTop:isFirst?12:2}}>
               {isFirst&&(
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,...(isMe?{marginRight:4}:{marginLeft:40})}}>
-                  {!isMe&&<span style={{fontSize:10,color:m.color,...M,fontWeight:700}}>{m.user}</span>}
+                  {!isMe&&<span style={{fontSize:10,color:m.color,...M,fontWeight:700}}>{m.user}{(()=>{const bg=badgeFor(contribCounts?.[m.user]||0);return bg?<span title={bg.label} style={{marginLeft:3}}>{bg.emoji}</span>:null;})()}</span>}
                   <span style={{fontSize:9,color:"var(--faint2)"}}>{fmt(m.ts)}</span>
                   {isMe&&<span style={{fontSize:10,color:m.color,...M,fontWeight:700}}>You</span>}
                 </div>
@@ -1685,7 +1745,7 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
 }
 
 // ── STATS / ADMIN ─────────────────────────────────────────────────────────────
-function StatsScreen({communityLogs,communityPatterns,activeCounts,onBack}) {
+function StatsScreen({communityLogs,communityPatterns,activeCounts,contribCounts,onBack}) {
   const totalLogs=communityLogs.length;
   const totalDrivers=new Set(communityLogs.map(l=>l.username)).size;
   const now=Date.now();
@@ -1742,6 +1802,30 @@ function StatsScreen({communityLogs,communityPatterns,activeCounts,onBack}) {
           </div>
         ))}
       </div>
+
+      {/* Top contributors leaderboard */}
+      {(()=>{
+        const ranked=Object.entries(contribCounts||{}).map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count).slice(0,10);
+        if(!ranked.length)return null;
+        return(
+          <>
+            <div style={{...B,fontSize:16,color:"var(--muted2)",letterSpacing:2,margin:"22px 0 8px"}}>TOP CONTRIBUTORS</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {ranked.map((u,i)=>{
+                const bg=badgeFor(u.count);
+                return(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px"}}>
+                    <span style={{...B,fontSize:14,color:"var(--faint)",width:18}}>{i+1}</span>
+                    <span style={{flex:1,minWidth:0,...M,fontSize:13,fontWeight:700,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}{bg&&<span style={{marginLeft:4}}>{bg.emoji}</span>}</span>
+                    <span style={{fontSize:11,...M,color:"var(--muted)"}}>{bg?bg.label:"—"}</span>
+                    <span style={{...B,fontSize:14,color:"#f5a623"}}>{u.count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
@@ -1812,6 +1896,9 @@ export default function App() {
     const p=pinnedLocations[r.id];
     return p?{...r,branchLat:p.lat,branchLng:p.lng}:r;
   }),[restaurants,pinnedLocations]);
+
+  // Contributor counts (quality logs, per-day capped) for badges & leaderboard
+  const contribCounts=useMemo(()=>computeContributions(communityLogs),[communityLogs]);
 
   // Restore session on page reload
   useEffect(()=>{
@@ -2176,22 +2263,22 @@ export default function App() {
 
         <div style={{height:"calc(100vh - 56px)",overflowY:"auto"}}>
           {showStats&&isOwner(user)?(
-            <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} onBack={()=>setShowStats(false)}/>
+            <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} contribCounts={contribCounts} onBack={()=>setShowStats(false)}/>
           ):showUpgrade?(
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
           ):showProfile?(
-            <ProfileScreen user={user} waitLog={waitLog} gps={gps} premium={premium} theme={theme} onToggleTheme={toggleTheme}
+            <ProfileScreen user={user} waitLog={waitLog} gps={gps} premium={premium} theme={theme} onToggleTheme={toggleTheme} contribCount={contribCounts[user.name]||0}
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
               onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList}
+              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts}
               onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts}/>
           ):(
-            <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"}/>
+            <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts}/>
           )}
         </div>
         {!showProfile&&!showUpgrade&&!showStats&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
