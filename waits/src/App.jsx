@@ -170,7 +170,7 @@ function computePatterns(logs) {
   }
   const patterns = {};
   for (const [restId, rl] of Object.entries(byRest)) {
-    const entry = { overall: bucketStats(rl), byPeriod: {}, byDayPeriod: {} };
+    const entry = { overall: bucketStats(rl), byPeriod: {}, byDayPeriod: {}, byHour: {}, byDayHour: {} };
     for (const per of ["early morning","morning","lunch","afternoon","evening","late night"]) {
       const b = rl.filter(l => l.period === per);
       if (b.length) entry.byPeriod[per] = bucketStats(b);
@@ -179,6 +179,15 @@ function computePatterns(logs) {
       for (const per of ["early morning","morning","lunch","afternoon","evening","late night"]) {
         const b = rl.filter(l => l.dow === dow && l.period === per);
         if (b.length) entry.byDayPeriod[`${dow}_${per}`] = bucketStats(b);
+      }
+    }
+    // Hourly buckets — for precise "this day & hour" predictions and charts
+    for (let h = 0; h < 24; h++) {
+      const bh = rl.filter(l => Number(l.hour) === h);
+      if (bh.length) entry.byHour[h] = bucketStats(bh);
+      for (let dow = 0; dow < 7; dow++) {
+        const b = rl.filter(l => l.dow === dow && Number(l.hour) === h);
+        if (b.length) entry.byDayHour[`${dow}_${h}`] = bucketStats(b);
       }
     }
     patterns[restId] = entry;
@@ -320,6 +329,34 @@ function getCommunityWait(restId,now,patterns) {
   if(!b||b.count<CFG.COMMUNITY_MIN)return null;
   return{avg:b.avg,min:b.min,max:b.max,count:b.count,drivers:b.drivers};
 }
+
+// Predicted wait for a specific day + hour, using the finest bucket with enough data.
+// Tries this day & hour (±1h window) → this hour any day → day+period → period → overall.
+function predictWait(restId,dow,hour,patterns) {
+  const p=patterns[restId];
+  if(!p)return null;
+  const sumBuckets=(picks)=>{
+    let n=0,wsum=0,drivers=0;
+    for(const b of picks){ if(b){ n+=b.count; wsum+=b.avg*b.count; drivers=Math.max(drivers,b.drivers||0); } }
+    return n>0?{avg:Math.round(wsum/n*10)/10,count:n,drivers}:null;
+  };
+  // this weekday, hour ±1
+  const dh=sumBuckets([p.byDayHour?.[`${dow}_${(hour+23)%24}`],p.byDayHour?.[`${dow}_${hour}`],p.byDayHour?.[`${dow}_${(hour+1)%24}`]]);
+  if(dh&&dh.count>=CFG.COMMUNITY_MIN)return{...dh,context:dayLabel(dow)+" "+hourLabel(hour),tier:"day-hour"};
+  // any day, this hour ±1
+  const hh=sumBuckets([p.byHour?.[(hour+23)%24],p.byHour?.[hour],p.byHour?.[(hour+1)%24]]);
+  if(hh&&hh.count>=CFG.COMMUNITY_MIN)return{...hh,context:hourLabel(hour)+" (any day)",tier:"hour"};
+  // day + period
+  const per=timePeriod(hour);
+  const dp=p.byDayPeriod?.[`${dow}_${per}`];
+  if(dp&&dp.count>=CFG.COMMUNITY_MIN)return{avg:dp.avg,count:dp.count,drivers:dp.drivers,context:dayLabel(dow)+" "+per,tier:"day-period"};
+  const pp=p.byPeriod?.[per];
+  if(pp&&pp.count>=CFG.COMMUNITY_MIN)return{avg:pp.avg,count:pp.count,drivers:pp.drivers,context:per,tier:"period"};
+  if(p.overall&&p.overall.count>=CFG.COMMUNITY_MIN)return{avg:p.overall.avg,count:p.overall.count,drivers:p.overall.drivers,context:"all times",tier:"overall"};
+  return null;
+}
+
+function hourLabel(h){ const ampm=h<12?"am":"pm"; const hr=h%12===0?12:h%12; return hr+ampm; }
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 function LiveTimer({startedAt}) {
@@ -466,7 +503,7 @@ function GPSGateScreen({status,onRetry}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade}) {
+function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -595,6 +632,16 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
           </button>
         </div>
       )}
+
+      {/* App stats / data health */}
+      <button onClick={onStats}
+        style={{width:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+        <div>
+          <div style={{...B,fontSize:18,color:"#00b8a9",letterSpacing:1}}>📊 APP STATS</div>
+          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>Live community data & top restaurants</div>
+        </div>
+        <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
+      </button>
 
       {/* Appearance — light / dark toggle */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
@@ -971,27 +1018,50 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
         </div>
       </div>
 
-      {p?.byPeriod&&Object.keys(p.byPeriod).length>0&&(
-        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
-          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:12}}>WAIT BY TIME OF DAY</div>
-          {periods.filter(per=>p.byPeriod[per]).map(per=>{
-            const b=p.byPeriod[per];
-            const pct=Math.min(100,(b.avg/40)*100);
-            const c=b.avg>18?"#ef4444":b.avg>10?"#f5a623":"#06c167";
-            return(
-              <div key={per} style={{marginBottom:8}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                  <span style={{fontSize:10,...M,color:"var(--muted)",textTransform:"capitalize"}}>{per}</span>
-                  <span style={{...B,fontSize:12,color:c}}>{b.avg}m</span>
-                </div>
-                <div style={{background:"var(--border)",borderRadius:3,height:4}}>
-                  <div style={{height:4,borderRadius:3,width:pct+"%",background:c}}/>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* Typical wait predicted for right now (this day + hour) */}
+      {(()=>{
+        const pred=predictWait(r.id,now.getDay(),now.getHours(),communityPatterns);
+        if(!pred)return null;
+        const c=pred.avg>18?"#ef4444":pred.avg>10?"#f5a623":"#06c167";
+        return(
+          <div style={{background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:12,padding:"14px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div>
+              <div style={{fontSize:9,color:"#00b8a9",letterSpacing:2,marginBottom:3}}>TYPICAL RIGHT NOW</div>
+              <div style={{fontSize:11,...M,color:"var(--muted)"}}>Based on {pred.context} · {pred.count} log{pred.count!==1?"s":""}</div>
+            </div>
+            <div style={{...B,fontSize:30,color:c,letterSpacing:1}}>{pred.avg}m</div>
+          </div>
+        );
+      })()}
+
+      {/* Busiest times — hourly bar chart for the current weekday */}
+      {(()=>{
+        const dow=now.getDay();
+        const hrs=[];
+        for(let h=6;h<=23;h++){ const b=p?.byDayHour?.[`${dow}_${h}`]||p?.byHour?.[h]; if(b)hrs.push({h,avg:b.avg}); }
+        if(hrs.length<2)return null;
+        const max=Math.max(...hrs.map(x=>x.avg),1);
+        const busiest=hrs.reduce((a,b)=>b.avg>a.avg?b:a,hrs[0]);
+        return(
+          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:12}}>BUSIEST TIMES · {dayLabel(dow).toUpperCase()}</div>
+            <div style={{display:"flex",alignItems:"flex-end",gap:3,height:80}}>
+              {hrs.map(x=>{
+                const ht=Math.max(8,(x.avg/max)*70);
+                const c=x.avg>18?"#ef4444":x.avg>10?"#f5a623":"#06c167";
+                return(
+                  <div key={x.h} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                    <div style={{...B,fontSize:8,color:c}}>{x.avg}</div>
+                    <div style={{width:"100%",maxWidth:14,height:ht,borderRadius:3,background:c,opacity:x.h===busiest.h?1:0.55}}/>
+                    <div style={{fontSize:7,color:"var(--faint)"}}>{x.h}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:10,textAlign:"center"}}>Busiest around <b style={{color:"#ef4444"}}>{hourLabel(busiest.h)}</b> (~{busiest.avg}m) · hours shown bottom</div>
+          </div>
+        );
+      })()}
 
       {myLogs.length>0&&(
         <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
@@ -1029,8 +1099,50 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
   );
 }
 
+// ── LIVE ACTIVITY FEED ────────────────────────────────────────────────────────
+function relTime(ts){
+  const s=Math.floor((Date.now()-new Date(ts).getTime())/1000);
+  if(s<60)return "just now";
+  const m=Math.floor(s/60); if(m<60)return m+"m ago";
+  const h=Math.floor(m/60); if(h<24)return h+"h ago";
+  return Math.floor(h/24)+"d ago";
+}
+function LiveFeed({activeWaitsList,communityLogs}) {
+  const [,tick]=useState(0);
+  useEffect(()=>{const id=setInterval(()=>tick(x=>x+1),30000);return ()=>clearInterval(id);},[]); // refresh relative times
+  const cutoff=Date.now()-3*60*60*1000;
+  const events=[
+    ...activeWaitsList.map(w=>({kind:"arrived",user:w.username||"A driver",rest:w.restaurantName||"a restaurant",ts:w.startedAt})),
+    ...communityLogs.filter(l=>new Date(l.ts).getTime()>cutoff).map(l=>({kind:"picked",user:l.username||"A driver",rest:l.restaurantName||"a restaurant",waitMins:l.waitMins,ts:l.ts})),
+  ].sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,5);
+
+  if(!events.length)return null;
+  return(
+    <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
+        <div style={{width:7,height:7,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 6px #06c167",animation:"criticalPulse 2s ease-in-out infinite"}}/>
+        <span style={{...B,fontSize:13,color:"var(--ink)",letterSpacing:2}}>LIVE ACTIVITY</span>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        {events.map((e,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:9,fontSize:12,...M}}>
+            <span style={{fontSize:14}}>{e.kind==="arrived"?"🟢":"✅"}</span>
+            <span style={{color:"var(--ink)",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              <b style={{fontWeight:700}}>{e.user}</b>
+              {e.kind==="arrived"?" arrived at ":" picked up at "}
+              <b style={{fontWeight:700}}>{e.rest}</b>
+              {e.kind==="picked"&&e.waitMins!=null&&<span style={{color:"#06c167"}}>{" · "+e.waitMins}m</span>}
+            </span>
+            <span style={{color:"var(--faint)",fontSize:10,flexShrink:0}}>{relTime(e.ts)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,premium,manualVoted,activeCounts,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,activeWaitsList,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -1159,6 +1271,8 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
           </div>
         </div>
       )}
+
+      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs}/>
 
       {activeWait?(
         <div style={{background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
@@ -1543,6 +1657,68 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
   );
 }
 
+// ── STATS / ADMIN ─────────────────────────────────────────────────────────────
+function StatsScreen({communityLogs,communityPatterns,activeCounts,onBack}) {
+  const totalLogs=communityLogs.length;
+  const totalDrivers=new Set(communityLogs.map(l=>l.username)).size;
+  const now=Date.now();
+  const last24=communityLogs.filter(l=>now-new Date(l.ts).getTime()<864e5).length;
+  const lastH=communityLogs.filter(l=>now-new Date(l.ts).getTime()<36e5).length;
+  const waitingNow=Object.values(activeCounts||{}).reduce((s,n)=>s+n,0);
+  const avgAll=totalLogs?Math.round(communityLogs.reduce((s,l)=>s+l.waitMins,0)/totalLogs*10)/10:0;
+
+  // aggregate per restaurant from raw logs
+  const byRest={};
+  communityLogs.forEach(l=>{
+    const k=l.restaurantId;if(!k)return;
+    (byRest[k]=byRest[k]||{count:0,sum:0,name:l.restaurantName||k}).count++;
+    byRest[k].sum+=l.waitMins;
+    if(l.restaurantName)byRest[k].name=l.restaurantName;
+  });
+  const top=Object.values(byRest).sort((a,b)=>b.count-a.count).slice(0,10);
+
+  const stat=(val,label,color)=>(
+    <div style={{flex:1,minWidth:90,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 12px",textAlign:"center"}}>
+      <div style={{...B,fontSize:26,color:color||"#00b8a9",letterSpacing:1}}>{val}</div>
+      <div style={{fontSize:8,...M,color:"var(--muted)",marginTop:3,letterSpacing:1}}>{label}</div>
+    </div>
+  );
+
+  return(
+    <div style={{padding:"20px 16px 100px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+        <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
+        <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:2}}>APP STATS</div>
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+        {stat(totalLogs.toLocaleString(),"TOTAL LOGS")}
+        {stat(totalDrivers,"DRIVERS")}
+        {stat(Object.keys(byRest).length,"RESTAURANTS")}
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:18}}>
+        {stat(waitingNow,"WAITING NOW","#06c167")}
+        {stat(lastH,"LOGS / HR")}
+        {stat(last24,"LOGS / 24H")}
+        {stat(avgAll+"m","AVG WAIT","#f5a623")}
+      </div>
+
+      <div style={{...B,fontSize:16,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>TOP RESTAURANTS BY LOGS</div>
+      {top.length===0&&<div style={{fontSize:11,color:"var(--faint)",...M,padding:"20px 0",textAlign:"center"}}>No logs yet</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {top.map((r,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px"}}>
+            <span style={{...B,fontSize:14,color:"var(--faint)",width:18}}>{i+1}</span>
+            <span style={{flex:1,minWidth:0,...M,fontSize:13,fontWeight:700,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
+            <span style={{fontSize:11,...M,color:"var(--muted)"}}>{r.count} log{r.count!==1?"s":""}</span>
+            <span style={{...B,fontSize:14,color:"#00b8a9"}}>{Math.round(r.sum/r.count*10)/10}m</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── BOTTOM NAV ────────────────────────────────────────────────────────────────
 function BottomNav({screen,onNav,activeWait,unreadChat}) {
   const tabs=[
@@ -1572,6 +1748,7 @@ export default function App() {
   const [screen,setScreen]=useState("waits");
   const [showProfile,setShowProfile]=useState(false);
   const [showUpgrade,setShowUpgrade]=useState(false);
+  const [showStats,setShowStats]=useState(false);
   const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
   const [onboarded,setOnboarded]=useState(()=>!!store.get("delivr_onboarded"));
   const [startRegister,setStartRegister]=useState(false);
@@ -1597,6 +1774,7 @@ export default function App() {
   const [pinnedLocations,setPinnedLocations]=useState({});
   const [manualVoted,setManualVoted]=useState(null);
   const [activeCounts,setActiveCounts]=useState({});  // restaurantId → # drivers waiting now
+  const [activeWaitsList,setActiveWaitsList]=useState([]); // live active waits for the feed
   const lastFetchRef=useRef({lat:null,lng:null});
   const autoPickupTimerRef=useRef(null);
   const handlePickedUpRef=useRef(null);
@@ -1654,14 +1832,16 @@ export default function App() {
   useEffect(()=>{
     const unsub=onSnapshot(collection(db,"activeWaits"),snap=>{
       const cutoff=Date.now()-60*60*1000; // ignore stale (>60min) entries
-      const counts={};
+      const counts={};const list=[];
       snap.docs.forEach(d=>{
         const w=d.data();
         if(w.restaurantId&&new Date(w.startedAt).getTime()>cutoff){
           counts[w.restaurantId]=(counts[w.restaurantId]||0)+1;
+          list.push(w);
         }
       });
       setActiveCounts(counts);
+      setActiveWaitsList(list);
     },()=>{});
     return unsub;
   },[]);
@@ -1959,7 +2139,7 @@ export default function App() {
       <style>{CSS}</style>
       <div style={ROOT}>
         {/* Profile avatar button — fixed top right */}
-        {!showProfile&&!showUpgrade&&(
+        {!showProfile&&!showUpgrade&&!showStats&&(
           <button onClick={()=>setShowProfile(true)}
             style={{position:"fixed",top:14,right:14,zIndex:300,width:38,height:38,borderRadius:"50%",background:user.color,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px "+user.color+"55"}}>
             <span style={{...B,fontSize:17,color:"#000"}}>{user.initial}</span>
@@ -1967,15 +2147,18 @@ export default function App() {
         )}
 
         <div style={{height:"calc(100vh - 56px)",overflowY:"auto"}}>
-          {showUpgrade?(
+          {showStats?(
+            <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} onBack={()=>setShowStats(false)}/>
+          ):showUpgrade?(
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
           ):showProfile?(
             <ProfileScreen user={user} waitLog={waitLog} gps={gps} premium={premium} theme={theme} onToggleTheme={toggleTheme}
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
-              onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}/>
+              onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}
+              onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts}
+              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList}
               onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts}/>
@@ -1983,7 +2166,7 @@ export default function App() {
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"}/>
           )}
         </div>
-        {!showProfile&&!showUpgrade&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
+        {!showProfile&&!showUpgrade&&!showStats&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
       </div>
     </div>
   );
