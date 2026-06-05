@@ -88,7 +88,8 @@ function timePeriod(h) {
   if (h>=10&&h<14) return "lunch";
   if (h>=14&&h<17) return "afternoon";
   if (h>=17&&h<21) return "evening";
-  return "late night";
+  if (h>=21)       return "late night";   // 21:00–23:59
+  return "early morning";                 // 00:00–04:59
 }
 function dayLabel(d) { return ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][d]; }
 
@@ -98,7 +99,7 @@ function fbAuthError(err) {
   if (code.includes("email-already-in-use")) return "That email is already registered — sign in instead";
   if (code.includes("user-not-found"))       return "No account with that email — please register";
   if (code.includes("wrong-password"))       return "Wrong email or password";
-  if (code.includes("invalid-credential"))   return "Wrong email or password";
+  if (code.includes("invalid-credential"))   return "Wrong email or password — if you're new or had an older account, tap CREATE ACCOUNT";
   if (code.includes("invalid-email"))        return "Enter a valid email address";
   if (code.includes("too-many-requests"))    return "Too many attempts — try again in a moment";
   if (code.includes("weak-password"))        return "Password must be at least 6 characters";
@@ -137,12 +138,12 @@ function computePatterns(logs) {
   const patterns = {};
   for (const [restId, rl] of Object.entries(byRest)) {
     const entry = { overall: bucketStats(rl), byPeriod: {}, byDayPeriod: {} };
-    for (const per of ["morning","lunch","afternoon","evening","late night"]) {
+    for (const per of ["early morning","morning","lunch","afternoon","evening","late night"]) {
       const b = rl.filter(l => l.period === per);
       if (b.length) entry.byPeriod[per] = bucketStats(b);
     }
     for (let dow = 0; dow < 7; dow++) {
-      for (const per of ["morning","lunch","afternoon","evening","late night"]) {
+      for (const per of ["early morning","morning","lunch","afternoon","evening","late night"]) {
         const b = rl.filter(l => l.dow === dow && l.period === per);
         if (b.length) entry.byDayPeriod[`${dow}_${per}`] = bucketStats(b);
       }
@@ -815,7 +816,7 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
   const hasError=arrivalError?.restaurantId===r.id;
   const isActive=activeWait?.restaurantId===r.id;
   const myLogs=waitLog.filter(l=>l.restaurantId===r.id);
-  const periods=["morning","lunch","afternoon","evening","late night"];
+  const periods=["early morning","morning","lunch","afternoon","evening","late night"];
   const p=communityPatterns[r.id];
   // Manual Arrive: enabled only within 300m of the restaurant's pinned location
   const manualDist=gps?.status==="active"&&gps.lat!=null?distMeters(gps.lat,gps.lng,r.branchLat??r.lat,r.branchLng??r.lng):null;

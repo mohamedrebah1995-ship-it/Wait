@@ -50,7 +50,7 @@ function bucket(logs) {
   };
 }
 
-const PERIODS = ['morning', 'lunch', 'afternoon', 'evening', 'late night'];
+const PERIODS = ['early morning', 'morning', 'lunch', 'afternoon', 'evening', 'late night'];
 
 function computePatterns() {
   // Group logs by restaurant
