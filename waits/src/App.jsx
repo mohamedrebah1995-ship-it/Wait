@@ -1013,17 +1013,21 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
     });
   }
 
-  // Sort: active wait pinned top → busiest (most logs) → nearest → estimate
+  // Sort: active wait pinned top → fixed priority chains (in order) → nearest → busiest → estimate
+  const PRIORITY=[["mcdonald"],["kfc"],["nando"],["wagamama"],["pizza express","pizzaexpress"],["zizzi"],["coco di mama","cocodimama"],["sainsbury"]];
+  const prio=r=>{const n=(r.name||"").toLowerCase();const i=PRIORITY.findIndex(keys=>keys.some(k=>n.includes(k)));return i===-1?999:i;};
   const logCount=r=>communityPatterns[r.id]?.overall?.count||0;
   const sorted=restaurants.slice().sort((a,b)=>{
     if(activeWait?.restaurantId===a.id)return -1;
     if(activeWait?.restaurantId===b.id)return 1;
-    const la=logCount(a),lb=logCount(b);
-    if(la!==lb)return lb-la;                 // most wait logs first (busiest chains)
+    const pa=prio(a),pb=prio(b);
+    if(pa!==pb)return pa-pb;                  // McDonald's, KFC, Nando's... in this exact order
     const da=distMap[a.id],db=distMap[b.id];
     if(da!=null&&db!=null)return da-db;       // then nearest by GPS
     if(da!=null)return -1;if(db!=null)return 1;
-    return(b.baseWait/b.rel)-(a.baseWait/a.rel); // then everything else
+    const la=logCount(a),lb=logCount(b);
+    if(la!==lb)return lb-la;                  // then busiest
+    return(b.baseWait/b.rel)-(a.baseWait/a.rel);
   });
 
   function handleSearchInput(q){
