@@ -71,6 +71,31 @@ const RESTAURANTS = [
   { id:"bp",              name:"BP Braintree",                              baseWait:3,  rel:0.90, label:"Very fast" },
 ];
 
+// Curated chains always shown first (in this order), then Google nearby for the rest.
+// `keys` are lowercase name fragments used to match a real nearby branch from Google.
+const CURATED = [
+  { id:"mcdonalds",   name:"McDonald's",    keys:["mcdonald"],                  baseWait:4,  rel:0.86, label:"Usually fast" },
+  { id:"kfc",         name:"KFC",           keys:["kfc"],                       baseWait:13, rel:0.45, label:"High queue risk" },
+  { id:"nandos",      name:"Nando's",       keys:["nando"],                     baseWait:17, rel:0.45, label:"Unpredictable" },
+  { id:"wagamama",    name:"Wagamama",      keys:["wagamama"],                  baseWait:16, rel:0.48, label:"Wait likely" },
+  { id:"pizzaexpress",name:"Pizza Express", keys:["pizza express","pizzaexpress","pizzaexp"], baseWait:13, rel:0.55, label:"Variable" },
+  { id:"zizzi",       name:"Zizzi",         keys:["zizzi"],                     baseWait:15, rel:0.50, label:"Sit-down wait" },
+  { id:"cocodimama",  name:"Coco di Mama",  keys:["coco di mama","coco"],       baseWait:8,  rel:0.70, label:"Moderate wait" },
+  { id:"sainsburys",  name:"Sainsbury's",   keys:["sainsbury"],                 baseWait:6,  rel:0.78, label:"Usually quick" },
+];
+
+// Merge: curated chains (pinned to their nearest real branch) first, then other nearby places.
+function buildRestaurantList(places) {
+  const matchesCurated = p => { const n=(p.name||"").toLowerCase(); return CURATED.find(c=>c.keys.some(k=>n.includes(k))); };
+  const seed = CURATED.map(c => {
+    // nearest Google branch for this chain (places already sorted by distance)
+    const m = places.find(p => { const n=(p.name||"").toLowerCase(); return c.keys.some(k=>n.includes(k)); });
+    return m ? { ...c, id:m.id, branchLat:m.branchLat, branchLng:m.branchLng, address:m.address } : c;
+  });
+  const extras = places.filter(p => !matchesCurated(p));
+  return [...seed, ...extras];
+}
+
 const AVATAR_COLORS = ["#00b8a9","#06c167","#ff5a2d","#2b8fff","#f5a623","#a855f7","#ef4444","#ec4899"];
 const B = { fontFamily:"'Poppins',sans-serif" };
 const M = { fontFamily:"'Nunito',sans-serif" };
@@ -1519,7 +1544,7 @@ export default function App() {
   },[theme]);
   const toggleTheme=()=>setTheme(t=>t==="dark"?"light":"dark");
   const [now,setNow]      =useState(new Date());
-  const [restaurants,setRestaurants]=useState(RESTAURANTS);
+  const [restaurants,setRestaurants]=useState(CURATED);
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
   const [activeWait,setActiveWait]=useState(()=>store.get("delivr_activewait")||null);
   const [communityPatterns,setCommunityPatterns]=useState({});
@@ -1608,10 +1633,9 @@ export default function App() {
     const far=last.lat==null||distMeters(last.lat,last.lng,gps.lat,gps.lng)>500;
     if(!far)return;
     lastFetchRef.current={lat:gps.lat,lng:gps.lng};
-    // Show the restaurants actually nearby the driver (live from Google Places),
-    // nearest first. Falls back to the seed list if nothing comes back.
+    // Curated chains first (pinned to their nearest branch), then other nearby places.
     fetchNearbyRestaurants(gps.lat,gps.lng).then(places=>{
-      if(places.length)setRestaurants(places);
+      if(places.length)setRestaurants(buildRestaurantList(places));
     }).catch(()=>{});
   },[gps.status,gps.lat,gps.lng]);
 
@@ -1682,7 +1706,7 @@ export default function App() {
       if(coords){
         lastFetchRef.current={lat:null,lng:null}; // force refetch
         fetchNearbyRestaurants(coords.lat,coords.lng).then(places=>{
-          if(places.length)setRestaurants(places);
+          if(places.length)setRestaurants(buildRestaurantList(places));
         }).catch(()=>{});
       }
     }
