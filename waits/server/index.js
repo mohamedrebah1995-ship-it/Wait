@@ -175,17 +175,6 @@ app.post('/auth/verify-code', (req, res) => {
 });
 
 // ── Stripe subscription ─────────────────────────────────────────────────────
-// Diagnostic — shows what env the server actually loaded (no secrets leaked)
-app.get('/stripe/debug', (_req, res) => {
-  res.json({
-    hasStripe: !!stripe,
-    secretPrefix: STRIPE_SECRET ? STRIPE_SECRET.slice(0, 12) + '…' : null,
-    secretLength: STRIPE_SECRET.length,
-    price: STRIPE_PRICE || null,
-    appUrl: APP_URL,
-  });
-});
-
 // Create a Checkout Session and return its URL
 app.post('/stripe/create-checkout-session', async (req, res) => {
   if (!stripe || !STRIPE_PRICE) return res.status(500).json({ error: 'Payments not configured' });
