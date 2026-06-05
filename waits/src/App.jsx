@@ -85,13 +85,21 @@ const CURATED = [
 ];
 
 // Merge: curated chains (pinned to their nearest real branch) first, then other nearby places.
-function buildRestaurantList(places) {
+async function buildRestaurantList(places, lat, lng) {
   const matchesCurated = p => { const n=(p.name||"").toLowerCase(); return CURATED.find(c=>c.keys.some(k=>n.includes(k))); };
-  const seed = CURATED.map(c => {
-    // nearest Google branch for this chain (places already sorted by distance)
-    const m = places.find(p => { const n=(p.name||"").toLowerCase(); return c.keys.some(k=>n.includes(k)); });
+  // Each curated chain: use the nearby match if it has hours; otherwise look it up
+  // directly so we always know its real Google open/closed status.
+  const seed = await Promise.all(CURATED.map(async c => {
+    let m = places.find(p => { const n=(p.name||"").toLowerCase(); return c.keys.some(k=>n.includes(k)); });
+    if(!m || m.openNow===undefined){
+      try{
+        const res = await searchRestaurants(c.name, lat, lng);
+        const t = res.find(x=>{ const n=(x.name||"").toLowerCase(); return c.keys.some(k=>n.includes(k)); }) || res[0];
+        if(t) m = t;
+      }catch(e){}
+    }
     return m ? { ...c, id:m.id, branchLat:m.branchLat, branchLng:m.branchLng, address:m.address, openNow:m.openNow } : c;
-  });
+  }));
   const extras = places.filter(p => !matchesCurated(p));
   return [...seed, ...extras];
 }
@@ -1684,9 +1692,10 @@ export default function App() {
     const far=last.lat==null||distMeters(last.lat,last.lng,gps.lat,gps.lng)>500;
     if(!far)return;
     lastFetchRef.current={lat:gps.lat,lng:gps.lng};
-    // Curated chains first (pinned to their nearest branch), then other nearby places.
-    fetchNearbyRestaurants(gps.lat,gps.lng).then(places=>{
-      if(places.length)setRestaurants(buildRestaurantList(places));
+    // Curated chains first (pinned to their nearest branch, with real opening hours), then other nearby places.
+    fetchNearbyRestaurants(gps.lat,gps.lng).then(async places=>{
+      const list=await buildRestaurantList(places,gps.lat,gps.lng);
+      if(list.length)setRestaurants(list);
     }).catch(()=>{});
   },[gps.status,gps.lat,gps.lng]);
 
@@ -1756,8 +1765,9 @@ export default function App() {
       const coords=await geocodeBranch(null,null,updates.area+" UK");
       if(coords){
         lastFetchRef.current={lat:null,lng:null}; // force refetch
-        fetchNearbyRestaurants(coords.lat,coords.lng).then(places=>{
-          if(places.length)setRestaurants(buildRestaurantList(places));
+        fetchNearbyRestaurants(coords.lat,coords.lng).then(async places=>{
+          const list=await buildRestaurantList(places,coords.lat,coords.lng);
+          if(list.length)setRestaurants(list);
         }).catch(()=>{});
       }
     }
