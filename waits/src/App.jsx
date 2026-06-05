@@ -8,6 +8,7 @@ import {
   onAuthStateChanged,
   updateProfile,
   updatePassword,
+  sendPasswordResetEmail,
   EmailAuthProvider,
   reauthenticateWithCredential,
 } from "firebase/auth";
@@ -94,10 +95,11 @@ function dayLabel(d) { return ["Sunday","Monday","Tuesday","Wednesday","Thursday
 // Map Firebase auth error codes to friendly messages
 function fbAuthError(err) {
   const code = err?.code || "";
-  if (code.includes("email-already-in-use")) return "Username already taken — try another";
-  if (code.includes("user-not-found"))       return "Wrong username or password";
-  if (code.includes("wrong-password"))       return "Wrong username or password";
-  if (code.includes("invalid-credential"))   return "Wrong username or password";
+  if (code.includes("email-already-in-use")) return "That email is already registered — sign in instead";
+  if (code.includes("user-not-found"))       return "No account with that email — please register";
+  if (code.includes("wrong-password"))       return "Wrong email or password";
+  if (code.includes("invalid-credential"))   return "Wrong email or password";
+  if (code.includes("invalid-email"))        return "Enter a valid email address";
   if (code.includes("too-many-requests"))    return "Too many attempts — try again in a moment";
   if (code.includes("weak-password"))        return "Password must be at least 6 characters";
   return err?.message || "Something went wrong";
@@ -454,13 +456,13 @@ function ProfileScreen({user,waitLog,gps,premium,onBack,onLogout,onSave,onUpgrad
     if(!curPw||newPw.length<6){setPwMsg("New password must be at least 6 characters");return;}
     setPwLoading(true);setPwMsg("");
     try{
-      const toEmail=n=>`${n.trim().toLowerCase().replace(/\s+/g,"")}@delivr.app`;
-      const cred=EmailAuthProvider.credential(toEmail(user.name),curPw);
+      const loginEmail=user.email||auth.currentUser?.email;
+      const cred=EmailAuthProvider.credential(loginEmail,curPw);
       await reauthenticateWithCredential(auth.currentUser,cred);
       await updatePassword(auth.currentUser,newPw);
       setPwMsg("✓ Password changed");setCurPw("");setNewPw("");setShowPw(false);
     }catch(e){
-      setPwMsg(e.code==="auth/wrong-password"?"Wrong current password":"Could not change password");
+      setPwMsg(e.code==="auth/wrong-password"||e.code==="auth/invalid-credential"?"Wrong current password":"Could not change password");
     }
     setPwLoading(false);
   }
@@ -579,48 +581,61 @@ function LoginScreen({onLogin,onRegistered}) {
   const [colorIdx,setColorIdx]=useState(0);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
+  const [resetMsg,setResetMsg]=useState("");
   const color=AVATAR_COLORS[colorIdx];
+  const emailValid=e=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
-  // Firebase Auth requires an email — we derive one from username internally
-  const toEmail=name=>`${name.trim().toLowerCase().replace(/\s+/g,"")}@delivr.app`;
-
-  function switchMode(m){setMode(m);setError("");setPassword("");setConfirm("");setEmail("");}
+  function switchMode(m){setMode(m);setError("");setResetMsg("");setPassword("");setConfirm("");}
 
   async function submit(e) {
-    e.preventDefault();setError("");
-    if(!username.trim()||username.trim().length<2){setError("Driver name must be at least 2 characters");return;}
-    if(mode==="register"&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){setError("Enter a valid email address");return;}
+    e.preventDefault();setError("");setResetMsg("");
+    const em=email.trim().toLowerCase();
+    if(mode==="register"&&(!username.trim()||username.trim().length<2)){setError("Driver name must be at least 2 characters");return;}
+    if(!emailValid(em)){setError("Enter a valid email address");return;}
     if(!password||password.length<6){setError("Password must be at least 6 characters");return;}
     if(mode==="register"&&password!==confirm){setError("Passwords do not match");return;}
     setLoading(true);
     try{
-      const firebaseEmail=toEmail(username);
       if(mode==="register"){
-        const cred=await createUserWithEmailAndPassword(auth,firebaseEmail,password);
-        const profile={name:username.trim(),color,initial:username.trim()[0].toUpperCase(),email:email.trim()};
+        // Real email = login identifier → Firebase enforces one account per email
+        const cred=await createUserWithEmailAndPassword(auth,em,password);
+        const profile={name:username.trim(),color,initial:username.trim()[0].toUpperCase(),email:em};
         await updateProfile(cred.user,{displayName:JSON.stringify(profile)});
-        try{ await setDoc(doc(db,"users",cred.user.uid),{username:profile.name,color,initial:profile.initial,email:email.trim(),emailVerified:false,joinedAt:new Date().toISOString()}); }catch(e){}
+        try{ await setDoc(doc(db,"users",cred.user.uid),{username:profile.name,color,initial:profile.initial,email:em,emailVerified:false,joinedAt:new Date().toISOString()}); }catch(e){}
         // Send verification code via backend
-        const r=await fetch(`${API_URL}/auth/send-code`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email.trim()})});
+        const r=await fetch(`${API_URL}/auth/send-code`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:em})});
         if(!r.ok){const d=await r.json();setError(d.error||"Could not send verification email");return;}
-        onRegistered(profile,email.trim());
+        onRegistered(profile,em);
       }else{
-        const cred=await signInWithEmailAndPassword(auth,email,password);
-        // Read profile from Auth displayName — works even if Firestore is locked
+        const cred=await signInWithEmailAndPassword(auth,em,password);
         let profile=null;
         if(cred.user.displayName){
           try{ profile=JSON.parse(cred.user.displayName); }catch(e){}
         }
-        // Fallback to Firestore if displayName not set (old accounts)
         if(!profile){
           try{
             const snap=await getDoc(doc(db,"users",cred.user.uid));
-            if(snap.exists()){ const p=snap.data(); profile={name:p.username,color:p.color,initial:p.initial}; }
+            if(snap.exists()){ const p=snap.data(); profile={name:p.username,color:p.color,initial:p.initial,email:p.email}; }
           }catch(e){}
         }
         if(!profile){setError("Account not found — please register");return;}
         onLogin(profile);
       }
+    }catch(err){
+      setError(fbAuthError(err));
+    }finally{
+      setLoading(false);
+    }
+  }
+
+  async function forgotPassword(){
+    setError("");setResetMsg("");
+    const em=email.trim().toLowerCase();
+    if(!emailValid(em)){setError("Type your email above first, then tap Forgot password");return;}
+    setLoading(true);
+    try{
+      await sendPasswordResetEmail(auth,em);
+      setResetMsg("Reset link sent — check your email inbox (and spam).");
     }catch(err){
       setError(fbAuthError(err));
     }finally{
@@ -645,23 +660,28 @@ function LoginScreen({onLogin,onRegistered}) {
       </div>
 
       <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:14}}>
-        <div>
-          <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:7}}>DRIVER NAME</div>
-          <input value={username} onChange={e=>setUsername(e.target.value)} placeholder="e.g. FastRider99" maxLength={20} autoFocus
-            style={{width:"100%",background:"#0d0d0d",border:"1px solid #222",borderRadius:14,padding:"16px 18px",color:"#f0f0f0",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
-            onFocus={e=>{e.target.style.borderColor="#ff6600";}} onBlur={e=>{e.target.style.borderColor="#222";}}/>
-        </div>
         {mode==="register"&&(
           <div>
-            <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:7}}>EMAIL ADDRESS</div>
-            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" type="email" autoComplete="email"
+            <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:7}}>DRIVER NAME</div>
+            <input value={username} onChange={e=>setUsername(e.target.value)} placeholder="e.g. FastRider99" maxLength={20} autoFocus
               style={{width:"100%",background:"#0d0d0d",border:"1px solid #222",borderRadius:14,padding:"16px 18px",color:"#f0f0f0",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
               onFocus={e=>{e.target.style.borderColor="#ff6600";}} onBlur={e=>{e.target.style.borderColor="#222";}}/>
           </div>
         )}
         <div>
+          <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:7}}>EMAIL ADDRESS</div>
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" type="email" autoComplete="email" autoFocus={mode==="login"}
+            style={{width:"100%",background:"#0d0d0d",border:"1px solid #222",borderRadius:14,padding:"16px 18px",color:"#f0f0f0",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
+            onFocus={e=>{e.target.style.borderColor="#ff6600";}} onBlur={e=>{e.target.style.borderColor="#222";}}/>
+        </div>
+        <div>
           <div style={{fontSize:9,color:"#444",letterSpacing:2,marginBottom:7}}>PASSWORD {mode==="register"&&<span style={{color:"#2a2a2a"}}>(min 6 chars)</span>}</div>
           <PasswordInput value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"/>
+          {mode==="login"&&(
+            <div style={{textAlign:"right",marginTop:8}}>
+              <button type="button" onClick={forgotPassword} style={{background:"none",border:"none",color:"#ff6600",cursor:"pointer",fontSize:11,...M,letterSpacing:1,padding:0}}>Forgot password?</button>
+            </div>
+          )}
         </div>
         {mode==="register"&&<>
           <div>
@@ -690,6 +710,7 @@ function LoginScreen({onLogin,onRegistered}) {
           )}
         </>}
         {error&&<div style={{background:"#1a0505",border:"1px solid #ff323244",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#ff3232"}}>{error}</div>}
+        {resetMsg&&<div style={{background:"#001a0d",border:"1px solid #00e87a44",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#00e87a"}}>{resetMsg}</div>}
         <button type="submit" disabled={loading}
           style={{minHeight:64,background:loading?"#1a1a1a":"#ff6600",border:"none",borderRadius:14,...B,fontSize:28,letterSpacing:4,color:loading?"#333":"#000",cursor:loading?"default":"pointer",marginTop:6,boxShadow:loading?"none":"0 0 40px #ff660040",transition:"all 0.2s"}}>
           {loading?"LOADING...":(mode==="login"?"SIGN IN →":"CREATE ACCOUNT →")}
