@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Fragment } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import {
@@ -13,7 +13,7 @@ import {
 } from "firebase/auth";
 import {
   doc, setDoc, getDoc, updateDoc,
-  collection, addDoc, query, orderBy, limitToLast,
+  collection, addDoc, query, where, orderBy, limitToLast,
   onSnapshot, getDocs, serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
@@ -105,11 +105,21 @@ function fbAuthError(err) {
 
 
 // ── Pattern computation (runs client-side from Firestore logs) ────────────────
+// Recency weight: a log from the last 2h counts ~3x, last 24h ~2x, older 1x.
+// This makes the shown wait automatically track current conditions.
+function recencyWeight(ts) {
+  const ageH = (Date.now() - new Date(ts).getTime()) / 3600000;
+  if (ageH < 0) return 3;
+  return 1 + 2 * Math.exp(-ageH / 6); // smooth decay: ~3 now → ~1 after a day
+}
+
 function bucketStats(logs) {
   if (!logs.length) return null;
-  const avg = logs.reduce((s, l) => s + l.waitMins, 0) / logs.length;
+  let wSum = 0, wAvg = 0;
+  for (const l of logs) { const w = recencyWeight(l.ts); wSum += w; wAvg += w * l.waitMins; }
+  const avg = wSum > 0 ? wAvg / wSum : logs.reduce((s, l) => s + l.waitMins, 0) / logs.length;
   return {
-    avg:     Math.round(avg * 10) / 10,
+    avg:     Math.round(avg * 10) / 10,   // recency-weighted average
     min:     Math.round(Math.min(...logs.map(l => l.waitMins))),
     max:     Math.round(Math.max(...logs.map(l => l.waitMins))),
     count:   logs.length,
@@ -258,7 +268,8 @@ function getPersonalWait(restId,now,waitLog) {
   else if(samePer.length>=CFG.MIN_SAMPLES){bucket=samePer;context=per;}
   else if(logs.length>=CFG.MIN_SAMPLES){bucket=logs;context="all visits";}
   else{bucket=logs;context="1 visit";}
-  const avg=bucket.reduce((s,l)=>s+l.waitMins,0)/bucket.length;
+  let wSum=0,wAvg=0;for(const l of bucket){const w=recencyWeight(l.ts);wSum+=w;wAvg+=w*l.waitMins;}
+  const avg=wSum>0?wAvg/wSum:bucket.reduce((s,l)=>s+l.waitMins,0)/bucket.length;
   return{avg:Math.round(avg*10)/10,min:Math.min(...bucket.map(l=>l.waitMins)),max:Math.max(...bucket.map(l=>l.waitMins)),count:logs.length,bucketCount:bucket.length,context,hasEnough:bucket.length>=CFG.MIN_SAMPLES};
 }
 
@@ -756,7 +767,7 @@ function VerifyCodeScreen({email,onVerified,onBack}) {
 }
 
 // ── RESTAURANT DETAIL ─────────────────────────────────────────────────────────
-function RestaurantDetail({r,now,waitLog,communityPatterns,distMap,checkingId,arrivalError,activeWait,onArrived,onBack}) {
+function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingId,arrivalError,activeWait,manualVoted,onArrived,onManualArrive,onBack}) {
   const personal=getPersonalWait(r.id,now,waitLog);
   const community=getCommunityWait(r.id,now,communityPatterns);
   const usePersonal=personal?.hasEnough;
@@ -771,6 +782,10 @@ function RestaurantDetail({r,now,waitLog,communityPatterns,distMap,checkingId,ar
   const myLogs=waitLog.filter(l=>l.restaurantId===r.id);
   const periods=["morning","lunch","afternoon","evening","late night"];
   const p=communityPatterns[r.id];
+  // Manual Arrive: enabled only within 300m of the restaurant's pinned location
+  const manualDist=gps?.status==="active"&&gps.lat!=null?distMeters(gps.lat,gps.lng,r.branchLat??r.lat,r.branchLng??r.lng):null;
+  const within300=manualDist!=null&&manualDist<=300;
+  const voted=manualVoted===r.id;
 
   return(
     <div style={{padding:"20px 16px 120px"}}>
@@ -842,10 +857,17 @@ function RestaurantDetail({r,now,waitLog,communityPatterns,distMap,checkingId,ar
 
       <div style={{position:"fixed",bottom:56,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,padding:"12px 16px",background:"#0a0a0a",borderTop:"1px solid #141414"}}>
         {!isActive?(
-          <button onClick={()=>onArrived(r)} disabled={isChecking}
-            style={{width:"100%",minHeight:64,background:isChecking?"#1a0a00":hasError?"#1a0505":"#ff6600",border:isChecking?"1px solid #ff660044":hasError?"1px solid #ff323244":"none",borderRadius:12,...B,fontSize:24,letterSpacing:3,color:isChecking?"#ff6600":hasError?"#ff3232":"#000",cursor:isChecking?"default":"pointer",boxShadow:isChecking||hasError?"none":"0 0 30px #ff660040"}}>
-            {isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"📍 ARRIVED HERE"}
-          </button>
+          <>
+            <button onClick={()=>onArrived(r)} disabled={isChecking}
+              style={{width:"100%",minHeight:64,background:isChecking?"#1a0a00":hasError?"#1a0505":"#ff6600",border:isChecking?"1px solid #ff660044":hasError?"1px solid #ff323244":"none",borderRadius:12,...B,fontSize:24,letterSpacing:3,color:isChecking?"#ff6600":hasError?"#ff3232":"#000",cursor:isChecking?"default":"pointer",boxShadow:isChecking||hasError?"none":"0 0 30px #ff660040"}}>
+              {isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"📍 ARRIVED HERE"}
+            </button>
+            {/* Manual Arrive — only active within 300m; logs a location vote to fix the pin */}
+            <button onClick={()=>{ if(within300&&!voted) onManualArrive(r); }} disabled={!within300||voted}
+              style={{width:"100%",minHeight:48,marginTop:8,background:voted?"#001a0d":"none",border:"1px solid "+(voted?"#00e87a66":within300?"#ff660066":"#222"),borderRadius:12,...B,fontSize:16,letterSpacing:2,color:voted?"#00e87a":within300?"#ff6600":"#333",cursor:within300&&!voted?"pointer":"default"}}>
+              {voted?"✓ LOCATION VOTED":within300?"MANUAL ARRIVE":(manualDist!=null?"MANUAL ARRIVE · "+(manualDist<1000?Math.round(manualDist)+"m away":(manualDist/1000).toFixed(1)+"km away"):"MANUAL ARRIVE · NO GPS")}
+            </button>
+          </>
         ):(
           <div style={{...B,fontSize:16,color:"#ff6600",letterSpacing:2,textAlign:"center",padding:"14px 0"}}>● TIMING NOW — GO BACK TO LOG</div>
         )}
@@ -855,7 +877,7 @@ function RestaurantDetail({r,now,waitLog,communityPatterns,distMap,checkingId,ar
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,premium,onArrived,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,checkingId,arrivalError,premium,manualVoted,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -898,9 +920,9 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
   function closePicker(){setPicking(false);setSearchQuery("");setSearchResults([]);}
 
   if(selectedRestaurant){
-    return <RestaurantDetail r={selectedRestaurant} now={now} waitLog={waitLog} communityPatterns={communityPatterns}
-      distMap={distMap} checkingId={checkingId} arrivalError={arrivalError} activeWait={activeWait}
-      onArrived={onArrived} onBack={()=>setSelectedRestaurant(null)}/>;
+    return <RestaurantDetail r={selectedRestaurant} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns}
+      distMap={distMap} checkingId={checkingId} arrivalError={arrivalError} activeWait={activeWait} manualVoted={manualVoted}
+      onArrived={onArrived} onManualArrive={onManualArrive} onBack={()=>setSelectedRestaurant(null)}/>;
   }
 
   if(picking){
@@ -1368,10 +1390,18 @@ export default function App() {
   const [unreadChat,setUnreadChat]=useState(false);
   const [checkingId,setCheckingId]=useState(null);
   const [arrivalError,setArrivalError]=useState(null);
+  const [pinnedLocations,setPinnedLocations]=useState({});
+  const [manualVoted,setManualVoted]=useState(null);
   const lastFetchRef=useRef({lat:null,lng:null});
   const autoPickupTimerRef=useRef(null);
   const handlePickedUpRef=useRef(null);
   const gps=useGPS();
+
+  // Restaurants with crowd-sourced pinned locations applied (overrides Google coords)
+  const resolvedRestaurants=useMemo(()=>restaurants.map(r=>{
+    const p=pinnedLocations[r.id];
+    return p?{...r,branchLat:p.lat,branchLng:p.lng}:r;
+  }),[restaurants,pinnedLocations]);
 
   // Restore session on page reload
   useEffect(()=>{
@@ -1402,6 +1432,15 @@ export default function App() {
       const logs=snap.docs.map(d=>d.data());
       setCommunityPatterns(computePatterns(logs));
       setCommunityLogs(logs);
+    },()=>{});
+    return unsub;
+  },[]);
+
+  // Live listener for crowd-sourced pinned restaurant locations
+  useEffect(()=>{
+    const unsub=onSnapshot(collection(db,"restaurantLocations"),snap=>{
+      const m={};snap.docs.forEach(d=>{m[d.id]=d.data();});
+      setPinnedLocations(m);
     },()=>{});
     return unsub;
   },[]);
@@ -1543,6 +1582,54 @@ export default function App() {
     return true;
   }
 
+  // Manual Arrive: record the driver's GPS as a location vote, then re-cluster.
+  async function handleManualArrive(restaurant){
+    if(gps.status!=="active"||gps.lat==null)return;
+    const eff=pinnedLocations[restaurant.id];
+    const rLat=eff?eff.lat:(restaurant.branchLat??restaurant.lat);
+    const rLng=eff?eff.lng:(restaurant.branchLng??restaurant.lng);
+    const dist=rLat!=null?distMeters(gps.lat,gps.lng,rLat,rLng):0;
+    if(dist!=null&&dist>300)return; // enforce 300m server-side of the UI gate
+    try{
+      await addDoc(collection(db,"locationVotes"),{
+        restaurantId:restaurant.id,
+        restaurantName:restaurant.name||"",
+        lat:gps.lat,lng:gps.lng,
+        username:user?.name||"anon",
+        ts:new Date().toISOString(),
+      });
+      setManualVoted(restaurant.id);
+      setTimeout(()=>setManualVoted(v=>v===restaurant.id?null:v),3000);
+      await maybeUpdatePinnedLocation(restaurant.id,restaurant.name);
+    }catch(e){console.error("manual arrive error:",e);}
+  }
+
+  // When 5+ votes from different drivers cluster within 100m, pin the average location.
+  async function maybeUpdatePinnedLocation(restaurantId,restaurantName){
+    try{
+      const snap=await getDocs(query(collection(db,"locationVotes"),where("restaurantId","==",restaurantId)));
+      const votes=snap.docs.map(d=>d.data());
+      if(votes.length<5)return;
+      let best=null;
+      for(const c of votes){
+        const near=votes.filter(v=>distMeters(c.lat,c.lng,v.lat,v.lng)<=100);
+        const users=new Set(near.map(v=>v.username));
+        if(users.size>=5&&(!best||users.size>best.userCount)){
+          // one point per user (latest) so a single driver can't skew the average
+          const perUser={};for(const v of near)perUser[v.username]=v;
+          best={pts:Object.values(perUser),userCount:users.size};
+        }
+      }
+      if(!best)return;
+      const avgLat=best.pts.reduce((s,v)=>s+v.lat,0)/best.pts.length;
+      const avgLng=best.pts.reduce((s,v)=>s+v.lng,0)/best.pts.length;
+      await setDoc(doc(db,"restaurantLocations",restaurantId),{
+        lat:avgLat,lng:avgLng,votes:best.userCount,
+        name:restaurantName||"",updatedAt:new Date().toISOString(),
+      });
+    }catch(e){console.error("cluster error:",e);}
+  }
+
   async function handlePickedUp(){
     if(!activeWait)return;
     const waitMins=Math.round((Date.now()-new Date(activeWait.startedAt))/60000*10)/10;
@@ -1573,11 +1660,11 @@ export default function App() {
 
   // Auto-trigger PICKED UP when driver moves >30m from restaurant and stays away 20s
   useEffect(()=>{
-    if(!activeWait||gps.status!=="active"||gps.lat==null||!restaurants.length){
+    if(!activeWait||gps.status!=="active"||gps.lat==null||!resolvedRestaurants.length){
       if(autoPickupTimerRef.current){clearTimeout(autoPickupTimerRef.current);autoPickupTimerRef.current=null;}
       return;
     }
-    const branch=restaurants.find(n=>n.id===activeWait.restaurantId);
+    const branch=resolvedRestaurants.find(n=>n.id===activeWait.restaurantId);
     if(!branch)return;
     const dist=distMeters(gps.lat,gps.lng,branch.branchLat??branch.lat,branch.branchLng??branch.lng);
     if(dist==null)return;
@@ -1588,7 +1675,7 @@ export default function App() {
     }else{
       if(autoPickupTimerRef.current){clearTimeout(autoPickupTimerRef.current);autoPickupTimerRef.current=null;}
     }
-  },[gps.lat,gps.lng,gps.status,activeWait?.restaurantId,restaurants]);
+  },[gps.lat,gps.lng,gps.status,activeWait?.restaurantId,resolvedRestaurants]);
 
   useEffect(()=>()=>{if(autoPickupTimerRef.current)clearTimeout(autoPickupTimerRef.current);},[]);
 
@@ -1637,11 +1724,11 @@ export default function App() {
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
               onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}/>
           ):screen==="waits"?(
-            <WaitsScreen now={now} gps={gps} restaurants={restaurants} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError} premium={premium}
-              onArrived={handleArrived} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
+            <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait}
+              communityPatterns={communityPatterns} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted}
+              onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
-            <CheckScreen restaurants={restaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps}/>
+            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps}/>
           ):(
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"}/>
           )}

@@ -9,6 +9,14 @@ service cloud.firestore {
     match /waitLogs/{logId} {
       allow read, write: if request.auth != null;
     }
+    // Location votes (Manual Arrive) — authenticated users can read/create
+    match /locationVotes/{voteId} {
+      allow read, create: if request.auth != null;
+    }
+    // Crowd-sourced pinned restaurant locations
+    match /restaurantLocations/{restaurantId} {
+      allow read, write: if request.auth != null;
+    }
     // Area chat rooms (subcollections) — any authenticated user can read/write
     match /chats/{room}/messages/{messageId} {
       allow read, write: if request.auth != null;
