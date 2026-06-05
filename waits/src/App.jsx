@@ -30,6 +30,9 @@ const GOOGLE_MAPS_KEY = "AIzaSyARDTROkeGrhMw_ZKsYw8SuLnw3skQf2yk";
 const ADSENSE_CLIENT = "ca-pub-3527173535512943";
 const ADSENSE_SLOT   = "";  // ← paste your AdSense ad-unit slot ID here once AdSense is approved
 const SUB_PRICE = "£4.99";
+// Accounts that can see the admin APP STATS screen (add more emails if needed)
+const OWNER_EMAILS = ["mohamedrebah1995@gmail.com","contact.morebah@gmail.com"];
+const isOwner = u => !!u?.email && OWNER_EMAILS.includes(u.email.toLowerCase());
 const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 1 };
 
 const RESTAURANTS = [
@@ -646,15 +649,17 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         </div>
       )}
 
-      {/* App stats / data health */}
-      <button onClick={onStats}
-        style={{width:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
-        <div>
-          <div style={{...B,fontSize:18,color:"#00b8a9",letterSpacing:1}}>📊 APP STATS</div>
-          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>Live community data & top restaurants</div>
-        </div>
-        <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
-      </button>
+      {/* App stats / data health — owner only */}
+      {isOwner(user)&&(
+        <button onClick={onStats}
+          style={{width:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+          <div>
+            <div style={{...B,fontSize:18,color:"#00b8a9",letterSpacing:1}}>📊 APP STATS</div>
+            <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>Owner only · live data & top restaurants</div>
+          </div>
+          <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
+        </button>
+      )}
 
       {/* Appearance — light / dark toggle */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
@@ -1731,7 +1736,7 @@ function StatsScreen({communityLogs,communityPatterns,activeCounts,onBack}) {
         {top.map((r,i)=>(
           <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px"}}>
             <span style={{...B,fontSize:14,color:"var(--faint)",width:18}}>{i+1}</span>
-            <span style={{flex:1,minWidth:0,...M,fontSize:13,fontWeight:700,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
+            <span style={{flex:1,minWidth:0,...M,fontSize:13,fontWeight:700,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(/^ChIJ|^[A-Za-z0-9_-]{20,}$/.test(r.name))?"Unknown restaurant":r.name}</span>
             <span style={{fontSize:11,...M,color:"var(--muted)"}}>{r.count} log{r.count!==1?"s":""}</span>
             <span style={{...B,fontSize:14,color:"#00b8a9"}}>{Math.round(r.sum/r.count*10)/10}m</span>
           </div>
@@ -2170,7 +2175,7 @@ export default function App() {
         )}
 
         <div style={{height:"calc(100vh - 56px)",overflowY:"auto"}}>
-          {showStats?(
+          {showStats&&isOwner(user)?(
             <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} onBack={()=>setShowStats(false)}/>
           ):showUpgrade?(
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
