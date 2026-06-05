@@ -586,9 +586,90 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
   );
 }
 
+// ── ONBOARDING (first-time users, dark theme) ─────────────────────────────────
+function Onboarding({onFinish}) {
+  const [step,setStep]=useState(0);
+  const D={bg:"#0e1316",card:"#192127",ink:"#eaf0f2",muted:"#9aa7af",teal:"#00b8a9",coral:"#ff5a2d",green:"#06c167"};
+
+  const slides=[
+    {
+      emoji:"⏳",
+      title:"You've been waiting.\nNow waiting pays.",
+      body:"Every minute you sit outside a restaurant is data. Delivr turns the wait you already do into live intel that saves you — and every driver near you — time and money.",
+    },
+    {
+      steps:[
+        {e:"📍",t:"Arrive",d:"Tap once when you reach the restaurant. The timer starts automatically."},
+        {e:"✅",t:"Pick up",d:"Tap once the moment you've got the order. That's your wait, logged."},
+        {e:"⚡",t:"Everyone sees it",d:"Every nearby driver instantly sees the real wait time — no more guessing."},
+      ],
+      title:"Two taps. That's it.",
+    },
+    {
+      emoji:"🤝",
+      title:"Help me.\nI help you.",
+      body:"Delivr only works because drivers share. The more you log, the smarter it gets for everyone — which restaurants are slammed, which are quick, right now. Join the crew and never walk into a 25-minute wait blind again.",
+    },
+  ];
+  const s=slides[step];
+  const isLast=step===slides.length-1;
+
+  return(
+    <div style={{minHeight:"100vh",background:D.bg,color:D.ink,display:"flex",flexDirection:"column",padding:"0 26px",fontFamily:"'Nunito',sans-serif",position:"relative",overflow:"hidden"}}>
+      {/* glow */}
+      <div style={{position:"absolute",top:-120,right:-80,width:280,height:280,borderRadius:"50%",background:D.teal,opacity:0.12,filter:"blur(40px)"}}/>
+      <div style={{position:"absolute",bottom:-100,left:-90,width:260,height:260,borderRadius:"50%",background:D.coral,opacity:0.10,filter:"blur(40px)"}}/>
+
+      {/* skip */}
+      {!isLast&&(
+        <button onClick={onFinish} style={{position:"absolute",top:18,right:22,background:"none",border:"none",color:D.muted,fontSize:13,fontWeight:700,cursor:"pointer",zIndex:2}}>Skip</button>
+      )}
+
+      <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",zIndex:1,paddingTop:40}}>
+        <div style={{fontFamily:"'Poppins',sans-serif",fontWeight:800,fontSize:28,color:D.teal,letterSpacing:3,marginBottom:36}}>DELIVR</div>
+
+        {s.emoji&&<div style={{fontSize:80,marginBottom:24}}>{s.emoji}</div>}
+
+        {s.title&&(
+          <div style={{fontFamily:"'Poppins',sans-serif",fontWeight:800,fontSize:34,lineHeight:1.15,letterSpacing:-0.5,marginBottom:18,whiteSpace:"pre-line"}}>{s.title}</div>
+        )}
+
+        {s.body&&<div style={{fontSize:16,lineHeight:1.7,color:D.muted,maxWidth:380}}>{s.body}</div>}
+
+        {s.steps&&(
+          <div style={{display:"flex",flexDirection:"column",gap:14,marginTop:8}}>
+            {s.steps.map((st,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:16,background:D.card,borderRadius:18,padding:"18px 18px"}}>
+                <div style={{fontSize:34,flexShrink:0}}>{st.e}</div>
+                <div>
+                  <div style={{fontFamily:"'Poppins',sans-serif",fontWeight:700,fontSize:18,color:i===2?D.teal:D.ink}}>{st.t}</div>
+                  <div style={{fontSize:13,lineHeight:1.5,color:D.muted,marginTop:2}}>{st.d}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* dots + button */}
+      <div style={{zIndex:1,paddingBottom:40}}>
+        <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:22}}>
+          {slides.map((_,i)=>(
+            <div key={i} style={{width:i===step?26:8,height:8,borderRadius:4,background:i===step?D.teal:"#2a363c",transition:"all 0.25s"}}/>
+          ))}
+        </div>
+        <button onClick={()=>isLast?onFinish():setStep(step+1)}
+          style={{width:"100%",minHeight:62,background:isLast?D.coral:D.teal,border:"none",borderRadius:18,fontFamily:"'Poppins',sans-serif",fontWeight:700,fontSize:isLast?20:22,letterSpacing:isLast?0.5:1,color:"#fff",cursor:"pointer",boxShadow:isLast?"0 8px 24px "+D.coral+"55":"0 8px 24px "+D.teal+"44"}}>
+          {isLast?"JOIN THE COMMUNITY →":"NEXT"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-function LoginScreen({onLogin,onRegistered}) {
-  const [mode,setMode]=useState("login");
+function LoginScreen({onLogin,onRegistered,initialMode}) {
+  const [mode,setMode]=useState(initialMode||"login");
   const [username,setUsername]=useState("");
   const [email,setEmail]=useState("");
   const [password,setPassword]=useState("");
@@ -932,13 +1013,17 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
     });
   }
 
+  // Sort: active wait pinned top → busiest (most logs) → nearest → estimate
+  const logCount=r=>communityPatterns[r.id]?.overall?.count||0;
   const sorted=restaurants.slice().sort((a,b)=>{
     if(activeWait?.restaurantId===a.id)return -1;
     if(activeWait?.restaurantId===b.id)return 1;
+    const la=logCount(a),lb=logCount(b);
+    if(la!==lb)return lb-la;                 // most wait logs first (busiest chains)
     const da=distMap[a.id],db=distMap[b.id];
-    if(da!=null&&db!=null)return da-db;
+    if(da!=null&&db!=null)return da-db;       // then nearest by GPS
     if(da!=null)return -1;if(db!=null)return 1;
-    return(b.baseWait/b.rel)-(a.baseWait/a.rel);
+    return(b.baseWait/b.rel)-(a.baseWait/a.rel); // then everything else
   });
 
   function handleSearchInput(q){
@@ -1417,6 +1502,8 @@ export default function App() {
   const [showProfile,setShowProfile]=useState(false);
   const [showUpgrade,setShowUpgrade]=useState(false);
   const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
+  const [onboarded,setOnboarded]=useState(()=>!!store.get("delivr_onboarded"));
+  const [startRegister,setStartRegister]=useState(false);
   const premium=!!user?.premium;
 
   // Apply + persist the colour theme
@@ -1756,7 +1843,13 @@ export default function App() {
         <VerifyCodeScreen email={pendingVerify.email} onVerified={handleVerified} onBack={()=>setPendingVerify(null)}/>
       </div>;
     }
-    return <div style={ROOT}><style>{CSS}</style><LoginScreen onLogin={handleLogin} onRegistered={handleRegistered}/></div>;
+    // First-time visitors see the 3-screen onboarding before login
+    if(!onboarded){
+      return <div style={ROOT}><style>{CSS}</style>
+        <Onboarding onFinish={()=>{store.set("delivr_onboarded",true);setOnboarded(true);setStartRegister(true);}}/>
+      </div>;
+    }
+    return <div style={ROOT}><style>{CSS}</style><LoginScreen initialMode={startRegister?"register":"login"} onLogin={handleLogin} onRegistered={handleRegistered}/></div>;
   }
 
   // Block app only if the user actually denied location permission.
