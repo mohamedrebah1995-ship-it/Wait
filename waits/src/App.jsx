@@ -29,7 +29,7 @@ const GOOGLE_MAPS_KEY = "AIzaSyARDTROkeGrhMw_ZKsYw8SuLnw3skQf2yk";
 const ADSENSE_CLIENT = "ca-pub-3527173535512943";
 const ADSENSE_SLOT   = "";  // ← paste your AdSense ad-unit slot ID here once AdSense is approved
 const SUB_PRICE = "£4.99";
-const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 3 };
+const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 1 };
 
 const RESTAURANTS = [
   { id:"mcdonalds",       name:"McDonald's Braintree",                      baseWait:4,  rel:0.86, label:"Usually fast" },
@@ -185,7 +185,8 @@ async function fetchNearbyRestaurants(lat,lng) {
       headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.types"},
       body:JSON.stringify({
         includedTypes:["restaurant","fast_food_restaurant","cafe","bakery","meal_takeaway","sandwich_shop","pizza_restaurant","coffee_shop","supermarket","convenience_store","grocery_store"],
-        maxResultCount:50,
+        maxResultCount:20,
+        rankPreference:"DISTANCE",
         locationRestriction:{circle:{center:{latitude:lat,longitude:lng},radius:5000}},
       }),
     });
@@ -980,7 +981,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
         <div style={{background:"linear-gradient(135deg,#1a0a00,#100700)",border:"2px solid #ff6600",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #ff660018"}}>
           <div style={{fontSize:9,color:"#ff6600",letterSpacing:2,marginBottom:6}}>⏱ WAITING AT</div>
           <div style={{...B,fontSize:28,color:"#f0f0f0",letterSpacing:1,marginBottom:14}}>
-            {(restaurants.find(r=>r.id===activeWait.restaurantId)||{name:"Unknown"}).name}
+            {(restaurants.find(r=>r.id===activeWait.restaurantId)||{name:activeWait.restaurantName||"Unknown"}).name}
           </div>
           <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><LiveTimer startedAt={activeWait.startedAt}/></div>
           <div style={{display:"flex",gap:10}}>
@@ -1092,7 +1093,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
             return(
               <div key={l.id} style={{background:"#0d0d0d",borderRadius:8,padding:"10px 14px",border:"1px solid #141414",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                 <div>
-                  <div style={{...B,fontSize:15,letterSpacing:1,color:"#f0f0f0"}}>{r?r.name:"Unknown"}</div>
+                  <div style={{...B,fontSize:15,letterSpacing:1,color:"#f0f0f0"}}>{r?r.name:(l.restaurantName||"Unknown")}</div>
                   <div style={{fontSize:9,color:"#444",marginTop:1}}>{new Date(l.ts).toLocaleString("en-GB",{weekday:"short",hour:"2-digit",minute:"2-digit"})+" · "+l.period}</div>
                 </div>
                 <div style={{...B,fontSize:22,color:c,letterSpacing:1}}>{l.waitMins}m</div>
@@ -1286,7 +1287,8 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
       )}
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {results.map((r,i)=>{
-          const lid=r.knownId||r.id;
+          // Use the Google place id directly — same id all drivers log against
+          const lid=r.id;
           const personal=getPersonalWait(lid,now,waitLog);
           const community=getCommunityWait(lid,now,communityPatterns);
           const recentLogs=logsLastHour(lid);
@@ -1430,15 +1432,10 @@ export default function App() {
     const far=last.lat==null||distMeters(last.lat,last.lng,gps.lat,gps.lng)>500;
     if(!far)return;
     lastFetchRef.current={lat:gps.lat,lng:gps.lng};
-    // Fetch nearby places and match to our restaurant list to get coordinates
+    // Show the restaurants actually nearby the driver (live from Google Places),
+    // nearest first. Falls back to the seed list if nothing comes back.
     fetchNearbyRestaurants(gps.lat,gps.lng).then(places=>{
-      if(!places.length)return;
-      const augmented=RESTAURANTS.map(r=>{
-        const key=r.name.toLowerCase().replace(/\s+(braintree|restaurant|ltd).*/i,"").split(/[\s-]/)[0];
-        const match=places.find(p=>p.name.toLowerCase().includes(key)||key.includes(p.name.toLowerCase().split(" ")[0]));
-        return match?{...r,branchLat:match.branchLat,branchLng:match.branchLng}:r;
-      });
-      setRestaurants(augmented);
+      if(places.length)setRestaurants(places);
     }).catch(()=>{});
   },[gps.status,gps.lat,gps.lng]);
 
@@ -1503,19 +1500,13 @@ export default function App() {
     if(auth.currentUser&&updates.name&&updates.name!==user.name){
       try{ await updateProfile(auth.currentUser,{displayName:JSON.stringify(updated)}); }catch(e){}
     }
-    // If area changed, geocode it and fetch area restaurants
+    // If area changed, geocode it and fetch restaurants for that area
     if(updates.area&&updates.area!==user.area){
       const coords=await geocodeBranch(null,null,updates.area+" UK");
       if(coords){
         lastFetchRef.current={lat:null,lng:null}; // force refetch
         fetchNearbyRestaurants(coords.lat,coords.lng).then(places=>{
-          if(!places.length)return;
-          const augmented=RESTAURANTS.map(r=>{
-            const key=r.name.toLowerCase().replace(/\s+(braintree|restaurant|ltd).*/i,"").split(/[\s-]/)[0];
-            const match=places.find(p=>p.name.toLowerCase().includes(key)||key.includes(p.name.toLowerCase().split(" ")[0]));
-            return match?{...r,branchLat:match.branchLat,branchLng:match.branchLng}:r;
-          });
-          setRestaurants(augmented);
+          if(places.length)setRestaurants(places);
         }).catch(()=>{});
       }
     }
@@ -1547,7 +1538,7 @@ export default function App() {
       }
       setCheckingId(null);
     }
-    const a={restaurantId,startedAt:new Date().toISOString()};
+    const a={restaurantId,restaurantName:restaurant.name,startedAt:new Date().toISOString()};
     setActiveWait(a);store.set("delivr_activewait",a);
     return true;
   }
@@ -1557,13 +1548,14 @@ export default function App() {
     const waitMins=Math.round((Date.now()-new Date(activeWait.startedAt))/60000*10)/10;
     const ts=new Date();
     const entry={
-      id:           Date.now().toString(),
-      restaurantId: activeWait.restaurantId,
+      id:             Date.now().toString(),
+      restaurantId:   activeWait.restaurantId,
+      restaurantName: activeWait.restaurantName||"",
       waitMins,
-      ts:           ts.toISOString(),
-      hour:         ts.getHours(),
-      dow:          ts.getDay(),
-      period:       timePeriod(ts.getHours()),
+      ts:             ts.toISOString(),
+      hour:           ts.getHours(),
+      dow:            ts.getDay(),
+      period:         timePeriod(ts.getHours()),
     };
     // Save locally (instant, works offline)
     const newLog=[...waitLog,entry];
