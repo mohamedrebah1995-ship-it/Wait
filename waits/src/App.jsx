@@ -18,7 +18,7 @@ import {
   onSnapshot, getDocs, serverTimestamp,
 } from "firebase/firestore";
 import { auth, db, storage } from "./firebase";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 const FL = document.createElement("link");
 FL.rel = "stylesheet";
@@ -435,6 +435,30 @@ function LiveTimer({startedAt}) {
   },[startedAt]);
   const m=Math.floor(elapsed/60),s=elapsed%60;
   return<span style={{...M,fontSize:56,fontWeight:700,color:"#00b8a9",letterSpacing:2,fontVariantNumeric:"tabular-nums"}}>{String(m).padStart(2,"0")}:{String(s).padStart(2,"0")}</span>;
+}
+
+// Compact timer for the persistent banner
+function MiniTimer({startedAt}) {
+  const [e,setE]=useState(0);
+  useEffect(()=>{const t=()=>setE(Math.floor((Date.now()-new Date(startedAt))/1000));t();const id=setInterval(t,1000);return ()=>clearInterval(id);},[startedAt]);
+  const m=Math.floor(e/60),s=e%60;
+  return <span style={{...M,fontSize:14,fontWeight:700,color:"#ff5a2d",fontVariantNumeric:"tabular-nums"}}>{String(m).padStart(2,"0")}:{String(s).padStart(2,"0")}</span>;
+}
+
+// Persistent wait banner shown on every tab while a wait is active
+function PersistentWaitBanner({restaurantName,startedAt,onPickedUp}) {
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:10,background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",borderBottom:"1px solid #ff5a2d44",padding:"0 12px",height:56,flexShrink:0}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:8,...M,fontWeight:700,color:"#ff5a2d",letterSpacing:1}}>⏱ WAITING AT</div>
+        <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+          <span style={{...B,fontSize:15,color:"var(--ink)",letterSpacing:0.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{restaurantName}</span>
+          <MiniTimer startedAt={startedAt}/>
+        </div>
+      </div>
+      <button onClick={onPickedUp} style={{flexShrink:0,background:"#06c167",border:"none",borderRadius:10,...B,fontWeight:700,fontSize:12,letterSpacing:0.5,color:"#fff",padding:"9px 11px",cursor:"pointer"}}>✓ GOT IT — PICKED UP</button>
+    </div>
+  );
 }
 
 function PasswordInput({value,onChange,placeholder}) {
@@ -1747,11 +1771,24 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
   }
   function stopRecording(){ if(recorderRef.current?.state==="recording")recorderRef.current.stop(); }
 
+  // Long-press to delete your OWN message (text/image/voice). Removes media from Storage too.
+  const pressTimer=useRef(null);
+  function startPress(m){ if(m.user!==user.name)return; pressTimer.current=setTimeout(()=>deleteMsg(m),550); }
+  function endPress(){ clearTimeout(pressTimer.current); }
+  async function deleteMsg(m){
+    if(m.user!==user.name)return;                       // own messages only
+    if(!window.confirm("Delete this message?"))return;
+    try{
+      await deleteDoc(doc(db,"chats",room,"messages",m.id));
+      if(m.url){ try{ await deleteObject(storageRef(storage,m.url)); }catch(e){} }
+    }catch(e){console.error("delete msg error:",e);}
+  }
+
   function onKey(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}
   function fmt(ts){try{return new Date(ts).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});}catch(e){return "";}}
 
   return(
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
       <div style={{padding:"10px 16px",borderBottom:"1px solid var(--border3)",background:"var(--card)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div>
           <div style={{...B,fontSize:24,color:"#00b8a9",letterSpacing:2}}>DRIVER CHAT</div>
@@ -1801,7 +1838,9 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
                     {isFirst&&<span style={{...B,fontSize:13,color:"#000"}}>{m.initial}</span>}
                   </div>
                 )}
-                <div style={{maxWidth:"76%",background:isMe?"#00b8a9":"var(--border3)",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:m.type==="image"?"4px":"10px 14px",border:isMe?"none":"1px solid var(--border)",boxShadow:isMe?"0 2px 16px #00b8a928":"none",overflow:"hidden"}}>
+                <div onPointerDown={()=>startPress(m)} onPointerUp={endPress} onPointerLeave={endPress} onPointerCancel={endPress}
+                  onContextMenu={e=>{if(isMe){e.preventDefault();deleteMsg(m);}}}
+                  style={{maxWidth:"76%",background:isMe?"#00b8a9":"var(--border3)",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:m.type==="image"?"4px":"10px 14px",border:isMe?"none":"1px solid var(--border)",boxShadow:isMe?"0 2px 16px #00b8a928":"none",overflow:"hidden",cursor:isMe?"pointer":"default",userSelect:"none"}}>
                   {m.type==="image"?(
                     <img src={m.url} alt="" onClick={()=>window.open(m.url,"_blank")} style={{maxWidth:"100%",maxHeight:240,borderRadius:14,display:"block",cursor:"pointer"}}/>
                   ):(m.type==="voice"||m.type==="audio")?(
@@ -2077,6 +2116,7 @@ export default function App() {
   const [showUpgrade,setShowUpgrade]=useState(false);
   const [showStats,setShowStats]=useState(false);
   const [showLogbook,setShowLogbook]=useState(false);
+  const [reminder,setReminder]=useState(null);   // in-app "still waiting?" notification text
   const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
   const [onboarded,setOnboarded]=useState(()=>!!store.get("delivr_onboarded"));
   const [startRegister,setStartRegister]=useState(false);
@@ -2178,6 +2218,25 @@ export default function App() {
   },[]);
 
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),15000);return ()=>clearInterval(id);},[]);
+
+  // Reminders at 20 & 40 min into an open wait (in-app + browser notification if allowed).
+  // Notifications only — never auto-closes or auto-logs the wait.
+  useEffect(()=>{
+    if(!activeWait){setReminder(null);return;}
+    const start=new Date(activeWait.startedAt).getTime();
+    const name=activeWait.restaurantName||"the restaurant";
+    const fire=()=>{
+      const msg=`Still waiting at ${name}? Tap when you have your food.`;
+      setReminder(msg);
+      try{ if(window.Notification&&Notification.permission==="granted")new Notification("DELIVR",{body:msg}); }catch(e){}
+    };
+    const timers=[];
+    [20,40].forEach(min=>{
+      const delay=start+min*60000-Date.now();
+      if(delay>0)timers.push(setTimeout(fire,delay));
+    });
+    return ()=>timers.forEach(clearTimeout);
+  },[activeWait?.startedAt]);
 
   // After returning from Stripe Checkout, verify payment and flip premium on
   useEffect(()=>{
@@ -2314,6 +2373,8 @@ export default function App() {
     }
     const a={restaurantId,restaurantName:restaurant.name,startedAt:new Date().toISOString()};
     setActiveWait(a);store.set("delivr_activewait",a);
+    // Ask for notification permission (on this tap gesture) so 20/40-min reminders can show
+    try{ if(window.Notification&&Notification.permission==="default")Notification.requestPermission(); }catch(e){}
     // Add to live "waiting now" presence list
     try{ await setDoc(doc(db,"activeWaits",auth.currentUser.uid),{restaurantId,restaurantName:restaurant.name,startedAt:a.startedAt,username:user?.name||"anon"}); }catch(e){}
     return true;
@@ -2458,7 +2519,12 @@ export default function App() {
           </button>
         )}
 
-        <div style={{height:"calc(100vh - 56px)",overflowY:"auto"}}>
+        {/* Persistent wait banner — visible on every tab while a wait is open */}
+        {activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&(
+          <PersistentWaitBanner restaurantName={activeWait.restaurantName||"Restaurant"} startedAt={activeWait.startedAt} onPickedUp={handlePickedUp}/>
+        )}
+
+        <div style={{height:"calc(100vh - 56px"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook?" - 56px":"")+")",overflowY:"auto"}}>
           {showLogbook?(
             <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)}/>
           ):showStats&&isOwner(user)?(
@@ -2480,6 +2546,15 @@ export default function App() {
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts}/>
           )}
         </div>
+        {/* 20/40-min reminder toast */}
+        {reminder&&(
+          <div style={{position:"fixed",bottom:68,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 24px)",maxWidth:406,zIndex:400,background:"var(--card)",border:"1px solid #ff5a2d66",borderRadius:14,padding:"12px 14px",boxShadow:"0 8px 30px rgba(0,0,0,0.25)",display:"flex",alignItems:"center",gap:10,animation:"slideDown 0.2s ease"}}>
+            <span style={{fontSize:20}}>⏰</span>
+            <div style={{flex:1,fontSize:12,...M,color:"var(--ink)",lineHeight:1.4}}>{reminder}</div>
+            <button onClick={()=>{handlePickedUp();setReminder(null);}} style={{flexShrink:0,background:"#06c167",border:"none",borderRadius:9,...B,fontWeight:700,fontSize:12,color:"#fff",padding:"8px 10px",cursor:"pointer"}}>PICKED UP</button>
+            <button onClick={()=>setReminder(null)} style={{flexShrink:0,background:"none",border:"none",color:"var(--muted2)",fontSize:18,cursor:"pointer",padding:"0 2px"}}>✕</button>
+          </div>
+        )}
         {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
       </div>
     </div>
