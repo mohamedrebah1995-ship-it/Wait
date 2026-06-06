@@ -155,6 +155,55 @@ const B = { fontFamily:"'Poppins',sans-serif" };
 const M = { fontFamily:"'Nunito',sans-serif" };
 const ROOT = { ...M, background:"var(--bg)", color:"var(--ink)", minHeight:"100vh", maxWidth:430, margin:"0 auto", userSelect:"none" };
 
+// ── Languages / i18n ──────────────────────────────────────────────────────────
+const LANGS = [
+  { code:"en", name:"English",    flag:"🇬🇧" },
+  { code:"pl", name:"Polski",     flag:"🇵🇱" },
+  { code:"ar", name:"العربية",    flag:"🇸🇦", rtl:true },
+  { code:"hi", name:"हिन्दी",      flag:"🇮🇳" },
+  { code:"ur", name:"اردو",       flag:"🇵🇰", rtl:true },
+  { code:"pt", name:"Português",  flag:"🇵🇹" },
+];
+const T = {
+  en:{ chooseLang:"Choose your language", continue:"CONTINUE →", tagline:"DRIVER COMMUNITY",
+    next:"NEXT", join:"JOIN THE COMMUNITY →", skip:"Skip",
+    ob1_title:"You've been waiting.\nNow waiting pays.", ob1_body:"Every minute you wait outside a restaurant is data. Delivr turns that wait into live intel that saves you and every driver near you time.",
+    ob2_title:"Two taps. That's it.", ob2_arrive_t:"Arrive", ob2_arrive_d:"Tap once when you reach the restaurant. The timer starts automatically.", ob2_pickup_t:"Pick up", ob2_pickup_d:"Tap once when you've got the order. That's your wait, logged.", ob2_see_t:"Everyone sees it", ob2_see_d:"Every nearby driver instantly sees the real wait time.",
+    ob3_title:"Help me.\nI help you.", ob3_body:"Delivr only works because drivers share. The more you log, the smarter it gets for everyone. Join the crew.",
+    signin:"SIGN IN", create:"CREATE ACCOUNT", drivername:"DRIVER NAME", email:"EMAIL ADDRESS", password:"PASSWORD", confirm:"CONFIRM PASSWORD", colour:"YOUR COLOUR", forgot:"Forgot password?", signinBtn:"SIGN IN →", createBtn:"CREATE ACCOUNT →", changeLang:"🌐 Language" },
+  pl:{ chooseLang:"Wybierz swój język", continue:"DALEJ →", tagline:"SPOŁECZNOŚĆ KIEROWCÓW",
+    next:"DALEJ", join:"DOŁĄCZ DO SPOŁECZNOŚCI →", skip:"Pomiń",
+    ob1_title:"Czekałeś.\nTeraz czekanie się opłaca.", ob1_body:"Każda minuta czekania pod restauracją to dane. Delivr zamienia to czekanie w informacje na żywo, które oszczędzają czas Tobie i kierowcom obok.",
+    ob2_title:"Dwa dotknięcia. To wszystko.", ob2_arrive_t:"Przyjazd", ob2_arrive_d:"Dotknij raz po dotarciu do restauracji. Licznik startuje automatycznie.", ob2_pickup_t:"Odbiór", ob2_pickup_d:"Dotknij, gdy masz zamówienie. Twój czas oczekiwania zapisany.", ob2_see_t:"Wszyscy to widzą", ob2_see_d:"Każdy kierowca w pobliżu od razu widzi prawdziwy czas oczekiwania.",
+    ob3_title:"Pomóż mi.\nJa pomogę Tobie.", ob3_body:"Delivr działa dzięki kierowcom. Im więcej zapisujesz, tym mądrzejszy dla wszystkich. Dołącz do ekipy.",
+    signin:"ZALOGUJ", create:"ZAŁÓŻ KONTO", drivername:"NAZWA KIEROWCY", email:"ADRES E-MAIL", password:"HASŁO", confirm:"POTWIERDŹ HASŁO", colour:"TWÓJ KOLOR", forgot:"Nie pamiętasz hasła?", signinBtn:"ZALOGUJ →", createBtn:"ZAŁÓŻ KONTO →", changeLang:"🌐 Język" },
+  ar:{ chooseLang:"اختر لغتك", continue:"متابعة →", tagline:"مجتمع السائقين",
+    next:"التالي", join:"انضم إلى المجتمع →", skip:"تخطٍّ",
+    ob1_title:"كنت تنتظر.\nالآن الانتظار يكافئك.", ob1_body:"كل دقيقة تنتظرها أمام المطعم هي بيانات. يحوّل ديليفر هذا الانتظار إلى معلومات حية توفّر وقتك ووقت كل سائق بقربك.",
+    ob2_title:"نقرتان فقط.", ob2_arrive_t:"الوصول", ob2_arrive_d:"انقر مرة عند وصولك للمطعم. يبدأ المؤقّت تلقائياً.", ob2_pickup_t:"الاستلام", ob2_pickup_d:"انقر عند استلامك الطلب. هذا وقت انتظارك، مُسجّل.", ob2_see_t:"يراه الجميع", ob2_see_d:"كل سائق قريب يرى وقت الانتظار الحقيقي فوراً.",
+    ob3_title:"ساعدني.\nأساعدك.", ob3_body:"ديليفر ينجح لأن السائقين يتشاركون. كلما سجّلت أكثر، أصبح أذكى للجميع. انضم إلينا.",
+    signin:"تسجيل الدخول", create:"إنشاء حساب", drivername:"اسم السائق", email:"البريد الإلكتروني", password:"كلمة المرور", confirm:"تأكيد كلمة المرور", colour:"لونك", forgot:"نسيت كلمة المرور؟", signinBtn:"دخول →", createBtn:"إنشاء حساب →", changeLang:"🌐 اللغة" },
+  hi:{ chooseLang:"अपनी भाषा चुनें", continue:"जारी रखें →", tagline:"ड्राइवर समुदाय",
+    next:"आगे", join:"समुदाय से जुड़ें →", skip:"छोड़ें",
+    ob1_title:"आप इंतज़ार करते रहे।\nअब इंतज़ार का फ़ायदा।", ob1_body:"रेस्टोरेंट के बाहर हर मिनट का इंतज़ार डेटा है। Delivr इसे लाइव जानकारी में बदलता है जो आपका और पास के हर ड्राइवर का समय बचाता है।",
+    ob2_title:"बस दो टैप।", ob2_arrive_t:"पहुँचे", ob2_arrive_d:"रेस्टोरेंट पहुँचते ही एक बार टैप करें। टाइमर अपने आप शुरू।", ob2_pickup_t:"पिक अप", ob2_pickup_d:"ऑर्डर मिलते ही टैप करें। आपका इंतज़ार दर्ज।", ob2_see_t:"सबको दिखता है", ob2_see_d:"पास का हर ड्राइवर तुरंत असली इंतज़ार समय देखता है।",
+    ob3_title:"मेरी मदद करो।\nमैं तुम्हारी करूँगा।", ob3_body:"Delivr तभी चलता है जब ड्राइवर साझा करते हैं। जितना ज़्यादा लॉग, सबके लिए उतना बेहतर। जुड़ें।",
+    signin:"साइन इन", create:"खाता बनाएँ", drivername:"ड्राइवर नाम", email:"ईमेल पता", password:"पासवर्ड", confirm:"पासवर्ड पुष्टि", colour:"आपका रंग", forgot:"पासवर्ड भूल गए?", signinBtn:"साइन इन →", createBtn:"खाता बनाएँ →", changeLang:"🌐 भाषा" },
+  ur:{ chooseLang:"اپنی زبان منتخب کریں", continue:"جاری رکھیں →", tagline:"ڈرائیور کمیونٹی",
+    next:"آگے", join:"کمیونٹی میں شامل ہوں →", skip:"چھوڑیں",
+    ob1_title:"آپ انتظار کرتے رہے۔\nاب انتظار کا فائدہ۔", ob1_body:"ریستوران کے باہر ہر منٹ کا انتظار ڈیٹا ہے۔ Delivr اسے لائیو معلومات میں بدل دیتا ہے جو آپ کا اور قریب کے ہر ڈرائیور کا وقت بچاتا ہے۔",
+    ob2_title:"بس دو ٹیپ۔", ob2_arrive_t:"پہنچے", ob2_arrive_d:"ریستوران پہنچتے ہی ایک بار ٹیپ کریں۔ ٹائمر خودبخود شروع۔", ob2_pickup_t:"پک اپ", ob2_pickup_d:"آرڈر ملتے ہی ٹیپ کریں۔ آپ کا انتظار درج۔", ob2_see_t:"سب کو نظر آتا ہے", ob2_see_d:"قریب کا ہر ڈرائیور فوراً اصل انتظار وقت دیکھتا ہے۔",
+    ob3_title:"میری مدد کرو۔\nمیں تمہاری کروں گا۔", ob3_body:"Delivr تبھی چلتا ہے جب ڈرائیور شیئر کرتے ہیں۔ جتنا زیادہ لاگ، سب کے لیے اتنا بہتر۔ شامل ہوں۔",
+    signin:"سائن اِن", create:"اکاؤنٹ بنائیں", drivername:"ڈرائیور نام", email:"ای میل پتہ", password:"پاس ورڈ", confirm:"پاس ورڈ کی تصدیق", colour:"آپ کا رنگ", forgot:"پاس ورڈ بھول گئے؟", signinBtn:"سائن اِن →", createBtn:"اکاؤنٹ بنائیں →", changeLang:"🌐 زبان" },
+  pt:{ chooseLang:"Escolha o seu idioma", continue:"CONTINUAR →", tagline:"COMUNIDADE DE MOTORISTAS",
+    next:"PRÓXIMO", join:"ENTRAR NA COMUNIDADE →", skip:"Pular",
+    ob1_title:"Você esperou.\nAgora esperar compensa.", ob1_body:"Cada minuto esperando fora do restaurante é dado. O Delivr transforma essa espera em informação ao vivo que poupa tempo seu e de cada motorista perto de você.",
+    ob2_title:"Dois toques. Só isso.", ob2_arrive_t:"Cheguei", ob2_arrive_d:"Toque uma vez ao chegar ao restaurante. O cronômetro começa sozinho.", ob2_pickup_t:"Peguei", ob2_pickup_d:"Toque ao receber o pedido. Sua espera fica registrada.", ob2_see_t:"Todos veem", ob2_see_d:"Cada motorista por perto vê o tempo de espera real na hora.",
+    ob3_title:"Ajude-me.\nEu ajudo você.", ob3_body:"O Delivr só funciona porque os motoristas compartilham. Quanto mais você registra, melhor para todos. Junte-se.",
+    signin:"ENTRAR", create:"CRIAR CONTA", drivername:"NOME DO MOTORISTA", email:"E-MAIL", password:"SENHA", confirm:"CONFIRMAR SENHA", colour:"SUA COR", forgot:"Esqueceu a senha?", signinBtn:"ENTRAR →", createBtn:"CRIAR CONTA →", changeLang:"🌐 Idioma" },
+};
+const tr = (lang,key) => (T[lang]&&T[lang][key])||T.en[key]||key;
+
 const store = {
   get:  k     => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):null; } catch(e) { return null; } },
   set:  (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch(e) {} },
@@ -816,30 +865,42 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
   );
 }
 
+// ── LANGUAGE PICKER (very first screen) ───────────────────────────────────────
+function LanguageScreen({onChoose}) {
+  return(
+    <div style={{minHeight:"100vh",background:"#0e1316",color:"#eaf0f2",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 26px",fontFamily:"'Nunito',sans-serif"}}>
+      <div style={{textAlign:"center",marginBottom:36}}>
+        <div style={{fontFamily:"'Poppins',sans-serif",fontWeight:800,fontSize:40,color:"#00b8a9",letterSpacing:6}}>DELIVR</div>
+        <div style={{fontSize:13,color:"#9aa7af",marginTop:10}}>🌐 Choose your language</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {LANGS.map(l=>(
+          <button key={l.code} onClick={()=>onChoose(l.code)}
+            style={{display:"flex",alignItems:"center",gap:14,background:"#192127",border:"1px solid #28343a",borderRadius:14,padding:"16px 18px",cursor:"pointer",textAlign:"left"}}>
+            <span style={{fontSize:26}}>{l.flag}</span>
+            <span style={{fontFamily:"'Poppins',sans-serif",fontWeight:700,fontSize:18,color:"#eaf0f2",flex:1}}>{l.name}</span>
+            <span style={{color:"#00b8a9",fontSize:20}}>›</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── ONBOARDING (first-time users, dark theme) ─────────────────────────────────
-function Onboarding({onFinish}) {
+function Onboarding({onFinish,lang}) {
   const [step,setStep]=useState(0);
   const D={bg:"#0e1316",card:"#192127",ink:"#eaf0f2",muted:"#9aa7af",teal:"#00b8a9",coral:"#ff5a2d",green:"#06c167"};
+  const t=k=>tr(lang,k);
 
   const slides=[
-    {
-      emoji:"⏳",
-      title:"You've been waiting.\nNow waiting pays.",
-      body:"Every minute you sit outside a restaurant is data. Delivr turns the wait you already do into live intel that saves you — and every driver near you — time and money.",
-    },
-    {
-      steps:[
-        {e:"📍",t:"Arrive",d:"Tap once when you reach the restaurant. The timer starts automatically."},
-        {e:"✅",t:"Pick up",d:"Tap once the moment you've got the order. That's your wait, logged."},
-        {e:"⚡",t:"Everyone sees it",d:"Every nearby driver instantly sees the real wait time — no more guessing."},
-      ],
-      title:"Two taps. That's it.",
-    },
-    {
-      emoji:"🤝",
-      title:"Help me.\nI help you.",
-      body:"Delivr only works because drivers share. The more you log, the smarter it gets for everyone — which restaurants are slammed, which are quick, right now. Join the crew and never walk into a 25-minute wait blind again.",
-    },
+    { emoji:"⏳", title:t("ob1_title"), body:t("ob1_body") },
+    { title:t("ob2_title"), steps:[
+        {e:"📍",t:t("ob2_arrive_t"),d:t("ob2_arrive_d")},
+        {e:"✅",t:t("ob2_pickup_t"),d:t("ob2_pickup_d")},
+        {e:"⚡",t:t("ob2_see_t"),d:t("ob2_see_d")},
+      ] },
+    { emoji:"🤝", title:t("ob3_title"), body:t("ob3_body") },
   ];
   const s=slides[step];
   const isLast=step===slides.length-1;
@@ -852,7 +913,7 @@ function Onboarding({onFinish}) {
 
       {/* skip */}
       {!isLast&&(
-        <button onClick={onFinish} style={{position:"absolute",top:18,right:22,background:"none",border:"none",color:D.muted,fontSize:13,fontWeight:700,cursor:"pointer",zIndex:2}}>Skip</button>
+        <button onClick={onFinish} style={{position:"absolute",top:18,right:22,background:"none",border:"none",color:D.muted,fontSize:13,fontWeight:700,cursor:"pointer",zIndex:2}}>{t("skip")}</button>
       )}
 
       <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",zIndex:1,paddingTop:40}}>
@@ -890,7 +951,7 @@ function Onboarding({onFinish}) {
         </div>
         <button onClick={()=>isLast?onFinish():setStep(step+1)}
           style={{width:"100%",minHeight:62,background:isLast?D.coral:D.teal,border:"none",borderRadius:18,fontFamily:"'Poppins',sans-serif",fontWeight:700,fontSize:isLast?20:22,letterSpacing:isLast?0.5:1,color:"#fff",cursor:"pointer",boxShadow:isLast?"0 8px 24px "+D.coral+"55":"0 8px 24px "+D.teal+"44"}}>
-          {isLast?"JOIN THE COMMUNITY →":"NEXT"}
+          {isLast?t("join"):t("next")}
         </button>
       </div>
     </div>
@@ -898,7 +959,8 @@ function Onboarding({onFinish}) {
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-function LoginScreen({onLogin,onRegistered,initialMode}) {
+function LoginScreen({onLogin,onRegistered,initialMode,lang,onChangeLang}) {
+  const t=k=>tr(lang,k);
   const [mode,setMode]=useState(initialMode||"login");
   const [username,setUsername]=useState("");
   const [email,setEmail]=useState("");
@@ -974,14 +1036,15 @@ function LoginScreen({onLogin,onRegistered,initialMode}) {
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 24px 60px",background:"linear-gradient(160deg,var(--tint-teal) 0%,var(--bg) 55%)"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
         <div style={{...B,fontSize:80,color:"#00b8a9",letterSpacing:8,lineHeight:1,textShadow:"0 0 80px #00b8a944"}}>DELIVR</div>
-        <div style={{fontSize:10,color:"var(--faint2)",letterSpacing:5,marginTop:6}}>DRIVER COMMUNITY</div>
+        <div style={{fontSize:10,color:"var(--faint2)",letterSpacing:5,marginTop:6}}>{t("tagline")}</div>
+        {onChangeLang&&<button type="button" onClick={onChangeLang} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:11,...M,marginTop:10}}>{t("changeLang")}</button>}
       </div>
 
       <div style={{display:"flex",background:"var(--card)",borderRadius:12,padding:4,marginBottom:28,border:"1px solid var(--border)"}}>
         {["login","register"].map(m=>(
           <button key={m} type="button" onClick={()=>switchMode(m)}
             style={{flex:1,padding:"11px 0",background:mode===m?"#00b8a9":"none",border:"none",borderRadius:9,cursor:"pointer",...B,fontSize:16,letterSpacing:2,color:mode===m?"#000":"var(--muted)",transition:"all 0.15s"}}>
-            {m==="login"?"SIGN IN":"CREATE ACCOUNT"}
+            {m==="login"?t("signin"):t("create")}
           </button>
         ))}
       </div>
@@ -989,34 +1052,34 @@ function LoginScreen({onLogin,onRegistered,initialMode}) {
       <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:14}}>
         {mode==="register"&&(
           <div>
-            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>DRIVER NAME</div>
+            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>{t("drivername")}</div>
             <input value={username} onChange={e=>setUsername(e.target.value)} placeholder="e.g. FastRider99" maxLength={20} autoFocus
               style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:14,padding:"16px 18px",color:"var(--ink)",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
               onFocus={e=>{e.target.style.borderColor="#00b8a9";}} onBlur={e=>{e.target.style.borderColor="var(--border2)";}}/>
           </div>
         )}
         <div>
-          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>EMAIL ADDRESS</div>
+          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>{t("email")}</div>
           <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" type="email" autoComplete="email" autoFocus={mode==="login"}
             style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:14,padding:"16px 18px",color:"var(--ink)",fontSize:16,...M,fontWeight:600,outline:"none",boxSizing:"border-box",letterSpacing:1}}
             onFocus={e=>{e.target.style.borderColor="#00b8a9";}} onBlur={e=>{e.target.style.borderColor="var(--border2)";}}/>
         </div>
         <div>
-          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>PASSWORD {mode==="register"&&<span style={{color:"var(--faint2)"}}>(min 6 chars)</span>}</div>
+          <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>{t("password")} {mode==="register"&&<span style={{color:"var(--faint2)"}}>(min 6 chars)</span>}</div>
           <PasswordInput value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"/>
           {mode==="login"&&(
             <div style={{textAlign:"right",marginTop:8}}>
-              <button type="button" onClick={forgotPassword} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:11,...M,letterSpacing:1,padding:0}}>Forgot password?</button>
+              <button type="button" onClick={forgotPassword} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:11,...M,letterSpacing:1,padding:0}}>{t("forgot")}</button>
             </div>
           )}
         </div>
         {mode==="register"&&<>
           <div>
-            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>CONFIRM PASSWORD</div>
+            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:7}}>{t("confirm")}</div>
             <PasswordInput value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Repeat password"/>
           </div>
           <div>
-            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:10}}>YOUR COLOUR</div>
+            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:10}}>{t("colour")}</div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
               {AVATAR_COLORS.map((c,i)=>(
                 <button key={i} type="button" onClick={()=>setColorIdx(i)}
@@ -1040,7 +1103,7 @@ function LoginScreen({onLogin,onRegistered,initialMode}) {
         {resetMsg&&<div style={{background:"var(--tint-green)",border:"1px solid #06c16744",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#06c167"}}>{resetMsg}</div>}
         <button type="submit" disabled={loading}
           style={{minHeight:64,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontSize:28,letterSpacing:4,color:loading?"var(--faint)":"#000",cursor:loading?"default":"pointer",marginTop:6,boxShadow:loading?"none":"0 0 40px #00b8a940",transition:"all 0.2s"}}>
-          {loading?"LOADING...":(mode==="login"?"SIGN IN →":"CREATE ACCOUNT →")}
+          {loading?"LOADING...":(mode==="login"?t("signinBtn"):t("createBtn"))}
         </button>
       </form>
       <div style={{textAlign:"center",marginTop:28}}>
@@ -2172,6 +2235,7 @@ export default function App() {
   const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
   const [onboarded,setOnboarded]=useState(()=>!!store.get("delivr_onboarded"));
   const [startRegister,setStartRegister]=useState(false);
+  const [lang,setLang]=useState(()=>store.get("delivr_lang")||null);
   const premium=!!user?.premium;
 
   // Apply + persist the colour theme
@@ -2182,6 +2246,14 @@ export default function App() {
     if(meta)meta.setAttribute("content",theme==="dark"?"#0e1316":"#ffffff");
   },[theme]);
   const toggleTheme=()=>setTheme(t=>t==="dark"?"light":"dark");
+
+  // Apply language direction (RTL for Arabic & Urdu)
+  useEffect(()=>{
+    const rtl=lang==="ar"||lang==="ur";
+    document.documentElement.lang=lang||"en";
+    document.documentElement.dir=rtl?"rtl":"ltr";
+  },[lang]);
+  function chooseLang(code){ setLang(code); store.set("delivr_lang",code); }
   const [now,setNow]      =useState(new Date());
   const [restaurants,setRestaurants]=useState(CURATED);
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
@@ -2543,13 +2615,17 @@ export default function App() {
         <VerifyCodeScreen email={pendingVerify.email} onVerified={handleVerified} onBack={()=>setPendingVerify(null)}/>
       </div>;
     }
+    // Step 0: pick language (first ever screen)
+    if(!lang){
+      return <div style={ROOT}><style>{CSS}</style><LanguageScreen onChoose={chooseLang}/></div>;
+    }
     // First-time visitors see the 3-screen onboarding before login
     if(!onboarded){
       return <div style={ROOT}><style>{CSS}</style>
-        <Onboarding onFinish={()=>{store.set("delivr_onboarded",true);setOnboarded(true);setStartRegister(true);}}/>
+        <Onboarding lang={lang} onFinish={()=>{store.set("delivr_onboarded",true);setOnboarded(true);setStartRegister(true);}}/>
       </div>;
     }
-    return <div style={ROOT}><style>{CSS}</style><LoginScreen initialMode={startRegister?"register":"login"} onLogin={handleLogin} onRegistered={handleRegistered}/></div>;
+    return <div style={ROOT}><style>{CSS}</style><LoginScreen lang={lang} onChangeLang={()=>{setLang(null);store.del("delivr_lang");}} initialMode={startRegister?"register":"login"} onLogin={handleLogin} onRegistered={handleRegistered}/></div>;
   }
 
   // Only gate when the user must act: permission denied, needs a tap to prompt, or no GPS.
