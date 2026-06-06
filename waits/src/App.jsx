@@ -1233,6 +1233,7 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
         </div>
       )}
 
+      {onArrived&&(
       <div style={{position:"fixed",bottom:56,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,padding:"12px 16px",background:"var(--card)",borderTop:"1px solid var(--border3)"}}>
         {!isActive?(
           <>
@@ -1250,6 +1251,7 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
           <div style={{...B,fontSize:16,color:"#00b8a9",letterSpacing:2,textAlign:"center",padding:"14px 0"}}>● TIMING NOW — GO BACK TO LOG</div>
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -1945,6 +1947,7 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
   const [query,setQuery]=useState("");
   const [results,setResults]=useState([]);
   const [searching,setSearching]=useState(false);
+  const [selected,setSelected]=useState(null);
   const searchTimer=useRef(null);
 
   function handleInput(q){
@@ -1954,20 +1957,11 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
     setSearching(true);
     searchTimer.current=setTimeout(async()=>{
       const places=await searchRestaurants(q,gps.lat,gps.lng);
-      // Augment each place with community/personal data by matching name to known restaurants
       const augmented=places.map(p=>{
-        const pKey=p.name.toLowerCase().split(/[\s,'-]/)[0];
-        const known=restaurants.find(r=>r.name.toLowerCase().includes(pKey)||pKey.includes(r.name.toLowerCase().split(/[\s,'-]/)[0]));
         const dist=gps.status==="active"&&gps.lat!=null?distMeters(gps.lat,gps.lng,p.branchLat,p.branchLng):null;
-        return{...p,knownId:known?.id||null,dist};
+        return{...p,dist};
       });
-      // Sort by distance
-      augmented.sort((a,b)=>{
-        if(a.dist!=null&&b.dist!=null)return a.dist-b.dist;
-        if(a.dist!=null)return -1;
-        if(b.dist!=null)return 1;
-        return 0;
-      });
+      augmented.sort((a,b)=>{ if(a.dist!=null&&b.dist!=null)return a.dist-b.dist; if(a.dist!=null)return -1; if(b.dist!=null)return 1; return 0; });
       setResults(augmented);
       setSearching(false);
     },400);
@@ -1977,15 +1971,30 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
     const cutoff=Date.now()-60*60*1000;
     return communityLogs.filter(l=>logKey(l)===restId&&new Date(l.ts).getTime()>cutoff);
   }
+  const distOf=r=>{ const lat=r.branchLat??r.lat,lng=r.branchLng??r.lng; return gps.status==="active"&&gps.lat!=null&&lat!=null?distMeters(gps.lat,gps.lng,lat,lng):(r.dist??null); };
+
+  // Distances for the detail view
+  const distMap={};
+  [...restaurants,...results,...(selected?[selected]:[])].forEach(r=>{const d=distOf(r); if(d!=null)distMap[r.id]=d;});
+
+  // Tapped a restaurant → full stats (detail in stats-only mode: no arrive/manual buttons)
+  if(selected){
+    return <RestaurantDetail r={selected} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns} distMap={distMap} onBack={()=>setSelected(null)}/>;
+  }
+
+  // Default = nearby restaurants (sorted by distance). When searching, show search results.
+  const list=query.trim()
+    ? results
+    : restaurants.map(r=>({...r,dist:distOf(r)})).sort((a,b)=>{ if(a.dist!=null&&b.dist!=null)return a.dist-b.dist; if(a.dist!=null)return -1; if(b.dist!=null)return 1; return 0; });
 
   return(
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{marginBottom:16}}>
         <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>CHECK RESTAURANT</div>
-        <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>SEARCH ANY BRANCH · SORTED BY DISTANCE</div>
+        <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>{query.trim()?"SEARCH RESULTS":"NEARBY · TAP FOR FULL STATS"}</div>
       </div>
       <div style={{position:"relative",marginBottom:14}}>
-        <input value={query} onChange={e=>handleInput(e.target.value)} placeholder="e.g. KFC, Sainsbury's, McDonald's..." autoFocus
+        <input value={query} onChange={e=>handleInput(e.target.value)} placeholder="Search any branch — KFC, Sainsbury's…"
           style={{width:"100%",background:"var(--card)",border:"1px solid #00b8a966",borderRadius:12,padding:"14px 18px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
           onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="#00b8a966"}/>
         {searching&&<div style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",fontSize:10,color:"#00b8a9",...B,letterSpacing:1}}>SEARCHING...</div>}
@@ -1993,54 +2002,39 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
       {query.trim()&&!searching&&results.length===0&&(
         <div style={{fontSize:11,color:"var(--muted2)",textAlign:"center",padding:"40px 0",...M}}>No results found</div>
       )}
-      {!query.trim()&&(
-        <div style={{fontSize:11,color:"var(--faint)",textAlign:"center",padding:"40px 0",...M}}>Type a restaurant or shop name to search all branches near you</div>
+      {!query.trim()&&list.length===0&&(
+        <div style={{fontSize:11,color:"var(--faint)",textAlign:"center",padding:"40px 0",...M}}>Waiting for your location to find nearby restaurants…</div>
       )}
-      <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        {results.map((r,i)=>{
-          // Chain key — merges all logs for the same chain (matches the waits screen)
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {list.map((r,i)=>{
           const lid=cardKey(r);
-          const personal=getPersonalWait(lid,now,waitLog);
           const community=getCommunityWait(lid,now,communityPatterns);
           const recentLogs=logsLastHour(lid);
           const waitingNow=activeCounts?.[lid]||0;
           const closed=r.openNow===false;
-          const hasData=personal||community||recentLogs.length>0||waitingNow>0;
-          const dStr=r.dist!=null?(r.dist<1000?Math.round(r.dist)+"m":(r.dist/1000).toFixed(1)+"km"):null;
+          const d=r.dist??distOf(r);
+          const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
           return(
-            <div key={r.id+i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",opacity:closed?0.72:1}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+            <div key={r.id+i} onClick={()=>setSelected(r)} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",opacity:closed?0.72:1,cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1}}>{r.name}</div>
-                  <div style={{fontSize:9,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}</div>
+                  {r.address&&<div style={{fontSize:9,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}</div>}
                   <div style={{fontSize:9,marginTop:3}}>
                     {closed
                       ? <span style={{color:"var(--muted2)",fontWeight:700}}>● CLOSED right now</span>
                       : waitingNow>0
                         ? <span style={{color:"#06c167",fontWeight:700}}>🟢 {waitingNow} waiting now</span>
-                        : <span style={{color:"var(--muted)"}}>No one waiting now</span>}
+                        : community
+                          ? <span style={{color:"#2b8fff",fontWeight:700}}>~{community.avg}m typical wait</span>
+                          : <span style={{color:"var(--muted)"}}>No wait data yet</span>}
                   </div>
                 </div>
-                {dStr&&<div style={{...B,fontSize:16,color:"#00b8a9",letterSpacing:1,flexShrink:0,marginLeft:10}}>{dStr}</div>}
+                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:10}}>
+                  {dStr&&<span style={{...B,fontSize:15,color:"#00b8a9",letterSpacing:1}}>{dStr}</span>}
+                  <span style={{...B,fontSize:22,color:"var(--faint)"}}>›</span>
+                </div>
               </div>
-              {closed?null:hasData?(
-                <div style={{display:"flex",gap:8}}>
-                  <div style={{flex:1,background:waitingNow>0?"var(--tint-green)":"var(--border3)",border:"1px solid "+(waitingNow>0?"#06c16744":"var(--border)"),borderRadius:8,padding:"8px",textAlign:"center"}}>
-                    <div style={{...B,fontSize:22,color:waitingNow>0?"#06c167":"var(--faint2)"}}>{waitingNow}</div>
-                    <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>WAITING NOW</div>
-                  </div>
-                  <div style={{flex:1,background:"var(--border3)",border:"1px solid "+(recentLogs.length>0?"#00b8a944":"var(--border)"),borderRadius:8,padding:"8px",textAlign:"center"}}>
-                    <div style={{...B,fontSize:22,color:recentLogs.length>0?"#00b8a9":"var(--faint2)"}}>{recentLogs.length}</div>
-                    <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>LAST HOUR</div>
-                  </div>
-                  <div style={{flex:1,background:"var(--tint-blue)",border:"1px solid #2b8fff22",borderRadius:8,padding:"8px",textAlign:"center"}}>
-                    <div style={{...B,fontSize:22,color:community?"#2b8fff":"var(--faint2)"}}>{community?community.avg+"m":"—"}</div>
-                    <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>COMMUNITY</div>
-                  </div>
-                </div>
-              ):(
-                <div style={{fontSize:10,color:"var(--faint2)",...M}}>No wait data yet — be the first to log here</div>
-              )}
             </div>
           );
         })}
