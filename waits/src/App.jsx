@@ -1602,10 +1602,12 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
     try{
       const path=`chats/${room}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
       const r=storageRef(storage,path);
-      await uploadBytes(r,blob);
+      // Fail fast (15s) so a not-yet-enabled Storage bucket doesn't spin forever
+      const timeout=new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),15000));
+      await Promise.race([uploadBytes(r,blob),timeout]);
       const url=await getDownloadURL(r);
       await postMessage({type:kind,url});
-    }catch(e){console.error("upload error:",e);setSendError(true);}
+    }catch(e){console.error("upload error:",e);setSendError(true);alert("Upload failed. If this keeps happening, Firebase Storage may not be enabled yet.");}
     setUploading(false);
   }
 
@@ -2323,9 +2325,10 @@ export default function App() {
     return <div style={ROOT}><style>{CSS}</style><LoginScreen initialMode={startRegister?"register":"login"} onLogin={handleLogin} onRegistered={handleRegistered}/></div>;
   }
 
-  // Gate until we have a location, unless the user chose to continue without it.
-  // Once a fix arrives status becomes "active" and the gate never returns.
-  if(gps.status!=="active"&&!gpsSkipped){
+  // Only gate when the user must act: permission denied, needs a tap to prompt, or no GPS.
+  // While acquiring/pending we let the app load (location fills in shortly) so a slow
+  // fix never traps anyone.
+  if(["denied","prompt","error"].includes(gps.status)&&!gpsSkipped){
     return <div style={ROOT}><style>{CSS}</style><GPSGateScreen status={gps.status} onRetry={gps.retry} onSkip={()=>setGpsSkipped(true)}/></div>;
   }
 
