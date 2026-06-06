@@ -202,7 +202,43 @@ const T = {
     ob3_title:"Ajude-me.\nEu ajudo você.", ob3_body:"O Delivr só funciona porque os motoristas compartilham. Quanto mais você registra, melhor para todos. Junte-se.",
     signin:"ENTRAR", create:"CRIAR CONTA", drivername:"NOME DO MOTORISTA", email:"E-MAIL", password:"SENHA", confirm:"CONFIRMAR SENHA", colour:"SUA COR", forgot:"Esqueceu a senha?", signinBtn:"ENTRAR →", createBtn:"CRIAR CONTA →", changeLang:"🌐 Idioma" },
 };
+// Strings used across the rest of the app
+const T2 = {
+  en:{ nav_waits:"WAITS",nav_check:"CHECK",nav_chat:"CHAT",
+    w_title:"RESTAURANT WAITS",w_arrived:"📍 ARRIVED AT RESTAURANT",w_waitingAt:"WAITING AT",w_pickedUp:"✓ PICKED UP",w_gotIt:"✓ GOT IT — PICKED UP",w_arrivedShort:"ARRIVED",w_timingNow:"● TIMING NOW",w_noData:"NO DATA YET",w_closed:"CLOSED",w_closedNow:"Closed right now",w_waitingNow:"WAITING NOW",w_noOne:"No one waiting now",w_liveActivity:"LIVE ACTIVITY",w_viewAll:"View all ›",w_communityLive:"COMMUNITY DATA LIVE",w_yourData:"YOUR DATA",w_community:"COMMUNITY",w_recent:"RECENT WAIT LOGS",w_tapHint:"TAP PICKED UP THE MOMENT YOU HAVE THE ORDER",w_liveNow:"live now",
+    prof_title:"DRIVER PROFILE",prof_free:"FREE PLAN",prof_premium:"⭐ PREMIUM",prof_goPremium:"GO PREMIUM",prof_premiumActive:"PREMIUM ACTIVE",prof_totalLogs:"TOTAL LOGS",prof_restaurants:"RESTAURANTS",prof_avgWait:"AVG WAIT",prof_rank:"CONTRIBUTOR RANK",prof_noBadge:"NO BADGE YET",prof_qualityLogs:"QUALITY LOGS",prof_name:"DRIVER NAME",prof_phone:"PHONE (OPTIONAL)",prof_area:"YOUR AREA",prof_areaHint:"Sets your chat room and local restaurant list",prof_save:"SAVE CHANGES",prof_saving:"SAVING...",prof_saved:"✓ SAVED",prof_changePw:"CHANGE PASSWORD",prof_appearance:"APPEARANCE",prof_light:"Light mode",prof_dark:"Dark mode",prof_signout:"SIGN OUT",prof_appStats:"📊 APP STATS",
+    up_title:"DELIVR PREMIUM",up_month:"/month",up_cancel:"Cancel anytime",up_noAds:"No ads",up_fullData:"Full community data",up_allChats:"All area chats",up_export:"Export your logs",up_upgradeNow:"UPGRADE NOW →",up_active:"✓ YOU'RE PREMIUM",up_cancelSub:"CANCEL SUBSCRIPTION",
+    chk_title:"CHECK RESTAURANT",chk_nearby:"NEARBY · TAP FOR FULL STATS",chk_results:"SEARCH RESULTS",chk_search:"Search any branch — KFC, Sainsbury's…" },
+  pl:{ nav_waits:"CZASY",nav_check:"SPRAWDŹ",nav_chat:"CZAT",
+    w_title:"CZASY OCZEKIWANIA",w_arrived:"📍 DOTARŁEM DO RESTAURACJI",w_waitingAt:"CZEKASZ W",w_pickedUp:"✓ ODEBRANE",w_gotIt:"✓ MAM — ODEBRANE",w_arrivedShort:"DOTARŁEM",w_timingNow:"● MIERZENIE",w_noData:"BRAK DANYCH",w_closed:"ZAMKNIĘTE",w_closedNow:"Teraz zamknięte",w_waitingNow:"CZEKA TERAZ",w_noOne:"Nikt teraz nie czeka",w_liveActivity:"NA ŻYWO",w_viewAll:"Zobacz wszystko ›",w_communityLive:"DANE SPOŁECZNOŚCI NA ŻYWO",w_yourData:"TWOJE DANE",w_community:"SPOŁECZNOŚĆ",w_recent:"OSTATNIE WPISY",w_tapHint:"KLIKNIJ ODEBRANE GDY MASZ ZAMÓWIENIE",w_liveNow:"na żywo",
+    prof_title:"PROFIL KIEROWCY",prof_free:"PLAN DARMOWY",prof_premium:"⭐ PREMIUM",prof_goPremium:"PRZEJDŹ NA PREMIUM",prof_premiumActive:"PREMIUM AKTYWNE",prof_totalLogs:"WSZYSTKIE WPISY",prof_restaurants:"RESTAURACJE",prof_avgWait:"ŚR. CZAS",prof_rank:"RANGA",prof_noBadge:"BRAK ODZNAKI",prof_qualityLogs:"WPISY",prof_name:"NAZWA KIEROWCY",prof_phone:"TELEFON (OPCJON.)",prof_area:"TWÓJ OBSZAR",prof_areaHint:"Ustawia czat i listę lokalnych restauracji",prof_save:"ZAPISZ",prof_saving:"ZAPISYWANIE...",prof_saved:"✓ ZAPISANO",prof_changePw:"ZMIEŃ HASŁO",prof_appearance:"WYGLĄD",prof_light:"Tryb jasny",prof_dark:"Tryb ciemny",prof_signout:"WYLOGUJ",prof_appStats:"📊 STATYSTYKI",
+    up_title:"DELIVR PREMIUM",up_month:"/miesiąc",up_cancel:"Anuluj w każdej chwili",up_noAds:"Bez reklam",up_fullData:"Pełne dane społeczności",up_allChats:"Wszystkie czaty",up_export:"Eksport wpisów",up_upgradeNow:"ULEPSZ TERAZ →",up_active:"✓ MASZ PREMIUM",up_cancelSub:"ANULUJ SUBSKRYPCJĘ",
+    chk_title:"SPRAWDŹ RESTAURACJĘ",chk_nearby:"W POBLIŻU · DOTKNIJ PO STATYSTYKI",chk_results:"WYNIKI",chk_search:"Szukaj — KFC, Sainsbury's…" },
+  ar:{ nav_waits:"الانتظار",nav_check:"تحقّق",nav_chat:"الدردشة",
+    w_title:"أوقات الانتظار",w_arrived:"📍 وصلت إلى المطعم",w_waitingAt:"تنتظر في",w_pickedUp:"✓ تم الاستلام",w_gotIt:"✓ استلمت الطلب",w_arrivedShort:"وصلت",w_timingNow:"● جارٍ القياس",w_noData:"لا بيانات بعد",w_closed:"مغلق",w_closedNow:"مغلق الآن",w_waitingNow:"ينتظر الآن",w_noOne:"لا أحد ينتظر الآن",w_liveActivity:"النشاط المباشر",w_viewAll:"عرض الكل ›",w_communityLive:"بيانات المجتمع مباشرة",w_yourData:"بياناتك",w_community:"المجتمع",w_recent:"آخر السجلات",w_tapHint:"اضغط استلام فور حصولك على الطلب",w_liveNow:"مباشر",
+    prof_title:"ملف السائق",prof_free:"الخطة المجانية",prof_premium:"⭐ مميّز",prof_goPremium:"اشترك في المميّز",prof_premiumActive:"المميّز مُفعّل",prof_totalLogs:"إجمالي السجلات",prof_restaurants:"المطاعم",prof_avgWait:"متوسط الانتظار",prof_rank:"رتبة المساهم",prof_noBadge:"لا شارة بعد",prof_qualityLogs:"سجلات",prof_name:"اسم السائق",prof_phone:"الهاتف (اختياري)",prof_area:"منطقتك",prof_areaHint:"يحدّد غرفة الدردشة وقائمة المطاعم المحلية",prof_save:"حفظ التغييرات",prof_saving:"جارٍ الحفظ...",prof_saved:"✓ تم الحفظ",prof_changePw:"تغيير كلمة المرور",prof_appearance:"المظهر",prof_light:"الوضع الفاتح",prof_dark:"الوضع الداكن",prof_signout:"تسجيل الخروج",prof_appStats:"📊 إحصائيات",
+    up_title:"ديليفر المميّز",up_month:"/شهر",up_cancel:"إلغاء في أي وقت",up_noAds:"بدون إعلانات",up_fullData:"بيانات المجتمع الكاملة",up_allChats:"كل غرف الدردشة",up_export:"تصدير سجلاتك",up_upgradeNow:"اشترك الآن →",up_active:"✓ أنت مميّز",up_cancelSub:"إلغاء الاشتراك",
+    chk_title:"تحقّق من مطعم",chk_nearby:"قريب · اضغط للإحصائيات",chk_results:"نتائج البحث",chk_search:"ابحث عن أي فرع — KFC…" },
+  hi:{ nav_waits:"इंतज़ार",nav_check:"जाँचें",nav_chat:"चैट",
+    w_title:"रेस्टोरेंट इंतज़ार",w_arrived:"📍 रेस्टोरेंट पहुँच गया",w_waitingAt:"यहाँ इंतज़ार",w_pickedUp:"✓ पिक अप हो गया",w_gotIt:"✓ मिल गया — पिक अप",w_arrivedShort:"पहुँचे",w_timingNow:"● समय गिन रहा है",w_noData:"अभी डेटा नहीं",w_closed:"बंद",w_closedNow:"अभी बंद है",w_waitingNow:"अभी इंतज़ार",w_noOne:"अभी कोई इंतज़ार नहीं",w_liveActivity:"लाइव गतिविधि",w_viewAll:"सब देखें ›",w_communityLive:"समुदाय डेटा लाइव",w_yourData:"आपका डेटा",w_community:"समुदाय",w_recent:"हाल के लॉग",w_tapHint:"ऑर्डर मिलते ही पिक अप दबाएँ",w_liveNow:"लाइव",
+    prof_title:"ड्राइवर प्रोफ़ाइल",prof_free:"फ्री प्लान",prof_premium:"⭐ प्रीमियम",prof_goPremium:"प्रीमियम लें",prof_premiumActive:"प्रीमियम चालू",prof_totalLogs:"कुल लॉग",prof_restaurants:"रेस्टोरेंट",prof_avgWait:"औसत इंतज़ार",prof_rank:"योगदान रैंक",prof_noBadge:"अभी बैज नहीं",prof_qualityLogs:"लॉग",prof_name:"ड्राइवर नाम",prof_phone:"फ़ोन (वैकल्पिक)",prof_area:"आपका क्षेत्र",prof_areaHint:"आपका चैट रूम और स्थानीय रेस्टोरेंट सेट करता है",prof_save:"सहेजें",prof_saving:"सहेजा जा रहा...",prof_saved:"✓ सहेजा गया",prof_changePw:"पासवर्ड बदलें",prof_appearance:"रूप",prof_light:"लाइट मोड",prof_dark:"डार्क मोड",prof_signout:"साइन आउट",prof_appStats:"📊 आँकड़े",
+    up_title:"डेलिवर प्रीमियम",up_month:"/माह",up_cancel:"कभी भी रद्द करें",up_noAds:"कोई विज्ञापन नहीं",up_fullData:"पूरा समुदाय डेटा",up_allChats:"सभी चैट",up_export:"लॉग एक्सपोर्ट",up_upgradeNow:"अभी अपग्रेड करें →",up_active:"✓ आप प्रीमियम हैं",up_cancelSub:"सदस्यता रद्द करें",
+    chk_title:"रेस्टोरेंट जाँचें",chk_nearby:"पास · आँकड़ों के लिए टैप करें",chk_results:"खोज परिणाम",chk_search:"कोई भी ब्रांच खोजें — KFC…" },
+  ur:{ nav_waits:"انتظار",nav_check:"چیک",nav_chat:"چیٹ",
+    w_title:"ریستوران انتظار",w_arrived:"📍 ریستوران پہنچ گیا",w_waitingAt:"یہاں انتظار",w_pickedUp:"✓ پک اپ ہو گیا",w_gotIt:"✓ مل گیا — پک اپ",w_arrivedShort:"پہنچے",w_timingNow:"● وقت گن رہا ہے",w_noData:"ابھی ڈیٹا نہیں",w_closed:"بند",w_closedNow:"ابھی بند ہے",w_waitingNow:"ابھی انتظار",w_noOne:"ابھی کوئی انتظار نہیں",w_liveActivity:"لائیو سرگرمی",w_viewAll:"سب دیکھیں ›",w_communityLive:"کمیونٹی ڈیٹا لائیو",w_yourData:"آپ کا ڈیٹا",w_community:"کمیونٹی",w_recent:"حالیہ لاگ",w_tapHint:"آرڈر ملتے ہی پک اپ دبائیں",w_liveNow:"لائیو",
+    prof_title:"ڈرائیور پروفائل",prof_free:"فری پلان",prof_premium:"⭐ پریمیم",prof_goPremium:"پریمیم لیں",prof_premiumActive:"پریمیم فعال",prof_totalLogs:"کل لاگ",prof_restaurants:"ریستوران",prof_avgWait:"اوسط انتظار",prof_rank:"کنٹری بیوٹر رینک",prof_noBadge:"ابھی بیج نہیں",prof_qualityLogs:"لاگ",prof_name:"ڈرائیور نام",prof_phone:"فون (اختیاری)",prof_area:"آپ کا علاقہ",prof_areaHint:"آپ کا چیٹ روم اور مقامی ریستوران سیٹ کرتا ہے",prof_save:"محفوظ کریں",prof_saving:"محفوظ ہو رہا...",prof_saved:"✓ محفوظ",prof_changePw:"پاس ورڈ تبدیل کریں",prof_appearance:"ظاہری شکل",prof_light:"لائٹ موڈ",prof_dark:"ڈارک موڈ",prof_signout:"سائن آؤٹ",prof_appStats:"📊 شماریات",
+    up_title:"ڈیلیور پریمیم",up_month:"/ماہ",up_cancel:"کسی بھی وقت منسوخ کریں",up_noAds:"کوئی اشتہار نہیں",up_fullData:"مکمل کمیونٹی ڈیٹا",up_allChats:"تمام چیٹس",up_export:"لاگ ایکسپورٹ",up_upgradeNow:"ابھی اپ گریڈ کریں →",up_active:"✓ آپ پریمیم ہیں",up_cancelSub:"سبسکرپشن منسوخ کریں",
+    chk_title:"ریستوران چیک کریں",chk_nearby:"قریب · شماریات کے لیے ٹیپ کریں",chk_results:"تلاش کے نتائج",chk_search:"کوئی برانچ تلاش کریں — KFC…" },
+  pt:{ nav_waits:"ESPERAS",nav_check:"VERIFICAR",nav_chat:"CHAT",
+    w_title:"ESPERAS NOS RESTAURANTES",w_arrived:"📍 CHEGUEI AO RESTAURANTE",w_waitingAt:"ESPERANDO EM",w_pickedUp:"✓ PEGUEI",w_gotIt:"✓ PEGUEI — RETIRADO",w_arrivedShort:"CHEGUEI",w_timingNow:"● CRONOMETRANDO",w_noData:"SEM DADOS AINDA",w_closed:"FECHADO",w_closedNow:"Fechado agora",w_waitingNow:"ESPERANDO AGORA",w_noOne:"Ninguém esperando agora",w_liveActivity:"ATIVIDADE AO VIVO",w_viewAll:"Ver tudo ›",w_communityLive:"DADOS DA COMUNIDADE AO VIVO",w_yourData:"SEUS DADOS",w_community:"COMUNIDADE",w_recent:"REGISTROS RECENTES",w_tapHint:"TOQUE EM PEGUEI ASSIM QUE RECEBER O PEDIDO",w_liveNow:"ao vivo",
+    prof_title:"PERFIL DO MOTORISTA",prof_free:"PLANO GRÁTIS",prof_premium:"⭐ PREMIUM",prof_goPremium:"OBTER PREMIUM",prof_premiumActive:"PREMIUM ATIVO",prof_totalLogs:"TOTAL DE REGISTROS",prof_restaurants:"RESTAURANTES",prof_avgWait:"ESPERA MÉDIA",prof_rank:"RANQUE",prof_noBadge:"SEM EMBLEMA AINDA",prof_qualityLogs:"REGISTROS",prof_name:"NOME DO MOTORISTA",prof_phone:"TELEFONE (OPCIONAL)",prof_area:"SUA ÁREA",prof_areaHint:"Define seu chat e lista de restaurantes locais",prof_save:"SALVAR",prof_saving:"SALVANDO...",prof_saved:"✓ SALVO",prof_changePw:"ALTERAR SENHA",prof_appearance:"APARÊNCIA",prof_light:"Modo claro",prof_dark:"Modo escuro",prof_signout:"SAIR",prof_appStats:"📊 ESTATÍSTICAS",
+    up_title:"DELIVR PREMIUM",up_month:"/mês",up_cancel:"Cancele quando quiser",up_noAds:"Sem anúncios",up_fullData:"Dados completos da comunidade",up_allChats:"Todos os chats",up_export:"Exportar registros",up_upgradeNow:"ASSINAR AGORA →",up_active:"✓ VOCÊ É PREMIUM",up_cancelSub:"CANCELAR ASSINATURA",
+    chk_title:"VERIFICAR RESTAURANTE",chk_nearby:"PRÓXIMOS · TOQUE PARA ESTATÍSTICAS",chk_results:"RESULTADOS",chk_search:"Buscar qualquer filial — KFC…" },
+};
+for(const c of Object.keys(T2)){ Object.assign(T[c],T2[c]); }
+let _lang="en";                                   // current language (set by App on render)
 const tr = (lang,key) => (T[lang]&&T[lang][key])||T.en[key]||key;
+const t  = key => (T[_lang]&&T[_lang][key])||T.en[key]||key;
 
 const store = {
   get:  k     => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):null; } catch(e) { return null; } },
@@ -505,13 +541,13 @@ function PersistentWaitBanner({restaurantName,startedAt,onPickedUp}) {
   return(
     <div style={{display:"flex",alignItems:"center",gap:10,background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",borderBottom:"1px solid #ff5a2d44",padding:"0 12px",height:56,flexShrink:0}}>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:8,...M,fontWeight:700,color:"#ff5a2d",letterSpacing:1}}>⏱ WAITING AT</div>
+        <div style={{fontSize:8,...M,fontWeight:700,color:"#ff5a2d",letterSpacing:1}}>{"⏱ "+t("w_waitingAt")}</div>
         <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
           <span style={{...B,fontSize:15,color:"var(--ink)",letterSpacing:0.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{restaurantName}</span>
           <MiniTimer startedAt={startedAt}/>
         </div>
       </div>
-      <button onClick={onPickedUp} style={{flexShrink:0,background:"#06c167",border:"none",borderRadius:10,...B,fontWeight:700,fontSize:12,letterSpacing:0.5,color:"#fff",padding:"9px 11px",cursor:"pointer"}}>✓ GOT IT — PICKED UP</button>
+      <button onClick={onPickedUp} style={{flexShrink:0,background:"#06c167",border:"none",borderRadius:10,...B,fontWeight:700,fontSize:12,letterSpacing:0.5,color:"#fff",padding:"9px 11px",cursor:"pointer"}}>{t("w_gotIt")}</button>
     </div>
   );
 }
@@ -565,22 +601,22 @@ function AdBanner({premium}) {
 // ── UPGRADE / SUBSCRIPTION ────────────────────────────────────────────────────
 function UpgradeScreen({premium,onBack,onSubscribe,onCancel}) {
   const perks=[
-    {icon:"🚫",title:"No ads",desc:"Clean, distraction-free experience"},
-    {icon:"📊",title:"Full community data",desc:"See every driver's logs & full history"},
-    {icon:"💬",title:"All area chats",desc:"Access driver chat in any town, not just yours"},
-    {icon:"📁",title:"Export your logs",desc:"Download your wait history as CSV"},
+    {icon:"🚫",title:t("up_noAds"),desc:"Clean, distraction-free experience"},
+    {icon:"📊",title:t("up_fullData"),desc:"See every driver's logs & full history"},
+    {icon:"💬",title:t("up_allChats"),desc:"Access driver chat in any town, not just yours"},
+    {icon:"📁",title:t("up_export"),desc:"Download your wait history as CSV"},
   ];
   return(
     <div style={{padding:"20px 16px 120px"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
         <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
-        <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:2}}>DELIVR PREMIUM</div>
+        <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:2}}>{t("up_title")}</div>
       </div>
 
       <div style={{textAlign:"center",marginBottom:28}}>
         <div style={{fontSize:52,marginBottom:8}}>⭐</div>
-        <div style={{...B,fontSize:48,color:"#00b8a9",letterSpacing:1,lineHeight:1}}>{SUB_PRICE}<span style={{fontSize:18,color:"var(--muted)"}}>/month</span></div>
-        <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:6}}>Cancel anytime</div>
+        <div style={{...B,fontSize:48,color:"#00b8a9",letterSpacing:1,lineHeight:1}}>{SUB_PRICE}<span style={{fontSize:18,color:"var(--muted)"}}>{t("up_month")}</span></div>
+        <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:6}}>{t("up_cancel")}</div>
       </div>
 
       <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:28}}>
@@ -598,18 +634,18 @@ function UpgradeScreen({premium,onBack,onSubscribe,onCancel}) {
       {premium?(
         <>
           <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-green))",border:"1px solid #06c16744",borderRadius:14,padding:"18px",textAlign:"center",marginBottom:16}}>
-            <div style={{...B,fontSize:22,color:"#06c167",letterSpacing:2}}>✓ YOU'RE PREMIUM</div>
+            <div style={{...B,fontSize:22,color:"#06c167",letterSpacing:2}}>{t("up_active")}</div>
             <div style={{fontSize:10,...M,color:"#0a8f4f",marginTop:4}}>Thanks for supporting Delivr</div>
           </div>
           <button onClick={onCancel}
             style={{width:"100%",minHeight:48,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:16,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>
-            CANCEL SUBSCRIPTION
+            {t("up_cancelSub")}
           </button>
         </>
       ):(
         <button onClick={onSubscribe}
           style={{width:"100%",minHeight:64,background:"#00b8a9",border:"none",borderRadius:14,...B,fontSize:24,letterSpacing:3,color:"#000",cursor:"pointer",boxShadow:"0 0 40px #00b8a940"}}>
-          UPGRADE NOW →
+          {t("up_upgradeNow")}
         </button>
       )}
     </div>
@@ -715,7 +751,7 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
     <div style={{padding:"20px 16px 120px"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
         <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
-        <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:2}}>DRIVER PROFILE</div>
+        <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:2}}>{t("prof_title")}</div>
       </div>
 
       {/* Avatar + info */}
@@ -727,7 +763,7 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
           <div style={{...B,fontSize:22,color:"var(--ink)",letterSpacing:1}}>{user.name}</div>
           <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:2}}>{user.email||"—"}</div>
           <div style={{marginTop:6,background:premium?"var(--tint-green)":"var(--tint-amber)",border:"1px solid "+(premium?"#06c16744":"#f5a62344"),borderRadius:5,padding:"3px 10px",display:"inline-block"}}>
-            <span style={{...B,fontSize:11,color:premium?"#06c167":"#f5a623",letterSpacing:2}}>{premium?"⭐ PREMIUM":"FREE PLAN"}</span>
+            <span style={{...B,fontSize:11,color:premium?"#06c167":"#f5a623",letterSpacing:2}}>{premium?t("prof_premium"):t("prof_free")}</span>
           </div>
         </div>
       </div>
@@ -736,7 +772,7 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
       <button onClick={onUpgrade}
         style={{width:"100%",background:premium?"linear-gradient(135deg,var(--tint-green),var(--tint-green))":"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"1px solid "+(premium?"#06c16744":"#00b8a966"),borderRadius:14,padding:"16px",marginBottom:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
         <div>
-          <div style={{...B,fontSize:18,color:premium?"#06c167":"#00b8a9",letterSpacing:1}}>{premium?"PREMIUM ACTIVE":"GO PREMIUM"}</div>
+          <div style={{...B,fontSize:18,color:premium?"#06c167":"#00b8a9",letterSpacing:1}}>{premium?t("prof_premiumActive"):t("prof_goPremium")}</div>
           <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>{premium?"Manage your subscription":"No ads + full data · "+SUB_PRICE+"/mo"}</div>
         </div>
         <span style={{...B,fontSize:24,color:premium?"#06c167":"#00b8a9"}}>›</span>
@@ -744,9 +780,9 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
 
       {/* Stats */}
       <div style={{display:"flex",gap:8,marginBottom:16}}>
-        {stat(totalLogs,"TOTAL LOGS")}
-        {stat(totalRestaurants,"RESTAURANTS")}
-        {stat(avgWait+"m","AVG WAIT")}
+        {stat(totalLogs,t("prof_totalLogs"))}
+        {stat(totalRestaurants,t("prof_restaurants"))}
+        {stat(avgWait+"m",t("prof_avgWait"))}
       </div>
 
       {/* Contributor badge + progress */}
@@ -760,12 +796,12 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
           <div style={{background:"linear-gradient(135deg,var(--tint-amber),var(--tint-coral))",border:"1px solid #f5a62344",borderRadius:14,padding:"16px",marginBottom:20}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:nx?10:0}}>
               <div>
-                <div style={{fontSize:9,color:"var(--muted)",letterSpacing:2,marginBottom:3}}>CONTRIBUTOR RANK</div>
-                <div style={{...B,fontSize:20,color:"var(--ink)",letterSpacing:1}}>{bg?bg.emoji+" "+bg.label.toUpperCase():"NO BADGE YET"}</div>
+                <div style={{fontSize:9,color:"var(--muted)",letterSpacing:2,marginBottom:3}}>{t("prof_rank")}</div>
+                <div style={{...B,fontSize:20,color:"var(--ink)",letterSpacing:1}}>{bg?bg.emoji+" "+bg.label.toUpperCase():t("prof_noBadge")}</div>
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{...B,fontSize:24,color:"#f5a623"}}>{c}</div>
-                <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>QUALITY LOGS</div>
+                <div style={{fontSize:8,color:"var(--muted)",letterSpacing:1}}>{t("prof_qualityLogs")}</div>
               </div>
             </div>
             {nx&&(
@@ -783,35 +819,35 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
       {/* Edit fields */}
       <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
         <div>
-          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>DRIVER NAME</div>
+          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>{t("prof_name")}</div>
           <input value={name} onChange={e=>setName(e.target.value)}
             style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
             onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
         </div>
         <div>
-          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>PHONE (OPTIONAL)</div>
+          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>{t("prof_phone")}</div>
           <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+44 7700 000000" type="tel"
             style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
             onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
         </div>
         <div>
-          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>YOUR AREA</div>
+          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>{t("prof_area")}</div>
           <input value={area} onChange={e=>setArea(e.target.value)} placeholder="e.g. Braintree, Chelmsford..."
             style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
             onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
-          <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:5}}>Sets your chat room and local restaurant list</div>
+          <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:5}}>{t("prof_areaHint")}</div>
         </div>
       </div>
 
       <button onClick={save} disabled={saving}
         style={{width:"100%",minHeight:56,background:saving?"var(--border)":saved?"#06c167":"#00b8a9",border:"none",borderRadius:12,...B,fontSize:22,letterSpacing:3,color:saving?"var(--faint)":"#000",cursor:saving?"default":"pointer",marginBottom:20,boxShadow:saving?"none":saved?"0 0 30px #06c16730":"0 0 30px #00b8a930",transition:"all 0.2s"}}>
-        {saving?"SAVING...":saved?"✓ SAVED":"SAVE CHANGES"}
+        {saving?t("prof_saving"):saved?t("prof_saved"):t("prof_save")}
       </button>
 
       {/* Change password */}
       <button onClick={()=>{setShowPw(s=>!s);setPwMsg("");}}
         style={{width:"100%",minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"var(--muted)",cursor:"pointer",marginBottom:showPw?0:16}}>
-        {showPw?"↑ HIDE":"CHANGE PASSWORD"}
+        {showPw?"↑ HIDE":t("prof_changePw")}
       </button>
       {showPw&&(
         <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"16px",marginBottom:16,display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
@@ -832,7 +868,7 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         <button onClick={onStats}
           style={{width:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
           <div>
-            <div style={{...B,fontSize:18,color:"#00b8a9",letterSpacing:1}}>📊 APP STATS</div>
+            <div style={{...B,fontSize:18,color:"#00b8a9",letterSpacing:1}}>{t("prof_appStats")}</div>
             <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>Owner only · live data & top restaurants</div>
           </div>
           <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
@@ -859,8 +895,8 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
       {/* Appearance — light / dark toggle */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
         <div>
-          <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:1}}>APPEARANCE</div>
-          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:2}}>{theme==="dark"?"Dark mode":"Light mode"}</div>
+          <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:1}}>{t("prof_appearance")}</div>
+          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:2}}>{theme==="dark"?t("prof_dark"):t("prof_light")}</div>
         </div>
         <button onClick={onToggleTheme} aria-label="Toggle dark mode"
           style={{position:"relative",width:64,height:34,borderRadius:18,border:"none",cursor:"pointer",background:theme==="dark"?"#00b8a9":"var(--border2)",transition:"background 0.2s",flexShrink:0}}>
@@ -872,7 +908,7 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
 
       <button onClick={onLogout}
         style={{width:"100%",minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>
-        SIGN OUT
+        {t("prof_signout")}
       </button>
 
       <div style={{textAlign:"center",marginTop:18}}>
@@ -1232,25 +1268,25 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
             <div style={{...B,fontSize:38,color:riskColor,letterSpacing:1,lineHeight:1}}>{displayWait}m</div>
             <div style={{fontSize:9,color:"var(--muted2)"}}>{usePersonal?"YOUR AVG":"COMMUNITY"}</div>
           </>):(
-            <div style={{...B,fontSize:15,color:"var(--faint)",letterSpacing:1}}>NO DATA YET</div>
+            <div style={{...B,fontSize:15,color:"var(--faint)",letterSpacing:1}}>{t("w_noData")}</div>
           )}
         </div>
       </div>
 
       <div style={{display:"flex",gap:8,marginBottom:16}}>
         <div style={{flex:1,background:"var(--tint-green)",border:"1px solid #06c16722",borderRadius:10,padding:"12px 14px"}}>
-          <div style={{fontSize:8,color:"#06c167",letterSpacing:2,marginBottom:4}}>YOUR DATA</div>
+          <div style={{fontSize:8,color:"#06c167",letterSpacing:2,marginBottom:4}}>{t("w_yourData")}</div>
           {personal?(<>
             <div style={{...B,fontSize:24,color:"#06c167"}}>{personal.avg}m</div>
             <div style={{fontSize:9,color:"#0a8f4f",marginTop:2}}>{personal.count} visit{personal.count!==1?"s":""} · {personal.context}</div>
           </>):<div style={{...B,fontSize:14,color:"var(--border)"}}>NO VISITS YET</div>}
         </div>
         <div style={{flex:1,background:"var(--tint-blue)",border:"1px solid #2b8fff22",borderRadius:10,padding:"12px 14px"}}>
-          <div style={{fontSize:8,color:"#2b8fff",letterSpacing:2,marginBottom:4}}>COMMUNITY</div>
+          <div style={{fontSize:8,color:"#2b8fff",letterSpacing:2,marginBottom:4}}>{t("w_community")}</div>
           {community?(<>
             <div style={{...B,fontSize:24,color:"#2b8fff"}}>{community.avg}m</div>
             <div style={{fontSize:9,color:"#1c6fd0",marginTop:2}}>{community.count} logs · {community.drivers} driver{community.drivers!==1?"s":""}</div>
-          </>):<div style={{...B,fontSize:14,color:"var(--border)"}}>NO DATA YET</div>}
+          </>):<div style={{...B,fontSize:14,color:"var(--border)"}}>{t("w_noData")}</div>}
         </div>
       </div>
 
@@ -1357,8 +1393,8 @@ function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen}) {
     <div onClick={onOpen} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px",marginBottom:14,cursor:"pointer"}}>
       <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
         <div style={{width:7,height:7,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 6px #06c167",animation:"criticalPulse 2s ease-in-out infinite"}}/>
-        <span style={{...B,fontSize:13,color:"var(--ink)",letterSpacing:2}}>LIVE ACTIVITY</span>
-        <span style={{marginLeft:"auto",fontSize:10,...M,fontWeight:700,color:"#00b8a9"}}>View all ›</span>
+        <span style={{...B,fontSize:13,color:"var(--ink)",letterSpacing:2}}>{t("w_liveActivity")}</span>
+        <span style={{marginLeft:"auto",fontSize:10,...M,fontWeight:700,color:"#00b8a9"}}>{t("w_viewAll")}</span>
       </div>
       {events.length===0?(
         <div style={{fontSize:11,...M,color:"var(--faint)",padding:"6px 0"}}>No activity yet — be the first to log a wait.</div>
@@ -1546,7 +1582,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
         <div>
-          <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>RESTAURANT WAITS</div>
+          <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>{t("w_title")}</div>
           <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>{per.toUpperCase()+" · "+dayLabel(now.getDay()).toUpperCase()}</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",marginTop:4}}>
@@ -1559,7 +1595,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
         <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-green))",border:"1px solid #06c16722",borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 8px #06c167",animation:"criticalPulse 2.5s ease-in-out infinite"}}/>
-            <span style={{...B,fontSize:14,color:"#06c167",letterSpacing:2}}>COMMUNITY DATA LIVE</span>
+            <span style={{...B,fontSize:14,color:"#06c167",letterSpacing:2}}>{t("w_communityLive")}</span>
           </div>
           <div style={{textAlign:"right"}}>
             <div style={{...M,fontSize:11,fontWeight:700,color:"#06c167"}}>{meta.totalLogs.toLocaleString()} logs</div>
@@ -1572,20 +1608,20 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
 
       {activeWait?(
         <div style={{background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
-          <div style={{fontSize:9,color:"#00b8a9",letterSpacing:2,marginBottom:6}}>⏱ WAITING AT</div>
+          <div style={{fontSize:9,color:"#00b8a9",letterSpacing:2,marginBottom:6}}>{"⏱ "+t("w_waitingAt")}</div>
           <div style={{...B,fontSize:28,color:"var(--ink)",letterSpacing:1,marginBottom:14}}>
             {(restaurants.find(r=>r.id===activeWait.restaurantId)||{name:activeWait.restaurantName||"Unknown"}).name}
           </div>
           <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><LiveTimer startedAt={activeWait.startedAt}/></div>
           <div style={{display:"flex",gap:10}}>
-            <button onClick={onPickedUp} style={{flex:1,minHeight:72,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:24,letterSpacing:2,color:"#000",cursor:"pointer",boxShadow:"0 0 20px #06c16733"}}>✓ PICKED UP</button>
+            <button onClick={onPickedUp} style={{flex:1,minHeight:72,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:24,letterSpacing:2,color:"#000",cursor:"pointer",boxShadow:"0 0 20px #06c16733"}}>{t("w_pickedUp")}</button>
             <button onClick={onCancelWait} style={{minHeight:72,width:72,background:"var(--border)",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:22,color:"var(--muted2)",cursor:"pointer"}}>✕</button>
           </div>
-          <div style={{fontSize:9,color:"var(--muted2)",textAlign:"center",marginTop:10,letterSpacing:1}}>TAP PICKED UP THE MOMENT YOU HAVE THE ORDER</div>
+          <div style={{fontSize:9,color:"var(--muted2)",textAlign:"center",marginTop:10,letterSpacing:1}}>{t("w_tapHint")}</div>
         </div>
       ):(
         <button onClick={()=>setPicking(true)} style={{width:"100%",minHeight:80,background:"#ff5a2d",border:"none",borderRadius:18,...B,fontWeight:700,fontSize:24,letterSpacing:1,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:16,boxShadow:"0 8px 20px #ff5a2d40"}}>
-          📍 ARRIVED AT RESTAURANT
+          {t("w_arrived")}
         </button>
       )}
 
@@ -1626,7 +1662,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
                   <div style={{fontSize:9,marginTop:2}}>
                     {waitingNow>0
                       ? <span style={{color:"#06c167",fontWeight:700}}>🟢 {waitingNow} waiting now</span>
-                      : <span style={{color:"var(--muted)"}}>{closed?"Closed right now":"No one waiting now"}</span>}
+                      : <span style={{color:"var(--muted)"}}>{closed?t("w_closedNow"):t("w_noOne")}</span>}
                   </div>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
@@ -1636,7 +1672,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
                     <div style={{...B,fontSize:34,color:riskColor,letterSpacing:1,lineHeight:1}}>{realAvg}m</div>
                     <div style={{fontSize:9,color:"var(--muted2)",marginTop:1}}>{dataSource}</div>
                   </>):(
-                    <div style={{...B,fontSize:15,color:"var(--faint)",letterSpacing:1}}>NO DATA YET</div>
+                    <div style={{...B,fontSize:15,color:"var(--faint)",letterSpacing:1}}>{t("w_noData")}</div>
                   )}
                 </div>
               </div>
@@ -1648,38 +1684,38 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
               <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",marginTop:hasReal&&!closed?0:8}}>
                 {usePersonal?(
                   <div style={{flex:1,minWidth:80,background:"var(--tint-green)",border:"1px solid #06c16733",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"#06c167",letterSpacing:2,marginBottom:2}}>YOUR DATA</div>
+                    <div style={{fontSize:8,color:"#06c167",letterSpacing:2,marginBottom:2}}>{t("w_yourData")}</div>
                     <div style={{...B,fontSize:17,color:"#06c167",letterSpacing:1}}>{personal.avg}m</div>
                     <div style={{fontSize:8,color:"#0a8f4f",marginTop:1}}>{personal.bucketCount}v · {personal.context}</div>
                   </div>
                 ):personal?(
                   <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid #00b8a933",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"#00b8a9",letterSpacing:2,marginBottom:2}}>YOUR DATA</div>
+                    <div style={{fontSize:8,color:"#00b8a9",letterSpacing:2,marginBottom:2}}>{t("w_yourData")}</div>
                     <div style={{...B,fontSize:17,color:"#00b8a9",letterSpacing:1}}>{personal.avg}m</div>
                     <div style={{fontSize:8,color:"var(--muted2)",marginTop:1}}>1 visit</div>
                   </div>
                 ):(
                   <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"var(--faint)",letterSpacing:2,marginBottom:2}}>YOUR DATA</div>
+                    <div style={{fontSize:8,color:"var(--faint)",letterSpacing:2,marginBottom:2}}>{t("w_yourData")}</div>
                     <div style={{...B,fontSize:14,color:"var(--faint2)",letterSpacing:1}}>NONE YET</div>
                   </div>
                 )}
                 {community?(
                   <div style={{flex:1,minWidth:80,background:"var(--tint-blue)",border:"1px solid #2b8fff33",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"#2b8fff",letterSpacing:2,marginBottom:2}}>COMMUNITY</div>
+                    <div style={{fontSize:8,color:"#2b8fff",letterSpacing:2,marginBottom:2}}>{t("w_community")}</div>
                     <div style={{...B,fontSize:17,color:"#2b8fff",letterSpacing:1}}>{community.avg}m</div>
                     <div style={{fontSize:8,color:"#1c6fd0",marginTop:1}}>{community.count} logs · {community.drivers}d</div>
                   </div>
                 ):(
                   <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"var(--border2)",letterSpacing:2,marginBottom:2}}>COMMUNITY</div>
+                    <div style={{fontSize:8,color:"var(--border2)",letterSpacing:2,marginBottom:2}}>{t("w_community")}</div>
                     <div style={{...B,fontSize:14,color:"var(--border)",letterSpacing:1}}>NO DATA</div>
                   </div>
                 )}
                 <div style={{minWidth:72,background:waitingNow>0?"var(--tint-green)":"var(--card)",border:"1px solid "+(waitingNow>0?"#06c16744":"var(--border)"),borderRadius:8,padding:"7px 10px"}}>
-                  <div style={{fontSize:8,color:waitingNow>0?"#06c167":"var(--faint)",letterSpacing:2,marginBottom:2}}>WAITING NOW</div>
+                  <div style={{fontSize:8,color:waitingNow>0?"#06c167":"var(--faint)",letterSpacing:2,marginBottom:2}}>{t("w_waitingNow")}</div>
                   <div style={{...B,fontSize:17,color:waitingNow>0?"#06c167":"var(--faint2)",letterSpacing:1}}>{waitingNow}</div>
-                  <div style={{fontSize:8,color:waitingNow>0?"#0a8f4f":"var(--faint2)",marginTop:1}}>live now</div>
+                  <div style={{fontSize:8,color:waitingNow>0?"#0a8f4f":"var(--faint2)",marginTop:1}}>{t("w_liveNow")}</div>
                 </div>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1688,11 +1724,11 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
                 ):riskLabel?(
                   <span style={{fontSize:9,background:riskColor+"22",color:riskColor,border:"1px solid "+riskColor+"44",borderRadius:5,padding:"3px 8px"}}>{riskLabel}</span>
                 ):(
-                  <span style={{fontSize:9,background:"var(--border)",color:"var(--muted2)",border:"1px solid var(--border)",borderRadius:5,padding:"3px 8px"}}>NO DATA YET</span>
+                  <span style={{fontSize:9,background:"var(--border)",color:"var(--muted2)",border:"1px solid var(--border)",borderRadius:5,padding:"3px 8px"}}>{t("w_noData")}</span>
                 )}
                 {myLogs.length>0&&<span style={{fontSize:9,color:"var(--muted2)"}}>{myLogs.length+" visit"+(myLogs.length!==1?"s":"")}</span>}
-                {!isActive&&<button onClick={e=>{e.stopPropagation();onArrived(r);}} disabled={isChecking} style={{marginLeft:"auto",background:isChecking?"var(--tint-coral)":hasError?"var(--tint-red)":"#00b8a9",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"ARRIVED"}</button>}
-                {isActive&&<span style={{marginLeft:"auto",fontSize:10,...B,color:"#00b8a9",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>● TIMING NOW</span>}
+                {!isActive&&<button onClick={e=>{e.stopPropagation();onArrived(r);}} disabled={isChecking} style={{marginLeft:"auto",background:isChecking?"var(--tint-coral)":hasError?"var(--tint-red)":"#00b8a9",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":t("w_arrivedShort")}</button>}
+                {isActive&&<span style={{marginLeft:"auto",fontSize:10,...B,color:"#00b8a9",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>{t("w_timingNow")}</span>}
               </div>
             </div>
             </Fragment>
@@ -1702,7 +1738,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
 
       {waitLog.length>0&&(
         <div style={{marginTop:20}}>
-          <div style={{...B,fontSize:16,color:"var(--faint2)",letterSpacing:2,marginBottom:8}}>RECENT WAIT LOGS</div>
+          <div style={{...B,fontSize:16,color:"var(--faint2)",letterSpacing:2,marginBottom:8}}>{t("w_recent")}</div>
           {waitLog.slice().reverse().slice(0,6).map(l=>{
             const r=restaurants.find(x=>x.id===l.restaurantId);
             const c=l.waitMins>15?"#ef4444":l.waitMins>8?"#f5a623":"#06c167";
@@ -2078,11 +2114,11 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
   return(
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{marginBottom:16}}>
-        <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>CHECK RESTAURANT</div>
-        <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>{query.trim()?"SEARCH RESULTS":"NEARBY · TAP FOR FULL STATS"}</div>
+        <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>{t("chk_title")}</div>
+        <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>{query.trim()?t("chk_results"):t("chk_nearby")}</div>
       </div>
       <div style={{position:"relative",marginBottom:14}}>
-        <input value={query} onChange={e=>handleInput(e.target.value)} placeholder="Search any branch — KFC, Sainsbury's…"
+        <input value={query} onChange={e=>handleInput(e.target.value)} placeholder={t("chk_search")}
           style={{width:"100%",background:"var(--card)",border:"1px solid #00b8a966",borderRadius:12,padding:"14px 18px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
           onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="#00b8a966"}/>
         {searching&&<div style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",fontSize:10,color:"#00b8a9",...B,letterSpacing:1}}>SEARCHING...</div>}
@@ -2220,9 +2256,9 @@ function StatsScreen({communityLogs,communityPatterns,activeCounts,contribCounts
 // ── BOTTOM NAV ────────────────────────────────────────────────────────────────
 function BottomNav({screen,onNav,activeWait,unreadChat}) {
   const tabs=[
-    {id:"waits",icon:"⏱",label:"WAITS",dot:activeWait,  dotColor:"#00b8a9"},
-    {id:"check",icon:"🔍",label:"CHECK",dot:false,       dotColor:"#2b8fff"},
-    {id:"chat", icon:"💬",label:"CHAT", dot:unreadChat,  dotColor:"#06c167"},
+    {id:"waits",icon:"⏱",label:t("nav_waits"),dot:activeWait,  dotColor:"#00b8a9"},
+    {id:"check",icon:"🔍",label:t("nav_check"),dot:false,       dotColor:"#2b8fff"},
+    {id:"chat", icon:"💬",label:t("nav_chat"), dot:unreadChat,  dotColor:"#06c167"},
   ];
   return(
     <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"var(--card)",borderTop:"1px solid var(--border3)",display:"flex",zIndex:200,height:56}}>
@@ -2253,6 +2289,7 @@ export default function App() {
   const [onboarded,setOnboarded]=useState(()=>!!store.get("delivr_onboarded"));
   const [startRegister,setStartRegister]=useState(false);
   const [lang,setLang]=useState(()=>store.get("delivr_lang")||null);
+  _lang=lang||"en";   // make t() use the current language for all child screens this render
   const premium=!!user?.premium;
 
   // Apply + persist the colour theme
