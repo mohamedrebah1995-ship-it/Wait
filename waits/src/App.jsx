@@ -961,9 +961,10 @@ function LoginScreen({onLogin,onRegistered,initialMode}) {
     setLoading(true);
     try{
       await sendPasswordResetEmail(auth,em);
-      setResetMsg("Reset link sent — check your email inbox (and spam).");
+      setResetMsg("Reset link sent to "+em+" — check inbox & spam. If nothing arrives in 2 min, that email may not have an account yet.");
     }catch(err){
-      setError(fbAuthError(err));
+      console.error("password reset error:",err?.code,err?.message,err);
+      setError(fbAuthError(err)+(err?.code?" ["+err.code+"]":""));
     }finally{
       setLoading(false);
     }
