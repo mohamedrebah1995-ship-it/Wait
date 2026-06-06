@@ -1232,42 +1232,100 @@ function relTime(ts){
   const h=Math.floor(m/60); if(h<24)return h+"h ago";
   return Math.floor(h/24)+"d ago";
 }
-function LiveFeed({activeWaitsList,communityLogs,contribCounts}) {
+function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen}) {
   const [,tick]=useState(0);
   useEffect(()=>{const id=setInterval(()=>tick(x=>x+1),30000);return ()=>clearInterval(id);},[]); // refresh relative times
-  const cutoff=Date.now()-3*60*60*1000;
   const events=[
     ...activeWaitsList.map(w=>({kind:"arrived",user:w.username||"A driver",rest:w.restaurantName||"a restaurant",ts:w.startedAt})),
-    ...communityLogs.filter(l=>new Date(l.ts).getTime()>cutoff).map(l=>({kind:"picked",user:l.username||"A driver",rest:l.restaurantName||"a restaurant",waitMins:l.waitMins,ts:l.ts})),
-  ].sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,5);
+    ...communityLogs.map(l=>({kind:"picked",user:l.username||"A driver",rest:l.restaurantName||"a restaurant",waitMins:l.waitMins,ts:l.ts})),
+  ].sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,10);
 
-  if(!events.length)return null;
   return(
-    <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px",marginBottom:14}}>
+    <div onClick={onOpen} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px",marginBottom:14,cursor:"pointer"}}>
       <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
         <div style={{width:7,height:7,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 6px #06c167",animation:"criticalPulse 2s ease-in-out infinite"}}/>
         <span style={{...B,fontSize:13,color:"var(--ink)",letterSpacing:2}}>LIVE ACTIVITY</span>
+        <span style={{marginLeft:"auto",fontSize:10,...M,fontWeight:700,color:"#00b8a9"}}>View all ›</span>
       </div>
-      <div style={{display:"flex",flexDirection:"column",gap:7}}>
-        {events.map((e,i)=>(
-          <div key={i} style={{display:"flex",alignItems:"center",gap:9,fontSize:12,...M}}>
-            <span style={{fontSize:14}}>{e.kind==="arrived"?"🟢":"✅"}</span>
-            <span style={{color:"var(--ink)",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              <b style={{fontWeight:700}}>{e.user}</b>{(()=>{const bg=badgeFor(contribCounts?.[e.user]||0);return bg?<span style={{marginLeft:2}}>{bg.emoji}</span>:null;})()}
-              {e.kind==="arrived"?" arrived at ":" picked up at "}
-              <b style={{fontWeight:700}}>{e.rest}</b>
-              {e.kind==="picked"&&e.waitMins!=null&&<span style={{color:"#06c167"}}>{" · "+e.waitMins}m</span>}
-            </span>
-            <span style={{color:"var(--faint)",fontSize:10,flexShrink:0}}>{relTime(e.ts)}</span>
-          </div>
-        ))}
+      {events.length===0?(
+        <div style={{fontSize:11,...M,color:"var(--faint)",padding:"6px 0"}}>No activity yet — be the first to log a wait.</div>
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {events.map((e,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:9,fontSize:12,...M}}>
+              <span style={{fontSize:14}}>{e.kind==="arrived"?"🟢":"✅"}</span>
+              <span style={{color:"var(--ink)",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                <b style={{fontWeight:700}}>{e.user}</b>{(()=>{const bg=badgeFor(contribCounts?.[e.user]||0);return bg?<span style={{marginLeft:2}}>{bg.emoji}</span>:null;})()}
+                {e.kind==="arrived"?" arrived at ":" picked up at "}
+                <b style={{fontWeight:700}}>{e.rest}</b>
+                {e.kind==="picked"&&e.waitMins!=null&&<span style={{color:"#06c167"}}>{" · "+e.waitMins}m</span>}
+              </span>
+              <span style={{color:"var(--faint)",fontSize:10,flexShrink:0}}>{relTime(e.ts)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── LOGBOOK (date-based community activity) ───────────────────────────────────
+function Logbook({communityLogs,contribCounts,onBack}) {
+  const [offset,setOffset]=useState(0); // 0 = today, 1 = yesterday, ...
+  const day=new Date(); day.setDate(day.getDate()-offset);
+  const dayStr=day.toISOString().slice(0,10);
+  const isToday=offset===0;
+  const label=isToday?"Today":offset===1?"Yesterday":day.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"});
+
+  const items=communityLogs
+    .filter(l=>(l.ts||"").slice(0,10)===dayStr)
+    .sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+
+  return(
+    <div style={{padding:"20px 16px 100px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+        <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
+        <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:2}}>LOGBOOK</div>
       </div>
+
+      {/* day navigator */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"10px 14px",marginBottom:14}}>
+        <button onClick={()=>setOffset(o=>o+1)} style={{background:"none",border:"none",color:"#00b8a9",fontSize:22,cursor:"pointer",padding:"0 8px"}}>‹</button>
+        <div style={{textAlign:"center"}}>
+          <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1}}>{label}</div>
+          <div style={{fontSize:9,...M,color:"var(--muted)"}}>{items.length} pickup{items.length!==1?"s":""}</div>
+        </div>
+        <button onClick={()=>setOffset(o=>Math.max(0,o-1))} disabled={isToday} style={{background:"none",border:"none",color:isToday?"var(--faint2)":"#00b8a9",fontSize:22,cursor:isToday?"default":"pointer",padding:"0 8px"}}>›</button>
+      </div>
+
+      {items.length===0?(
+        <div style={{fontSize:11,...M,color:"var(--faint)",textAlign:"center",padding:"40px 0"}}>No activity logged on this day.</div>
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {items.map((l,i)=>{
+            const bg=badgeFor(contribCounts?.[l.username]||0);
+            const c=l.waitMins>15?"#ef4444":l.waitMins>8?"#f5a623":"#06c167";
+            return(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px"}}>
+                <span style={{fontSize:14}}>✅</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,...M,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    <b style={{fontWeight:700}}>{l.username||"A driver"}</b>{bg&&<span style={{marginLeft:2}}>{bg.emoji}</span>} picked up at <b style={{fontWeight:700}}>{l.restaurantName||"a restaurant"}</b>
+                  </div>
+                  <div style={{fontSize:9,...M,color:"var(--muted)",marginTop:1}}>{new Date(l.ts).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>
+                </div>
+                {l.waitMins!=null&&<span style={{...B,fontSize:16,color:c,flexShrink:0}}>{l.waitMins}m</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,activeWaitsList,contribCounts,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,activeWaitsList,contribCounts,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -1397,7 +1455,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
         </div>
       )}
 
-      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs} contribCounts={contribCounts}/>
+      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs} contribCounts={contribCounts} onOpen={onOpenLogbook}/>
 
       {activeWait?(
         <div style={{background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
@@ -1963,6 +2021,7 @@ export default function App() {
   const [showProfile,setShowProfile]=useState(false);
   const [showUpgrade,setShowUpgrade]=useState(false);
   const [showStats,setShowStats]=useState(false);
+  const [showLogbook,setShowLogbook]=useState(false);
   const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
   const [onboarded,setOnboarded]=useState(()=>!!store.get("delivr_onboarded"));
   const [startRegister,setStartRegister]=useState(false);
@@ -2337,7 +2396,7 @@ export default function App() {
       <style>{CSS}</style>
       <div style={ROOT}>
         {/* Profile avatar button — fixed top right */}
-        {!showProfile&&!showUpgrade&&!showStats&&(
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&(
           <button onClick={()=>setShowProfile(true)}
             style={{position:"fixed",top:14,right:14,zIndex:300,width:38,height:38,borderRadius:"50%",background:user.color,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px "+user.color+"55"}}>
             <span style={{...B,fontSize:17,color:"#000"}}>{user.initial}</span>
@@ -2345,7 +2404,9 @@ export default function App() {
         )}
 
         <div style={{height:"calc(100vh - 56px)",overflowY:"auto"}}>
-          {showStats&&isOwner(user)?(
+          {showLogbook?(
+            <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)}/>
+          ):showStats&&isOwner(user)?(
             <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} contribCounts={contribCounts} onBack={()=>setShowStats(false)}/>
           ):showUpgrade?(
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
@@ -2356,7 +2417,7 @@ export default function App() {
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts}
+              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} onOpenLogbook={()=>setShowLogbook(true)}
               onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts}/>
@@ -2364,7 +2425,7 @@ export default function App() {
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts}/>
           )}
         </div>
-        {!showProfile&&!showUpgrade&&!showStats&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
       </div>
     </div>
   );
