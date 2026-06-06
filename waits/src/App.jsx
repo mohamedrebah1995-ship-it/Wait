@@ -1825,6 +1825,13 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
       </div>
 
       <div style={{flex:1,overflowY:"auto",padding:"10px 14px 6px",display:"flex",flexDirection:"column",gap:2}}>
+        {/* Pinned welcome — shown to every driver */}
+        <div style={{alignSelf:"center",maxWidth:"92%",background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:14,padding:"12px 16px",margin:"4px 0 10px",textAlign:"center"}}>
+          <div style={{...B,fontSize:15,color:"#00b8a9",letterSpacing:1,marginBottom:4}}>👋 WELCOME{user?.name?(", "+user.name.toUpperCase()):""}!</div>
+          <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}>
+            This is the {(area||"driver").toString().replace(/_/g," ")} chat. Share live wait times, photos &amp; voice notes, and help each other out. Be kind, keep it useful. 🚗💨
+          </div>
+        </div>
         {ready&&messages.length===0&&(
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,paddingBottom:40}}>
             <div style={{fontSize:38,opacity:0.2}}>💬</div>
