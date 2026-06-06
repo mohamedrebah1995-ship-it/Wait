@@ -245,26 +245,45 @@ function computePatterns(logs) {
 }
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
+// Safari-resilient: once we get ONE valid fix the user is never sent back to the
+// gate — later GPS hiccups just show a "reconnecting" state. Only a genuine,
+// fix-less permission denial blocks the app.
 function useGPS() {
   const [g,setG]=useState({lat:null,lng:null,accuracy:null,speedKmh:null,status:"pending",denied:false});
   const wid=useRef(null);
+  const hasFix=useRef(false);
   const start=useCallback(()=>{
     if(!("geolocation" in navigator)){setG(x=>({...x,status:"error"}));return;}
-    setG(x=>({...x,status:x.status==="active"?"active":"acquiring"}));
+    setG(x=>({...x,status:x.lat!=null?"active":"acquiring"}));
+    const onPos=p=>{
+      hasFix.current=true;
+      setG(x=>({...x,lat:p.coords.latitude,lng:p.coords.longitude,accuracy:Math.round(p.coords.accuracy),speedKmh:p.coords.speed!=null?Math.round(p.coords.speed*3.6):null,status:"active",denied:false}));
+    };
+    const onErr=e=>setG(x=>{
+      if(hasFix.current)return{...x,status:"active",denied:false};   // already have a fix → never re-block
+      if(e.code===1)return{...x,status:"denied",denied:true};         // real denial before any fix
+      return{...x,status:"acquiring",denied:false};                   // timeout/unavailable → keep trying
+    });
+    // Quick low-accuracy fix first (Safari is far more reliable this way), then precise watch.
+    navigator.geolocation.getCurrentPosition(onPos,onErr,{enableHighAccuracy:false,timeout:12000,maximumAge:60000});
     if(wid.current!=null)navigator.geolocation.clearWatch(wid.current);
-    wid.current=navigator.geolocation.watchPosition(
-      p=>setG(x=>({...x,lat:p.coords.latitude,lng:p.coords.longitude,accuracy:Math.round(p.coords.accuracy),speedKmh:p.coords.speed!=null?Math.round(p.coords.speed*3.6):null,status:"active",denied:false})),
-      e=>setG(x=>{
-        // Only permission denial (code 1) should block the app.
-        if(e.code===1)return{...x,status:"denied",denied:true};
-        // Timeout (3) / position-unavailable (2): keep any fix we already have,
-        // otherwise stay "acquiring" — never hard-block on these.
-        return{...x,status:x.lat!=null?"active":"acquiring",denied:false};
-      }),
-      {enableHighAccuracy:true,timeout:30000,maximumAge:15000}
-    );
+    wid.current=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,timeout:30000,maximumAge:15000});
   },[]);
-  useEffect(()=>{start();return ()=>{if(wid.current!=null)navigator.geolocation.clearWatch(wid.current);};},[start]);
+  useEffect(()=>{
+    start();
+    let perm;
+    if(navigator.permissions?.query){
+      navigator.permissions.query({name:"geolocation"}).then(p=>{
+        perm=p;
+        const apply=()=>{
+          if(p.state==="denied"&&!hasFix.current)setG(x=>({...x,status:"denied",denied:true}));
+          else if(p.state==="granted")start();   // permission (re)granted → re-acquire
+        };
+        apply(); p.onchange=apply;
+      }).catch(()=>{});
+    }
+    return ()=>{ if(wid.current!=null)navigator.geolocation.clearWatch(wid.current); if(perm)perm.onchange=null; };
+  },[start]);
   return {...g,retry:start};
 }
 
@@ -1887,8 +1906,6 @@ export default function App() {
   const [activeCounts,setActiveCounts]=useState({});  // restaurantId → # drivers waiting now
   const [activeWaitsList,setActiveWaitsList]=useState([]); // live active waits for the feed
   const lastFetchRef=useRef({lat:null,lng:null});
-  const autoPickupTimerRef=useRef(null);
-  const handlePickedUpRef=useRef(null);
   const gps=useGPS();
 
   // Restaurants with crowd-sourced pinned locations applied (overrides Google coords)
@@ -2085,7 +2102,9 @@ export default function App() {
       if(!branch)branch=await geocodeBranch(gps.lat,gps.lng,restaurant.name);
       if(branch){
         const dist=distMeters(gps.lat,gps.lng,branch.lat,branch.lng);
-        if(dist!=null&&dist>50){
+        // Adaptive radius: forgiving on phones with poor GPS, capped so it can't go wide-open
+        const allow=Math.min(150,Math.max(80,(gps.accuracy||40)+30));
+        if(dist!=null&&dist>allow){
           setArrivalError({restaurantId,dist:Math.round(dist)});
           setCheckingId(null);
           setTimeout(()=>setArrivalError(a=>a?.restaurantId===restaurantId?null:a),4000);
@@ -2175,33 +2194,11 @@ export default function App() {
     }catch(e){}
   }
 
-  handlePickedUpRef.current=handlePickedUp;
-
   function handleCancelWait(){
     setActiveWait(null);store.set("delivr_activewait",null);
     try{ deleteDoc(doc(db,"activeWaits",auth.currentUser.uid)); }catch(e){}
   }
-
-  // Auto-trigger PICKED UP when driver moves >30m from restaurant and stays away 20s
-  useEffect(()=>{
-    if(!activeWait||gps.status!=="active"||gps.lat==null||!resolvedRestaurants.length){
-      if(autoPickupTimerRef.current){clearTimeout(autoPickupTimerRef.current);autoPickupTimerRef.current=null;}
-      return;
-    }
-    const branch=resolvedRestaurants.find(n=>n.id===activeWait.restaurantId);
-    if(!branch)return;
-    const dist=distMeters(gps.lat,gps.lng,branch.branchLat??branch.lat,branch.branchLng??branch.lng);
-    if(dist==null)return;
-    if(dist>30){
-      if(!autoPickupTimerRef.current){
-        autoPickupTimerRef.current=setTimeout(()=>{autoPickupTimerRef.current=null;handlePickedUpRef.current?.();},20000);
-      }
-    }else{
-      if(autoPickupTimerRef.current){clearTimeout(autoPickupTimerRef.current);autoPickupTimerRef.current=null;}
-    }
-  },[gps.lat,gps.lng,gps.status,activeWait?.restaurantId,resolvedRestaurants]);
-
-  useEffect(()=>()=>{if(autoPickupTimerRef.current)clearTimeout(autoPickupTimerRef.current);},[]);
+  // Auto-pickup removed: PICKED UP is manual-only so GPS drift can't create fake short waits.
 
   const CSS=`
     :root{
