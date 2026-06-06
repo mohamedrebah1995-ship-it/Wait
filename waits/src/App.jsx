@@ -17,7 +17,8 @@ import {
   collection, addDoc, query, where, orderBy, limitToLast,
   onSnapshot, getDocs, serverTimestamp,
 } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { auth, db, storage } from "./firebase";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const FL = document.createElement("link");
 FL.rel = "stylesheet";
@@ -245,14 +246,15 @@ function computePatterns(logs) {
 }
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
-// Safari-resilient: once we get ONE valid fix the user is never sent back to the
-// gate — later GPS hiccups just show a "reconnecting" state. Only a genuine,
-// fix-less permission denial blocks the app.
+// Safari needs geolocation requested from a real tap. So: if permission is already
+// granted we acquire silently; otherwise we wait on a "prompt" state until the user
+// taps Enable (a gesture), which is the only thing Safari will reliably prompt on.
+// Once we have ONE fix, the user is never sent back to the gate.
 function useGPS() {
   const [g,setG]=useState({lat:null,lng:null,accuracy:null,speedKmh:null,status:"pending",denied:false});
   const wid=useRef(null);
   const hasFix=useRef(false);
-  const start=useCallback(()=>{
+  const start=useCallback((userGesture=false)=>{
     if(!("geolocation" in navigator)){setG(x=>({...x,status:"error"}));return;}
     setG(x=>({...x,status:x.lat!=null?"active":"acquiring"}));
     const onPos=p=>{
@@ -260,31 +262,33 @@ function useGPS() {
       setG(x=>({...x,lat:p.coords.latitude,lng:p.coords.longitude,accuracy:Math.round(p.coords.accuracy),speedKmh:p.coords.speed!=null?Math.round(p.coords.speed*3.6):null,status:"active",denied:false}));
     };
     const onErr=e=>setG(x=>{
-      if(hasFix.current)return{...x,status:"active",denied:false};   // already have a fix → never re-block
-      if(e.code===1)return{...x,status:"denied",denied:true};         // real denial before any fix
-      return{...x,status:"acquiring",denied:false};                   // timeout/unavailable → keep trying
+      if(hasFix.current)return{...x,status:"active",denied:false};        // already have a fix → never re-block
+      if(e.code===1)return{...x,status:userGesture?"denied":"prompt",denied:userGesture}; // only a tapped attempt counts as real denial
+      return{...x,status:"prompt",denied:false};                          // timeout/unavailable → let the user tap to retry
     });
-    // Quick low-accuracy fix first (Safari is far more reliable this way), then precise watch.
     navigator.geolocation.getCurrentPosition(onPos,onErr,{enableHighAccuracy:false,timeout:12000,maximumAge:60000});
     if(wid.current!=null)navigator.geolocation.clearWatch(wid.current);
     wid.current=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,timeout:30000,maximumAge:15000});
   },[]);
   useEffect(()=>{
-    start();
     let perm;
     if(navigator.permissions?.query){
       navigator.permissions.query({name:"geolocation"}).then(p=>{
         perm=p;
-        const apply=()=>{
-          if(p.state==="denied"&&!hasFix.current)setG(x=>({...x,status:"denied",denied:true}));
-          else if(p.state==="granted")start();   // permission (re)granted → re-acquire
+        if(p.state==="granted")start(false);                 // already allowed → acquire silently
+        else if(p.state==="denied")setG(x=>({...x,status:"denied",denied:true}));
+        else setG(x=>({...x,status:"prompt"}));              // needs a tap to prompt
+        p.onchange=()=>{
+          if(p.state==="granted")start(false);
+          else if(p.state==="denied"&&!hasFix.current)setG(x=>({...x,status:"denied",denied:true}));
         };
-        apply(); p.onchange=apply;
-      }).catch(()=>{});
+      }).catch(()=>start(false));                            // Permissions API unsupported (older Safari) → just try
+    } else {
+      start(false);
     }
     return ()=>{ if(wid.current!=null)navigator.geolocation.clearWatch(wid.current); if(perm)perm.onchange=null; };
   },[start]);
-  return {...g,retry:start};
+  return {...g,retry:()=>start(true)};
 }
 
 function distMeters(lat1,lng1,lat2,lng2) {
@@ -534,34 +538,50 @@ function UpgradeScreen({premium,onBack,onSubscribe,onCancel}) {
 }
 
 // ── GPS GATE ──────────────────────────────────────────────────────────────────
-function GPSGateScreen({status,onRetry}) {
+function GPSGateScreen({status,onRetry,onSkip}) {
   const acquiring=status==="pending"||status==="acquiring";
+  const denied=status==="denied";
+  const error=status==="error";
   return(
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 28px",background:"linear-gradient(160deg,var(--tint-teal) 0%,var(--bg) 55%)"}}>
-      <div style={{textAlign:"center",marginBottom:40}}>
-        <div style={{fontSize:64,marginBottom:20}}>{acquiring?"🛰️":"📍"}</div>
-        <div style={{...B,fontSize:38,color:"#00b8a9",letterSpacing:3,marginBottom:12}}>
-          {acquiring?"GETTING LOCATION":"LOCATION REQUIRED"}
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 28px",background:"linear-gradient(160deg,var(--tint-teal) 0%,var(--bg) 55%)"}}>
+      <div style={{textAlign:"center",marginBottom:32}}>
+        <div style={{fontSize:64,marginBottom:20}}>{acquiring?"🛰️":denied?"🔒":"📍"}</div>
+        <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2,marginBottom:12}}>
+          {acquiring?"GETTING LOCATION":denied?"LOCATION BLOCKED":error?"NO GPS ON DEVICE":"ENABLE LOCATION"}
         </div>
-        <div style={{fontSize:13,...M,color:"var(--muted)",lineHeight:1.9,maxWidth:320,margin:"0 auto"}}>
-          {acquiring
-            ?"Waiting for GPS signal — make sure location is enabled in your browser."
-            :"DELIVR needs your GPS to show nearby restaurants, verify arrivals, and track wait times."}
+        <div style={{fontSize:13,...M,color:"var(--muted)",lineHeight:1.8,maxWidth:330,margin:"0 auto"}}>
+          {acquiring?"Waiting for GPS signal…":
+           denied?"Location is turned off for this site. Here's how to switch it on:":
+           error?"This device can't provide a location.":
+           "DELIVR needs your location to show nearby restaurants and verify arrivals."}
         </div>
       </div>
-      {!acquiring&&(
-        <div style={{width:"100%",maxWidth:360,display:"flex",flexDirection:"column",gap:14}}>
-          <button onClick={onRetry} style={{minHeight:64,background:"#00b8a9",border:"none",borderRadius:14,...B,fontSize:26,letterSpacing:3,color:"#000",cursor:"pointer",boxShadow:"0 0 40px #00b8a940"}}>
-            ALLOW LOCATION →
-          </button>
-          <div style={{fontSize:10,...M,color:"var(--faint)",textAlign:"center",lineHeight:1.7}}>
-            Tap above after allowing location in your browser settings
-          </div>
+
+      {/* iOS Safari instructions when blocked */}
+      {denied&&(
+        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px 18px",maxWidth:360,marginBottom:20,fontSize:12,...M,color:"var(--muted)",lineHeight:1.8}}>
+          <div style={{...B,fontSize:13,color:"var(--ink)",letterSpacing:1,marginBottom:8}}>ON IPHONE (SAFARI)</div>
+          1. Tap the <b>“aA”</b> on the left of the address bar<br/>
+          2. Tap <b>Website Settings</b><br/>
+          3. Set <b>Location → Allow</b><br/>
+          4. Also check <b>Settings → Privacy → Location Services → Safari → While Using</b><br/>
+          5. Then tap the button below
         </div>
       )}
-      {acquiring&&(
-        <div style={{...B,fontSize:14,color:"#00b8a9",letterSpacing:3,animation:"criticalPulse 1.5s ease-in-out infinite"}}>ACQUIRING...</div>
-      )}
+
+      <div style={{width:"100%",maxWidth:360,display:"flex",flexDirection:"column",gap:12}}>
+        {!error&&(
+          <button onClick={onRetry} disabled={acquiring} style={{minHeight:62,background:acquiring?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontSize:24,letterSpacing:2,color:acquiring?"var(--muted2)":"#fff",cursor:acquiring?"default":"pointer",boxShadow:acquiring?"none":"0 8px 20px #00b8a940"}}>
+            {acquiring?"ACQUIRING…":denied?"I'VE ENABLED IT → RETRY":"ENABLE LOCATION →"}
+          </button>
+        )}
+        {/* Escape hatch so a GPS-broken phone is never fully locked out */}
+        {(denied||error)&&(
+          <button onClick={onSkip} style={{minHeight:46,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...M,fontSize:12,fontWeight:700,letterSpacing:1,color:"var(--muted2)",cursor:"pointer"}}>
+            Continue without location (limited features)
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1538,8 +1558,13 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
   const [input,setInput]=useState("");
   const [ready,setReady]=useState(false);
   const [sendError,setSendError]=useState(false);
+  const [uploading,setUploading]=useState(false);
+  const [recording,setRecording]=useState(false);
   const bottomRef=useRef(null);
   const inputRef=useRef(null);
+  const fileRef=useRef(null);
+  const recorderRef=useRef(null);
+  const chunksRef=useRef([]);
 
   // Live listener — re-subscribes whenever the room (area) changes
   useEffect(()=>{
@@ -1554,20 +1579,62 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
 
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages.length]);
 
+  async function postMessage(extra){
+    try{
+      await addDoc(collection(db,"chats",room,"messages"),{
+        user:user.name,color:user.color,initial:user.initial,
+        ts:new Date().toISOString(),...extra,
+      });
+    }catch(e){console.error("chat send error:",e);setSendError(true);}
+  }
+
   async function send(){
     const text=input.trim();
     if(!text)return;
     setInput("");setSendError(false);
-    try{
-      await addDoc(collection(db,"chats",room,"messages"),{
-        user:  user.name,
-        color: user.color,
-        initial:user.initial,
-        text,
-        ts: new Date().toISOString(),
-      });
-    }catch(e){console.error("chat send error:",e);setSendError(true);setInput(text);}
+    await postMessage({text});
     inputRef.current?.focus();
+  }
+
+  // Upload a file (image or audio) to Storage, then post a message with its URL
+  async function uploadMedia(blob,kind,ext){
+    setUploading(true);setSendError(false);
+    try{
+      const path=`chats/${room}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const r=storageRef(storage,path);
+      await uploadBytes(r,blob);
+      const url=await getDownloadURL(r);
+      await postMessage({type:kind,url});
+    }catch(e){console.error("upload error:",e);setSendError(true);}
+    setUploading(false);
+  }
+
+  function onPickImage(e){
+    const f=e.target.files?.[0];
+    if(f){ const ext=(f.name.split(".").pop()||"jpg").toLowerCase(); uploadMedia(f,"image",ext); }
+    e.target.value="";
+  }
+
+  async function toggleRecord(){
+    if(recording){
+      recorderRef.current?.stop();
+      return;
+    }
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      const rec=new MediaRecorder(stream);
+      chunksRef.current=[];
+      rec.ondataavailable=ev=>{ if(ev.data.size>0)chunksRef.current.push(ev.data); };
+      rec.onstop=()=>{
+        stream.getTracks().forEach(t=>t.stop());
+        const blob=new Blob(chunksRef.current,{type:rec.mimeType||"audio/webm"});
+        if(blob.size>0)uploadMedia(blob,"audio","webm");
+        setRecording(false);
+      };
+      recorderRef.current=rec;
+      rec.start();
+      setRecording(true);
+    }catch(e){console.error("mic error:",e);alert("Microphone access needed for voice messages.");}
   }
 
   function onKey(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}
@@ -1618,14 +1685,20 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
                   {isMe&&<span style={{fontSize:10,color:m.color,...M,fontWeight:700}}>You</span>}
                 </div>
               )}
-              <div style={{display:"flex",alignItems:"flex-end",gap:8,flexDirection:isMe?"row-reverse":"row"}}>
+              <div style={{display:"flex",width:"100%",alignItems:"flex-end",gap:8,justifyContent:isMe?"flex-end":"flex-start"}}>
                 {!isMe&&(
                   <div style={{width:28,height:28,borderRadius:"50%",background:isFirst?m.color:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginBottom:2}}>
                     {isFirst&&<span style={{...B,fontSize:13,color:"#000"}}>{m.initial}</span>}
                   </div>
                 )}
-                <div style={{maxWidth:"76%",background:isMe?"#00b8a9":"var(--border3)",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"10px 14px",border:isMe?"none":"1px solid var(--border)",boxShadow:isMe?"0 2px 16px #00b8a928":"none"}}>
-                  <span style={{fontSize:14,...M,color:isMe?"#000":"var(--ink)",lineHeight:1.55,wordBreak:"break-word"}}>{m.text}</span>
+                <div style={{maxWidth:"76%",background:isMe?"#00b8a9":"var(--border3)",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:m.type==="image"?"4px":"10px 14px",border:isMe?"none":"1px solid var(--border)",boxShadow:isMe?"0 2px 16px #00b8a928":"none",overflow:"hidden"}}>
+                  {m.type==="image"?(
+                    <img src={m.url} alt="" onClick={()=>window.open(m.url,"_blank")} style={{maxWidth:"100%",maxHeight:240,borderRadius:14,display:"block",cursor:"pointer"}}/>
+                  ):m.type==="audio"?(
+                    <audio controls src={m.url} style={{height:36,maxWidth:200}}/>
+                  ):(
+                    <span style={{fontSize:14,...M,color:isMe?"#000":"var(--ink)",lineHeight:1.55,whiteSpace:"pre-wrap",overflowWrap:"anywhere",wordBreak:"normal"}}>{m.text}</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1634,19 +1707,28 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
         <div ref={bottomRef}/>
       </div>
 
-      {sendError&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>Message failed to send — check connection</div>}
-      <div style={{padding:"10px 12px 14px",borderTop:"1px solid var(--border3)",background:"var(--card)",flexShrink:0,display:"flex",gap:10,alignItems:"center"}}>
-        <div style={{flex:1,background:"var(--border3)",border:"1px solid var(--border2)",borderRadius:24,padding:"11px 18px",display:"flex",alignItems:"center"}}>
+      {sendError&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>Couldn't send — check connection</div>}
+      {uploading&&<div style={{padding:"8px 16px",background:"var(--tint-teal)",borderTop:"1px solid #00b8a933",fontSize:11,...M,color:"#00b8a9",textAlign:"center"}}>Uploading…</div>}
+      {recording&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>● Recording… tap the mic again to send</div>}
+      <input ref={fileRef} type="file" accept="image/*" onChange={onPickImage} style={{display:"none"}}/>
+      <div style={{padding:"10px 10px 14px",borderTop:"1px solid var(--border3)",background:"var(--card)",flexShrink:0,display:"flex",gap:8,alignItems:"center"}}>
+        {/* photo */}
+        <button onClick={()=>fileRef.current?.click()} disabled={uploading||recording}
+          style={{width:42,height:42,borderRadius:"50%",background:"var(--border3)",border:"1px solid var(--border2)",cursor:"pointer",flexShrink:0,fontSize:18,color:"var(--muted)"}}>📷</button>
+        {/* voice */}
+        <button onClick={toggleRecord} disabled={uploading}
+          style={{width:42,height:42,borderRadius:"50%",background:recording?"#ef4444":"var(--border3)",border:"1px solid "+(recording?"#ef4444":"var(--border2)"),cursor:"pointer",flexShrink:0,fontSize:18,color:recording?"#fff":"var(--muted)"}}>{recording?"■":"🎤"}</button>
+        <div style={{flex:1,background:"var(--border3)",border:"1px solid var(--border2)",borderRadius:24,padding:"11px 16px",display:"flex",alignItems:"center"}}>
           <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKey}
-            placeholder={ready?"Say something to the group...":"Connecting..."}
-            disabled={!ready} maxLength={500}
-            style={{flex:1,background:"none",border:"none",color:"var(--ink)",fontSize:14,...M,outline:"none",opacity:ready?1:0.4}}
+            placeholder="Message…"
+            maxLength={500}
+            style={{flex:1,background:"none",border:"none",color:"var(--ink)",fontSize:14,...M,outline:"none"}}
             onFocus={e=>{e.target.parentElement.style.borderColor="#00b8a9";}}
             onBlur={e=>{e.target.parentElement.style.borderColor="var(--border2)";}}
           />
         </div>
-        <button onClick={send} disabled={!input.trim()||!ready}
-          style={{width:46,height:46,borderRadius:"50%",background:input.trim()&&ready?"#00b8a9":"var(--border)",border:"none",cursor:input.trim()&&ready?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18,boxShadow:input.trim()&&ready?"0 0 20px #00b8a950":"none",transition:"all 0.15s",color:input.trim()&&ready?"#000":"var(--faint)"}}>
+        <button onClick={send} disabled={!input.trim()}
+          style={{width:46,height:46,borderRadius:"50%",background:input.trim()?"#00b8a9":"var(--border)",border:"none",cursor:input.trim()?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18,boxShadow:input.trim()?"0 0 20px #00b8a950":"none",transition:"all 0.15s",color:input.trim()?"#fff":"var(--faint)"}}>
           ↑
         </button>
       </div>
@@ -1903,6 +1985,7 @@ export default function App() {
   const [arrivalError,setArrivalError]=useState(null);
   const [pinnedLocations,setPinnedLocations]=useState({});
   const [manualVoted,setManualVoted]=useState(null);
+  const [gpsSkipped,setGpsSkipped]=useState(false);   // user chose to continue without location
   const [activeCounts,setActiveCounts]=useState({});  // restaurantId → # drivers waiting now
   const [activeWaitsList,setActiveWaitsList]=useState([]); // live active waits for the feed
   const lastFetchRef=useRef({lat:null,lng:null});
@@ -2240,10 +2323,10 @@ export default function App() {
     return <div style={ROOT}><style>{CSS}</style><LoginScreen initialMode={startRegister?"register":"login"} onLogin={handleLogin} onRegistered={handleRegistered}/></div>;
   }
 
-  // Block app only if the user actually denied location permission.
-  // Slow fixes / timeouts no longer trap the user on this screen.
-  if(gps.status==="denied"){
-    return <div style={ROOT}><style>{CSS}</style><GPSGateScreen status={gps.status} onRetry={gps.retry}/></div>;
+  // Gate until we have a location, unless the user chose to continue without it.
+  // Once a fix arrives status becomes "active" and the gate never returns.
+  if(gps.status!=="active"&&!gpsSkipped){
+    return <div style={ROOT}><style>{CSS}</style><GPSGateScreen status={gps.status} onRetry={gps.retry} onSkip={()=>setGpsSkipped(true)}/></div>;
   }
 
   return(
