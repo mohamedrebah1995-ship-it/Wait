@@ -666,7 +666,7 @@ function GPSGateScreen({status,onRetry,onSkip}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,contribCount}) {
+function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,contribCount,lang,onSetLang}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -838,6 +838,23 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
           <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
         </button>
       )}
+
+      {/* Language */}
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+        <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:1,marginBottom:10}}>🌐 LANGUAGE</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {LANGS.map(l=>{
+            const active=lang===l.code;
+            return(
+              <button key={l.code} onClick={()=>onSetLang&&onSetLang(l.code)}
+                style={{display:"flex",alignItems:"center",gap:6,background:active?"#00b8a922":"var(--border3)",border:"1px solid "+(active?"#00b8a9":"var(--border)"),borderRadius:10,padding:"8px 10px",cursor:"pointer"}}>
+                <span style={{fontSize:16}}>{l.flag}</span>
+                <span style={{fontSize:12,...M,fontWeight:700,color:active?"#00b8a9":"var(--ink)"}}>{l.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Appearance — light / dark toggle */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
@@ -2661,6 +2678,7 @@ export default function App() {
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
           ):showProfile?(
             <ProfileScreen user={user} waitLog={waitLog} gps={gps} premium={premium} theme={theme} onToggleTheme={toggleTheme} contribCount={contribCounts[user.name]||0}
+              lang={lang||"en"} onSetLang={chooseLang}
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
               onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
