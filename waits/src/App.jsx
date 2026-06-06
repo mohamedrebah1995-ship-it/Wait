@@ -128,6 +128,7 @@ const BADGE_TIERS = [
   { min:50,   emoji:"🥈", label:"Regular" },
   { min:10,   emoji:"🥉", label:"Starter" },
 ];
+const REACTIONS = ["👍","❤️","😂","🔥","😮","🙏"];   // chat message reactions
 const QUALITY_MIN_WAIT = 0.5;  // minutes — instant arrive→collect (<30s) doesn't count
 const DAILY_CAP = 15;          // max logs counted per driver per day (anti-spam)
 function badgeFor(count){ return BADGE_TIERS.find(t=>count>=t.min)||null; }
@@ -251,7 +252,8 @@ function computePatterns(logs) {
 // taps Enable (a gesture), which is the only thing Safari will reliably prompt on.
 // Once we have ONE fix, the user is never sent back to the gate.
 function useGPS() {
-  const [g,setG]=useState({lat:null,lng:null,accuracy:null,speedKmh:null,status:"pending",denied:false});
+  const grantedBefore=store.get("delivr_geo_granted")===true;   // persisted across refreshes
+  const [g,setG]=useState({lat:null,lng:null,accuracy:null,speedKmh:null,status:grantedBefore?"acquiring":"pending",denied:false});
   const wid=useRef(null);
   const hasFix=useRef(false);
   const start=useCallback((userGesture=false)=>{
@@ -259,10 +261,12 @@ function useGPS() {
     setG(x=>({...x,status:x.lat!=null?"active":"acquiring"}));
     const onPos=p=>{
       hasFix.current=true;
+      store.set("delivr_geo_granted",true);   // remember consent so we never gate this user again
       setG(x=>({...x,lat:p.coords.latitude,lng:p.coords.longitude,accuracy:Math.round(p.coords.accuracy),speedKmh:p.coords.speed!=null?Math.round(p.coords.speed*3.6):null,status:"active",denied:false}));
     };
     const onErr=e=>setG(x=>{
       if(hasFix.current)return{...x,status:"active",denied:false};        // already have a fix → never re-block
+      if(store.get("delivr_geo_granted")===true)return{...x,status:"acquiring",denied:false}; // granted before → keep app open, retry in bg
       if(e.code===1)return{...x,status:userGesture?"denied":"prompt",denied:userGesture}; // only a tapped attempt counts as real denial
       return{...x,status:"prompt",denied:false};                          // timeout/unavailable → let the user tap to retry
     });
@@ -272,17 +276,19 @@ function useGPS() {
   },[]);
   useEffect(()=>{
     let perm;
-    if(navigator.permissions?.query){
+    if(grantedBefore){
+      start(false);                                          // returning user → acquire silently, app shows immediately
+    } else if(navigator.permissions?.query){
       navigator.permissions.query({name:"geolocation"}).then(p=>{
         perm=p;
-        if(p.state==="granted")start(false);                 // already allowed → acquire silently
+        if(p.state==="granted")start(false);
         else if(p.state==="denied")setG(x=>({...x,status:"denied",denied:true}));
-        else setG(x=>({...x,status:"prompt"}));              // needs a tap to prompt
+        else setG(x=>({...x,status:"prompt"}));              // first-timer → needs a tap
         p.onchange=()=>{
           if(p.state==="granted")start(false);
           else if(p.state==="denied"&&!hasFix.current)setG(x=>({...x,status:"denied",denied:true}));
         };
-      }).catch(()=>start(false));                            // Permissions API unsupported (older Safari) → just try
+      }).catch(()=>start(false));
     } else {
       start(false);
     }
@@ -1771,10 +1777,20 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
   }
   function stopRecording(){ if(recorderRef.current?.state==="recording")recorderRef.current.stop(); }
 
-  // Long-press to delete your OWN message (text/image/voice). Removes media from Storage too.
+  // Long-press any message → action menu (react, and delete if it's your own)
+  const [actionMsg,setActionMsg]=useState(null);
   const pressTimer=useRef(null);
-  function startPress(m){ if(m.user!==user.name)return; pressTimer.current=setTimeout(()=>deleteMsg(m),550); }
+  function startPress(m){ pressTimer.current=setTimeout(()=>setActionMsg(m),500); }
   function endPress(){ clearTimeout(pressTimer.current); }
+
+  async function toggleReaction(m,emoji){
+    const reactions={...(m.reactions||{})};
+    const set=new Set(reactions[emoji]||[]);
+    if(set.has(user.name))set.delete(user.name); else set.add(user.name);  // tap again to remove
+    if(set.size)reactions[emoji]=[...set]; else delete reactions[emoji];
+    try{ await updateDoc(doc(db,"chats",room,"messages",m.id),{reactions}); }catch(e){console.error("reaction error:",e);}
+  }
+
   async function deleteMsg(m){
     if(m.user!==user.name)return;                       // own messages only
     if(!window.confirm("Delete this message?"))return;
@@ -1839,8 +1855,8 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
                   </div>
                 )}
                 <div onPointerDown={()=>startPress(m)} onPointerUp={endPress} onPointerLeave={endPress} onPointerCancel={endPress}
-                  onContextMenu={e=>{if(isMe){e.preventDefault();deleteMsg(m);}}}
-                  style={{maxWidth:"76%",background:isMe?"#00b8a9":"var(--border3)",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:m.type==="image"?"4px":"10px 14px",border:isMe?"none":"1px solid var(--border)",boxShadow:isMe?"0 2px 16px #00b8a928":"none",overflow:"hidden",cursor:isMe?"pointer":"default",userSelect:"none"}}>
+                  onContextMenu={e=>{e.preventDefault();setActionMsg(m);}}
+                  style={{maxWidth:"76%",background:isMe?"#00b8a9":"var(--border3)",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:m.type==="image"?"4px":"10px 14px",border:isMe?"none":"1px solid var(--border)",boxShadow:isMe?"0 2px 16px #00b8a928":"none",overflow:"hidden",cursor:"pointer",userSelect:"none"}}>
                   {m.type==="image"?(
                     <img src={m.url} alt="" onClick={()=>window.open(m.url,"_blank")} style={{maxWidth:"100%",maxHeight:240,borderRadius:14,display:"block",cursor:"pointer"}}/>
                   ):(m.type==="voice"||m.type==="audio")?(
@@ -1850,12 +1866,46 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
                   )}
                 </div>
               </div>
+              {m.reactions&&Object.keys(m.reactions).length>0&&(
+                <div style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap",...(isMe?{justifyContent:"flex-end",marginRight:4}:{marginLeft:40})}}>
+                  {Object.entries(m.reactions).filter(([,u])=>u.length>0).map(([emoji,u])=>{
+                    const mine=u.includes(user.name);
+                    return(
+                      <button key={emoji} onClick={()=>toggleReaction(m,emoji)}
+                        style={{display:"flex",alignItems:"center",gap:3,background:mine?"#00b8a922":"var(--border3)",border:"1px solid "+(mine?"#00b8a9":"var(--border)"),borderRadius:12,padding:"1px 7px",cursor:"pointer"}}>
+                        <span style={{fontSize:12}}>{emoji}</span>
+                        <span style={{fontSize:10,...M,fontWeight:700,color:mine?"#00b8a9":"var(--muted)"}}>{u.length}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
         <div ref={bottomRef}/>
       </div>
 
+      {/* Long-press action menu: react + delete (own) */}
+      {actionMsg&&(
+        <div onClick={()=>setActionMsg(null)} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 16px 90px"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:18,padding:"14px",boxShadow:"0 10px 36px rgba(0,0,0,0.35)",width:"100%",maxWidth:380}}>
+            <div style={{display:"flex",justifyContent:"space-around",alignItems:"center"}}>
+              {REACTIONS.map(em=>{
+                const mine=(actionMsg.reactions?.[em]||[]).includes(user.name);
+                return(
+                  <button key={em} onClick={()=>{toggleReaction(actionMsg,em);setActionMsg(null);}}
+                    style={{background:mine?"#00b8a922":"none",border:mine?"1px solid #00b8a9":"none",borderRadius:"50%",width:46,height:46,fontSize:26,cursor:"pointer",transition:"transform 0.1s"}}>{em}</button>
+                );
+              })}
+            </div>
+            {actionMsg.user===user.name&&(
+              <button onClick={()=>{const m=actionMsg;setActionMsg(null);deleteMsg(m);}}
+                style={{width:"100%",marginTop:12,background:"var(--tint-red)",border:"1px solid #ef444444",borderRadius:12,padding:"11px",...B,fontWeight:700,fontSize:15,letterSpacing:1,color:"#ef4444",cursor:"pointer"}}>🗑  DELETE MESSAGE</button>
+            )}
+          </div>
+        </div>
+      )}
       {sendError&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>Couldn't send — check connection</div>}
       {uploading&&<div style={{padding:"8px 16px",background:"var(--tint-teal)",borderTop:"1px solid #00b8a933",fontSize:11,...M,color:"#00b8a9",textAlign:"center"}}>Uploading…</div>}
       {recording&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>● Recording… release the mic to send (max 60s)</div>}
@@ -2111,7 +2161,7 @@ function BottomNav({screen,onNav,activeWait,unreadChat}) {
 export default function App() {
   const [user,setUser]          =useState(()=>store.get("delivr_user")||null);
   const [pendingVerify,setPendingVerify]=useState(null);
-  const [screen,setScreen]=useState("waits");
+  const [screen,setScreen]=useState(()=>store.get("delivr_tab")||"waits");  // restore last tab on refresh
   const [showProfile,setShowProfile]=useState(false);
   const [showUpgrade,setShowUpgrade]=useState(false);
   const [showStats,setShowStats]=useState(false);
@@ -2269,7 +2319,7 @@ export default function App() {
     }).catch(()=>{});
   },[gps.status,gps.lat,gps.lng]);
 
-  function handleNav(s){if(s==="chat")setUnreadChat(false);setScreen(s);}
+  function handleNav(s){if(s==="chat")setUnreadChat(false);setScreen(s);store.set("delivr_tab",s);}
 
   function handleLogin(userData){
     setUser(userData);store.set("delivr_user",userData);
