@@ -259,6 +259,22 @@ app.get('/stats/drivers', async (_req, res) => {
   } catch (e) { console.error('stats/drivers error:', e.message); res.json({ count: _driverCountCache.n }); }
 });
 
+// Diagnostic: where do chat messages actually live?
+app.get('/debug/chatrooms', async (_req, res) => {
+  if (!adminAuth) return res.json({ error: 'no admin' });
+  try {
+    const fs = admin.firestore();
+    const out = {};
+    const docs = await fs.collection('chats').listDocuments();
+    for (const d of docs) {
+      const snap = await d.collection('messages').get();
+      out['chats/' + d.id] = snap.size;
+    }
+    try { const leg = await fs.collection('messages').get(); out['messages (legacy)'] = leg.size; } catch (e) {}
+    res.json(out);
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 // ── Stripe subscription ─────────────────────────────────────────────────────
 // Create a Checkout Session and return its URL
 app.post('/stripe/create-checkout-session', async (req, res) => {
