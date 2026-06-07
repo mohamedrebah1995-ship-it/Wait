@@ -463,6 +463,19 @@ async function searchRestaurants(query,lat,lng) {
   }catch(e){console.error("searchRestaurants error:",e);return[];}
 }
 
+// Reverse-geocode the driver's GPS to their town/area (used to verify physical presence for area join)
+async function reverseGeocodeArea(lat,lng){
+  if(!GOOGLE_MAPS_KEY||lat==null||lng==null)return null;
+  try{
+    const res=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&result_type=postal_town|locality|administrative_area_level_2&key=${GOOGLE_MAPS_KEY}`);
+    const g=await res.json();
+    if(!g.results?.length)return null;
+    const comps=g.results[0].address_components||[];
+    const pick=types=>comps.find(c=>types.some(t=>c.types.includes(t)))?.long_name;
+    return pick(["postal_town"])||pick(["locality"])||pick(["administrative_area_level_2"])||null;
+  }catch(e){console.error("reverseGeocodeArea error:",e);return null;}
+}
+
 function getPersonalWait(restId,now,waitLog) {
   const h=now.getHours(),dow=now.getDay(),per=timePeriod(h);
   const logs=waitLog.filter(l=>logKey(l)===restId);
@@ -719,9 +732,23 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
 
   async function save(){
     setSaving(true);setSaved(false);
-    await onSave({name:name.trim()||user.name,phone:phone.trim(),area:area.trim()});
+    await onSave({name:name.trim()||user.name,phone:phone.trim()});  // area is GPS-only, joined separately
     setSaving(false);setSaved(true);
     setTimeout(()=>setSaved(false),3000);
+  }
+
+  // Join an area ONLY by physical GPS presence — no manual typing
+  const [joining,setJoining]=useState(false);
+  const [joinErr,setJoinErr]=useState("");
+  async function joinArea(){
+    setJoinErr("");
+    if(gps.status!=="active"||gps.lat==null){ setJoinErr("Location needed — enable GPS to join your area"); return; }
+    setJoining(true);
+    const a=await reverseGeocodeArea(gps.lat,gps.lng);
+    setJoining(false);
+    if(!a){ setJoinErr("Couldn't detect your area — make sure GPS is on and try again"); return; }
+    setArea(a);
+    await onSave({name:name.trim()||user.name,phone:phone.trim(),area:a});
   }
 
   async function changePw(){
@@ -831,10 +858,18 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         </div>
         <div>
           <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>{t("prof_area")}</div>
-          <input value={area} onChange={e=>setArea(e.target.value)} placeholder="e.g. Braintree, Chelmsford..."
-            style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
-            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
-          <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:5}}>{t("prof_areaHint")}</div>
+          <div style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px 14px"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{...B,fontSize:16,color:area?"var(--ink)":"var(--faint)",letterSpacing:1}}>{area||"Not joined"}</div>
+              <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:1}}>{t("prof_areaHint")}</div>
+            </div>
+            <button onClick={joinArea} disabled={joining}
+              style={{flexShrink:0,background:"#00b8a9",border:"none",borderRadius:10,...B,fontWeight:700,fontSize:12,letterSpacing:0.5,color:"#fff",padding:"10px 12px",cursor:joining?"default":"pointer"}}>
+              {joining?"DETECTING…":"📍 JOIN MY AREA"}
+            </button>
+          </div>
+          {joinErr&&<div style={{fontSize:10,...M,color:"#ef4444",marginTop:5}}>{joinErr}</div>}
+          <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:5}}>You can only join the area you're physically in (verified by GPS).</div>
         </div>
       </div>
 
@@ -1430,13 +1465,13 @@ function relTime(ts){
   const h=Math.floor(m/60); if(h<24)return h+"h ago";
   return Math.floor(h/24)+"d ago";
 }
-function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen}) {
+function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen,myName}) {
   const [,tick]=useState(0);
   useEffect(()=>{const id=setInterval(()=>tick(x=>x+1),30000);return ()=>clearInterval(id);},[]); // refresh relative times
   const events=[
     ...activeWaitsList.map(w=>({kind:"arrived",user:w.username||"A driver",rest:w.restaurantName||"a restaurant",ts:w.startedAt})),
     ...communityLogs.map(l=>({kind:"picked",user:l.username||"A driver",rest:l.restaurantName||"a restaurant",waitMins:l.waitMins,ts:l.ts})),
-  ].sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,10);
+  ].sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,5);   // 5 most recent on main screen
 
   return(
     <div onClick={onOpen} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px",marginBottom:14,cursor:"pointer"}}>
@@ -1453,7 +1488,7 @@ function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen}) {
             <div key={i} style={{display:"flex",alignItems:"center",gap:9,fontSize:12,...M}}>
               <span style={{fontSize:14}}>{e.kind==="arrived"?"🟢":"✅"}</span>
               <span style={{color:"var(--ink)",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                <b style={{fontWeight:700}}>{e.user}</b>{(()=>{const bg=badgeFor(contribCounts?.[e.user]||0);return bg?<span style={{marginLeft:2}}>{bg.emoji}</span>:null;})()}
+                <b style={{fontWeight:700}}>{e.user===myName?e.user:"Driver"}</b>{(()=>{const bg=badgeFor(contribCounts?.[e.user]||0);return bg?<span style={{marginLeft:2}}>{bg.emoji}</span>:null;})()}
                 {e.kind==="arrived"?" arrived at ":" picked up at "}
                 <b style={{fontWeight:700}}>{e.rest}</b>
                 {e.kind==="picked"&&e.waitMins!=null&&<span style={{color:"#06c167"}}>{" · "+e.waitMins}m</span>}
@@ -1468,7 +1503,7 @@ function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen}) {
 }
 
 // ── LOGBOOK (date-based community activity) ───────────────────────────────────
-function Logbook({communityLogs,contribCounts,onBack}) {
+function Logbook({communityLogs,contribCounts,onBack,myName}) {
   const [offset,setOffset]=useState(0); // 0 = today, 1 = yesterday, ...
   const day=new Date(); day.setDate(day.getDate()-offset);
   const dayStr=day.toISOString().slice(0,10);
@@ -1508,7 +1543,7 @@ function Logbook({communityLogs,contribCounts,onBack}) {
                 <span style={{fontSize:14}}>✅</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12,...M,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                    <b style={{fontWeight:700}}>{l.username||"A driver"}</b>{bg&&<span style={{marginLeft:2}}>{bg.emoji}</span>} picked up at <b style={{fontWeight:700}}>{l.restaurantName||"a restaurant"}</b>
+                    <b style={{fontWeight:700}}>{l.username===myName?l.username:"Driver"}</b>{bg&&<span style={{marginLeft:2}}>{bg.emoji}</span>} picked up at <b style={{fontWeight:700}}>{l.restaurantName||"a restaurant"}</b>
                   </div>
                   <div style={{fontSize:9,...M,color:"var(--muted)",marginTop:1}}>{new Date(l.ts).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>
                 </div>
@@ -1523,7 +1558,7 @@ function Logbook({communityLogs,contribCounts,onBack}) {
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,activeWaitsList,contribCounts,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,activeWaitsList,contribCounts,myName,driverCount,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -1648,12 +1683,12 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
           </div>
           <div style={{textAlign:"right"}}>
             <div style={{...M,fontSize:11,fontWeight:700,color:"#06c167"}}>{meta.totalLogs.toLocaleString()} logs</div>
-            <div style={{fontSize:9,color:"#0a8f4f",letterSpacing:1}}>{meta.totalDrivers} driver{meta.totalDrivers!==1?"s":""}</div>
+            <div style={{fontSize:9,color:"#0a8f4f",letterSpacing:1}}>{(()=>{const n=Math.max(driverCount||0,meta.totalDrivers||0);return n+" driver"+(n!==1?"s":"");})()}</div>
           </div>
         </div>
       )}
 
-      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs} contribCounts={contribCounts} onOpen={onOpenLogbook}/>
+      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs} contribCounts={contribCounts} onOpen={onOpenLogbook} myName={myName}/>
 
       {activeWait?(
         <div style={{background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
@@ -1855,8 +1890,8 @@ function VoiceMessage({url,duration,isMe}){
 }
 
 // ── CHAT SCREEN (Firestore real-time) ─────────────────────────────────────────
-function ChatScreen({user,onLogout,area,contribCounts}) {
-  const room=(area||"general").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")||"general";
+function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
+  const room=(area||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [ready,setReady]=useState(false);
@@ -1871,9 +1906,10 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
   const recStartRef=useRef(0);
   const maxTimerRef=useRef(null);
 
-  // Live listener — re-subscribes whenever the room (area) changes
+  // Live listener — re-subscribes whenever the room (area) changes. No area → no chat.
   useEffect(()=>{
     setReady(false);setMessages([]);
+    if(!room)return;
     const q=query(collection(db,"chats",room,"messages"),orderBy("ts","asc"),limitToLast(100));
     const unsub=onSnapshot(q,snap=>{
       setMessages(snap.docs.map(d=>({id:d.id,...d.data()})));
@@ -1970,6 +2006,22 @@ function ChatScreen({user,onLogout,area,contribCounts}) {
 
   function onKey(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}
   function fmt(ts){try{return new Date(ts).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});}catch(e){return "";}}
+
+  // Chat is locked to your GPS area — must join one first
+  if(!room){
+    return(
+      <div style={{display:"flex",flexDirection:"column",height:"100%",alignItems:"center",justifyContent:"center",padding:"0 32px",textAlign:"center"}}>
+        <div style={{fontSize:56,marginBottom:18}}>📍</div>
+        <div style={{...B,fontSize:26,color:"#00b8a9",letterSpacing:1,marginBottom:10}}>JOIN YOUR AREA TO CHAT</div>
+        <div style={{fontSize:13,...M,color:"var(--muted)",lineHeight:1.7,maxWidth:300,marginBottom:24}}>
+          Chat is locked to your local area. Join the area you're physically in to see and message nearby drivers.
+        </div>
+        <button onClick={onGoProfile} style={{minHeight:54,padding:"0 26px",background:"#00b8a9",border:"none",borderRadius:14,...B,fontSize:18,letterSpacing:1,color:"#fff",cursor:"pointer"}}>
+          📍 JOIN MY AREA
+        </button>
+      </div>
+    );
+  }
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
@@ -2371,6 +2423,7 @@ export default function App() {
   const [gpsSkipped,setGpsSkipped]=useState(false);   // user chose to continue without location
   const [activeCounts,setActiveCounts]=useState({});  // restaurantId → # drivers waiting now
   const [activeWaitsList,setActiveWaitsList]=useState([]); // live active waits for the feed
+  const [driverCount,setDriverCount]=useState(0);          // live total drivers
   const lastFetchRef=useRef({lat:null,lng:null});
   const gps=useGPS();
 
@@ -2422,6 +2475,16 @@ export default function App() {
       const m={};snap.docs.forEach(d=>{m[d.id]=d.data();});
       setPinnedLocations(m);
     },()=>{});
+    return unsub;
+  },[]);
+
+  // Live driver count — register self into the public "drivers" collection, then listen to its size
+  useEffect(()=>{
+    if(!user||!auth.currentUser)return;
+    try{ setDoc(doc(db,"drivers",auth.currentUser.uid),{joinedAt:new Date().toISOString()},{merge:true}); }catch(e){}
+  },[user]);
+  useEffect(()=>{
+    const unsub=onSnapshot(collection(db,"drivers"),snap=>setDriverCount(snap.size),()=>{});
     return unsub;
   },[]);
 
@@ -2757,7 +2820,7 @@ export default function App() {
 
         <div style={{height:"calc(100vh - 56px"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook?" - 56px":"")+")",overflowY:"auto"}}>
           {showLogbook?(
-            <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)}/>
+            <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)} myName={user.name}/>
           ):showStats&&isOwner(user)?(
             <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} contribCounts={contribCounts} onBack={()=>setShowStats(false)}/>
           ):showUpgrade?(
@@ -2770,12 +2833,12 @@ export default function App() {
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} onOpenLogbook={()=>setShowLogbook(true)}
+              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} driverCount={driverCount} onOpenLogbook={()=>setShowLogbook(true)}
               onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts}/>
           ):(
-            <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts}/>
+            <ChatScreen user={user} onLogout={handleLogout} area={user.area||""} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)}/>
           )}
         </div>
         {/* 20/40-min reminder toast */}
