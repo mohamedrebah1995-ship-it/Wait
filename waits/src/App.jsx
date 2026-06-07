@@ -1891,7 +1891,7 @@ function VoiceMessage({url,duration,isMe}){
 
 // ── CHAT SCREEN (Firestore real-time) ─────────────────────────────────────────
 function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
-  const room=(area||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+  const room=(area||"general").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")||"general";
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [ready,setReady]=useState(false);
@@ -2006,22 +2006,6 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
 
   function onKey(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}
   function fmt(ts){try{return new Date(ts).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});}catch(e){return "";}}
-
-  // Chat is locked to your GPS area — must join one first
-  if(!room){
-    return(
-      <div style={{display:"flex",flexDirection:"column",height:"100%",alignItems:"center",justifyContent:"center",padding:"0 32px",textAlign:"center"}}>
-        <div style={{fontSize:56,marginBottom:18}}>📍</div>
-        <div style={{...B,fontSize:26,color:"#00b8a9",letterSpacing:1,marginBottom:10}}>JOIN YOUR AREA TO CHAT</div>
-        <div style={{fontSize:13,...M,color:"var(--muted)",lineHeight:1.7,maxWidth:300,marginBottom:24}}>
-          Chat is locked to your local area. Join the area you're physically in to see and message nearby drivers.
-        </div>
-        <button onClick={onGoProfile} style={{minHeight:54,padding:"0 26px",background:"#00b8a9",border:"none",borderRadius:14,...B,fontSize:18,letterSpacing:1,color:"#fff",cursor:"pointer"}}>
-          📍 JOIN MY AREA
-        </button>
-      </div>
-    );
-  }
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
@@ -2423,7 +2407,8 @@ export default function App() {
   const [gpsSkipped,setGpsSkipped]=useState(false);   // user chose to continue without location
   const [activeCounts,setActiveCounts]=useState({});  // restaurantId → # drivers waiting now
   const [activeWaitsList,setActiveWaitsList]=useState([]); // live active waits for the feed
-  const [driverCount,setDriverCount]=useState(0);          // live total drivers
+  const [driverCount,setDriverCount]=useState(0);          // live roster size
+  const [signupCount,setSignupCount]=useState(0);          // true total sign-ups (backend)
   const lastFetchRef=useRef({lat:null,lng:null});
   const gps=useGPS();
 
@@ -2487,6 +2472,14 @@ export default function App() {
     const unsub=onSnapshot(collection(db,"drivers"),snap=>setDriverCount(snap.size),()=>{});
     return unsub;
   },[]);
+  // True total sign-ups from the backend (Firebase Admin) — refreshed periodically
+  useEffect(()=>{
+    if(!user)return;
+    const load=()=>fetch(`${API_URL}/stats/drivers`).then(r=>r.json()).then(d=>{if(d.count)setSignupCount(d.count);}).catch(()=>{});
+    load();
+    const id=setInterval(load,120000);
+    return ()=>clearInterval(id);
+  },[user]);
 
   // Live listener for who's waiting right now (real-time presence)
   useEffect(()=>{
@@ -2833,12 +2826,12 @@ export default function App() {
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} driverCount={driverCount} onOpenLogbook={()=>setShowLogbook(true)}
+              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} driverCount={Math.max(driverCount,signupCount)} onOpenLogbook={()=>setShowLogbook(true)}
               onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts}/>
           ):(
-            <ChatScreen user={user} onLogout={handleLogout} area={user.area||""} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)}/>
+            <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)}/>
           )}
         </div>
         {/* 20/40-min reminder toast */}

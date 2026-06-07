@@ -246,6 +246,19 @@ app.post('/auth/reset-password', async (req, res) => {
   }
 });
 
+// Total registered drivers (true sign-up count, via Firebase Admin)
+let _driverCountCache = { n: 0, at: 0 };
+app.get('/stats/drivers', async (_req, res) => {
+  if (!adminAuth) return res.json({ count: 0 });
+  if (Date.now() - _driverCountCache.at < 60000) return res.json({ count: _driverCountCache.n }); // 60s cache
+  try {
+    let count = 0, token;
+    do { const r = await adminAuth.listUsers(1000, token); count += r.users.length; token = r.pageToken; } while (token);
+    _driverCountCache = { n: count, at: Date.now() };
+    res.json({ count });
+  } catch (e) { console.error('stats/drivers error:', e.message); res.json({ count: _driverCountCache.n }); }
+});
+
 // ── Stripe subscription ─────────────────────────────────────────────────────
 // Create a Checkout Session and return its URL
 app.post('/stripe/create-checkout-session', async (req, res) => {
