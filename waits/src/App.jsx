@@ -235,6 +235,16 @@ const T2 = {
     chk_title:"VERIFICAR RESTAURANTE",chk_nearby:"PRÓXIMOS · TOQUE PARA ESTATÍSTICAS",chk_results:"RESULTADOS",chk_search:"Buscar qualquer filial — KFC…" },
 };
 for(const c of Object.keys(T2)){ Object.assign(T[c],T2[c]); }
+// Disclaimer screen strings
+const T3 = {
+  en:{ disc_title:"BEFORE YOU START", disc_btn:"I UNDERSTAND", disc_body:"WAITS does not connect to Uber Eats, Deliveroo, Just Eat or any other delivery platform. We do not access your delivery app accounts, read your notifications, modify your GPS, or interact with any platform API. We only use your device location to detect nearby restaurants and your local area. Your delivery accounts are completely safe." },
+  pl:{ disc_title:"ZANIM ZACZNIESZ", disc_btn:"ROZUMIEM", disc_body:"WAITS nie łączy się z Uber Eats, Deliveroo, Just Eat ani żadną inną platformą dostawczą. Nie mamy dostępu do Twoich kont w aplikacjach dostawczych, nie czytamy Twoich powiadomień, nie zmieniamy Twojego GPS ani nie korzystamy z żadnego API platform. Używamy lokalizacji Twojego urządzenia wyłącznie do wykrywania pobliskich restauracji i Twojej okolicy. Twoje konta dostawcze są całkowicie bezpieczne." },
+  ar:{ disc_title:"قبل أن تبدأ", disc_btn:"أوافق وأفهم", disc_body:"لا يتصل WAITS بـ Uber Eats أو Deliveroo أو Just Eat أو أي منصة توصيل أخرى. نحن لا نصل إلى حساباتك في تطبيقات التوصيل، ولا نقرأ إشعاراتك، ولا نعدّل نظام تحديد المواقع لديك، ولا نتفاعل مع أي واجهة برمجية لأي منصة. نستخدم موقع جهازك فقط لاكتشاف المطاعم القريبة ومنطقتك المحلية. حساباتك في تطبيقات التوصيل آمنة تماماً." },
+  hi:{ disc_title:"शुरू करने से पहले", disc_btn:"मैं समझ गया", disc_body:"WAITS, Uber Eats, Deliveroo, Just Eat या किसी अन्य डिलीवरी प्लेटफ़ॉर्म से कनेक्ट नहीं होता। हम आपके डिलीवरी ऐप अकाउंट तक नहीं पहुँचते, आपकी सूचनाएँ नहीं पढ़ते, आपका GPS नहीं बदलते, और किसी प्लेटफ़ॉर्म API से इंटरैक्ट नहीं करते। हम आपके डिवाइस की लोकेशन का उपयोग केवल आस-पास के रेस्टोरेंट और आपके क्षेत्र का पता लगाने के लिए करते हैं। आपके डिलीवरी अकाउंट पूरी तरह सुरक्षित हैं।" },
+  ur:{ disc_title:"شروع کرنے سے پہلے", disc_btn:"میں سمجھ گیا", disc_body:"WAITS کا Uber Eats، Deliveroo، Just Eat یا کسی اور ڈیلیوری پلیٹ فارم سے کوئی تعلق نہیں۔ ہم آپ کے ڈیلیوری ایپ اکاؤنٹس تک رسائی نہیں کرتے، آپ کی نوٹیفیکیشنز نہیں پڑھتے، آپ کا GPS تبدیل نہیں کرتے، اور کسی پلیٹ فارم API سے تعامل نہیں کرتے۔ ہم آپ کے ڈیوائس کی لوکیشن صرف قریبی ریستوران اور آپ کے مقامی علاقے کا پتہ لگانے کے لیے استعمال کرتے ہیں۔ آپ کے ڈیلیوری اکاؤنٹس مکمل طور پر محفوظ ہیں۔" },
+  pt:{ disc_title:"ANTES DE COMEÇAR", disc_btn:"ENTENDI", disc_body:"O WAITS não se conecta ao Uber Eats, Deliveroo, Just Eat nem a qualquer outra plataforma de entrega. Não acessamos suas contas dos apps de entrega, não lemos suas notificações, não modificamos seu GPS e não interagimos com nenhuma API de plataforma. Usamos a localização do seu dispositivo apenas para detectar restaurantes próximos e a sua área local. Suas contas de entrega estão completamente seguras." },
+};
+for(const c of Object.keys(T3)){ Object.assign(T[c],T3[c]); }
 let _lang="en";                                   // current language (set by App on render)
 const tr = (lang,key) => (T[lang]&&T[lang][key])||T.en[key]||key;
 const t  = key => (T[_lang]&&T[_lang][key])||T.en[key]||key;
@@ -970,6 +980,26 @@ function LanguageScreen({onChoose}) {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── DISCLAIMER (shown once, after language) ───────────────────────────────────
+function DisclaimerScreen({lang,onAccept}) {
+  const tt=k=>tr(lang,k);
+  return(
+    <div style={{minHeight:"100vh",background:"#0e1316",color:"#eaf0f2",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 26px 40px",fontFamily:"'Nunito',sans-serif"}}>
+      <div style={{textAlign:"center",marginBottom:26}}>
+        <div style={{fontSize:56,marginBottom:16}}>🔒</div>
+        <div style={{fontFamily:"'Poppins',sans-serif",fontWeight:800,fontSize:30,color:"#00b8a9",letterSpacing:1}}>{tt("disc_title")}</div>
+      </div>
+      <div style={{background:"#192127",border:"1px solid #28343a",borderRadius:16,padding:"20px",fontSize:14,lineHeight:1.8,color:"#cdd6da",marginBottom:24}}>
+        {tt("disc_body")}
+      </div>
+      <button onClick={onAccept}
+        style={{width:"100%",minHeight:62,background:"#00b8a9",border:"none",borderRadius:18,fontFamily:"'Poppins',sans-serif",fontWeight:700,fontSize:20,letterSpacing:1,color:"#fff",cursor:"pointer",boxShadow:"0 8px 24px #00b8a944"}}>
+        ✓ {tt("disc_btn")}
+      </button>
     </div>
   );
 }
@@ -2374,6 +2404,7 @@ export default function App() {
   const [onboarded,setOnboarded]=useState(()=>!!store.get("delivr_onboarded"));
   const [startRegister,setStartRegister]=useState(false);
   const [lang,setLang]=useState(()=>store.get("delivr_lang")||null);
+  const [disclaimerOk,setDisclaimerOk]=useState(()=>!!store.get("delivr_disclaimer"));
   _lang=lang||"en";   // make t() use the current language for all child screens this render
   const premium=!!user?.premium;
 
@@ -2777,6 +2808,12 @@ export default function App() {
     // Step 0: pick language (first ever screen)
     if(!lang){
       return <div style={ROOT}><style>{CSS}</style><LanguageScreen onChoose={chooseLang}/></div>;
+    }
+    // Step 1: one-time privacy disclaimer (in chosen language)
+    if(!disclaimerOk){
+      return <div style={ROOT}><style>{CSS}</style>
+        <DisclaimerScreen lang={lang} onAccept={()=>{store.set("delivr_disclaimer",true);setDisclaimerOk(true);}}/>
+      </div>;
     }
     // First-time visitors see the 3-screen onboarding before login
     if(!onboarded){
