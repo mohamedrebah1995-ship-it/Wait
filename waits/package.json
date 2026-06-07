@@ -17,11 +17,12 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "firebase": "^12.14.0",
+    "firebase-admin": "^13.10.0",
     "jsonwebtoken": "^9.0.2",
     "mapbox-gl": "^3.24.0",
-    "stripe": "^18.5.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "stripe": "^18.5.0",
     "ws": "^8.18.2"
   },
   "devDependencies": {

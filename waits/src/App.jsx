@@ -8,7 +8,6 @@ import {
   onAuthStateChanged,
   updateProfile,
   updatePassword,
-  sendPasswordResetEmail,
   EmailAuthProvider,
   reauthenticateWithCredential,
 } from "firebase/auth";
@@ -1023,6 +1022,9 @@ function LoginScreen({onLogin,onRegistered,initialMode,lang,onChangeLang}) {
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
   const [resetMsg,setResetMsg]=useState("");
+  const [resetStage,setResetStage]=useState(false);   // showing the code+new-password form
+  const [resetCode,setResetCode]=useState("");
+  const [resetNewPw,setResetNewPw]=useState("");
   const color=AVATAR_COLORS[colorIdx];
   const emailValid=e=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
@@ -1069,20 +1071,67 @@ function LoginScreen({onLogin,onRegistered,initialMode,lang,onChangeLang}) {
     }
   }
 
+  // Forgot password → Brevo emails a 6-digit reset code (no longer Firebase default email)
   async function forgotPassword(){
     setError("");setResetMsg("");
     const em=email.trim().toLowerCase();
     if(!emailValid(em)){setError("Type your email above first, then tap Forgot password");return;}
     setLoading(true);
     try{
-      await sendPasswordResetEmail(auth,em);
-      setResetMsg("Reset link sent to "+em+" — check inbox & spam. If nothing arrives in 2 min, that email may not have an account yet.");
+      const r=await fetch(`${API_URL}/auth/send-reset-code`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:em})});
+      const d=await r.json();
+      if(!r.ok){setError(d.error||"Could not send reset code");return;}
+      setResetStage(true);setResetMsg("Reset code sent to "+em+" — check inbox & spam.");
     }catch(err){
-      console.error("password reset error:",err?.code,err?.message,err);
-      setError(fbAuthError(err)+(err?.code?" ["+err.code+"]":""));
+      setError("Couldn't reach the server — try again");
     }finally{
       setLoading(false);
     }
+  }
+
+  // Submit the code + new password → backend sets it via Firebase Admin
+  async function submitReset(){
+    setError("");
+    const em=email.trim().toLowerCase();
+    if(resetCode.trim().length!==6){setError("Enter the 6-digit code");return;}
+    if(resetNewPw.length<6){setError("New password must be at least 6 characters");return;}
+    setLoading(true);
+    try{
+      const r=await fetch(`${API_URL}/auth/reset-password`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:em,code:resetCode.trim(),password:resetNewPw})});
+      const d=await r.json();
+      if(!r.ok){setError(d.error||"Could not reset password");return;}
+      setResetStage(false);setResetCode("");setResetNewPw("");setPassword("");
+      setResetMsg("✓ Password changed — sign in with your new password.");
+    }catch(err){
+      setError("Couldn't reach the server — try again");
+    }finally{
+      setLoading(false);
+    }
+  }
+
+  // Reset password screen (enter code + new password)
+  if(resetStage){
+    return(
+      <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 24px 60px",background:"linear-gradient(160deg,var(--tint-teal) 0%,var(--bg) 55%)"}}>
+        <div style={{textAlign:"center",marginBottom:30}}>
+          <div style={{fontSize:52,marginBottom:12}}>🔑</div>
+          <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>RESET PASSWORD</div>
+          <div style={{fontSize:12,...M,color:"var(--muted)",marginTop:8}}>Enter the 6-digit code sent to<br/><b style={{color:"var(--ink)"}}>{email.trim().toLowerCase()}</b></div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <input value={resetCode} onChange={e=>setResetCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000" maxLength={6} inputMode="numeric" autoFocus
+            style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:14,padding:"18px",color:"#00b8a9",fontSize:30,...M,fontWeight:700,letterSpacing:8,textAlign:"center",outline:"none",boxSizing:"border-box"}}/>
+          <PasswordInput value={resetNewPw} onChange={e=>setResetNewPw(e.target.value)} placeholder="New password (min 6)"/>
+          {error&&<div style={{background:"var(--tint-red)",border:"1px solid #ef444444",borderRadius:10,padding:"12px 14px",fontSize:12,...M,color:"#ef4444"}}>{error}</div>}
+          <button onClick={submitReset} disabled={loading}
+            style={{minHeight:60,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontSize:24,letterSpacing:2,color:loading?"var(--muted2)":"#fff",cursor:loading?"default":"pointer"}}>
+            {loading?"…":"SET NEW PASSWORD →"}
+          </button>
+          <button onClick={forgotPassword} disabled={loading} style={{background:"none",border:"none",color:"var(--muted)",fontSize:12,...M,cursor:"pointer"}}>Resend code</button>
+          <button onClick={()=>{setResetStage(false);setError("");}} style={{background:"none",border:"none",color:"var(--faint)",fontSize:12,...M,cursor:"pointer"}}>‹ Back to sign in</button>
+        </div>
+      </div>
+    );
   }
 
   return(

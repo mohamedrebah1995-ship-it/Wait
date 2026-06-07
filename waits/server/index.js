@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import Stripe from 'stripe';
+import admin from 'firebase-admin';
 import { createServer } from 'http';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -14,8 +15,41 @@ const JWT_SECRET = process.env.JWT_SECRET || 'delivr_jwt_2024_change_in_prod';
 const PORT       = process.env.PORT || 3001;
 const PROD       = process.env.NODE_ENV === 'production';
 const DB_PATH    = process.env.DB_PATH || './delivr-db.json';
-const BREVO_KEY  = process.env.BREVO_KEY  || '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';
-const BREVO_FROM = process.env.BREVO_FROM || 'mohamedrebah1995@gmail.com';
+// Email + Brevo — keys come from environment variables only (never hardcoded)
+const BREVO_KEY  = (process.env.BREVO_KEY  || '').trim();
+const BREVO_FROM = (process.env.BREVO_FROM || 'mohamedrebah1995@gmail.com').trim();
+
+// Firebase Admin — needed to reset an account's password server-side (for Brevo reset flow)
+let adminAuth = null;
+try {
+  const sa = (process.env.FIREBASE_SERVICE_ACCOUNT || '').trim();
+  if (sa) {
+    const cred = JSON.parse(sa);
+    if (cred.private_key) cred.private_key = cred.private_key.replace(/\\n/g, '\n');
+    admin.initializeApp({ credential: admin.credential.cert(cred) });
+    adminAuth = admin.auth();
+    console.log('Firebase Admin initialised');
+  } else {
+    console.warn('FIREBASE_SERVICE_ACCOUNT not set — password reset disabled until added');
+  }
+} catch (e) {
+  console.error('Firebase Admin init failed:', e.message);
+}
+
+// Shared Brevo sender (used by sign-up verification AND password reset)
+async function sendBrevoEmail(to, subject, htmlContent) {
+  if (!BREVO_KEY) throw new Error('BREVO_KEY not set');
+  const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': BREVO_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender: { name: 'Delivr', email: BREVO_FROM }, to: [{ email: to }], subject, htmlContent }),
+  });
+  if (!r.ok) { const txt = await r.text(); throw new Error('Brevo: ' + txt); }
+  return true;
+}
+function codeEmailHtml(title, code, note) {
+  return `<div style="font-family:monospace;background:#060606;color:#f0f0f0;padding:40px;max-width:420px;margin:0 auto;border-radius:16px"><div style="font-size:36px;color:#ff6600;font-weight:bold;letter-spacing:6px;margin-bottom:6px">DELIVR</div><div style="font-size:11px;color:#444;letter-spacing:4px;margin-bottom:36px">DRIVER COMMUNITY</div><div style="font-size:11px;color:#666;letter-spacing:2px;margin-bottom:10px">${title}</div><div style="font-size:52px;font-weight:bold;color:#ff6600;letter-spacing:10px;margin-bottom:28px">${code}</div><div style="font-size:12px;color:#555;line-height:1.6">${note}</div></div>`;
+}
 // .trim() guards against trailing newlines/spaces accidentally pasted into env vars
 const STRIPE_SECRET = (process.env.STRIPE_SECRET || '').trim();
 const STRIPE_PRICE  = (process.env.STRIPE_PRICE  || '').trim();   // price_... for £4.99/mo
@@ -35,6 +69,7 @@ function saveDB() {
 let db = loadDB();
 if (!db.waitLogs)          db.waitLogs = [];
 if (!db.verificationCodes) db.verificationCodes = [];
+if (!db.resetCodes)        db.resetCodes = [];
 
 // ── Pattern computation ───────────────────────────────────────────────────────
 function bucket(logs) {
@@ -143,21 +178,12 @@ app.post('/auth/send-code', async (req, res) => {
   db.verificationCodes.push({ email, code, expiresAt, used: false });
   saveDB();
   try {
-    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: { 'api-key': BREVO_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sender: { name: 'Delivr', email: BREVO_FROM },
-        to: [{ email }],
-        subject: 'Your Delivr verification code',
-        htmlContent: `<div style="font-family:monospace;background:#060606;color:#f0f0f0;padding:40px;max-width:420px;margin:0 auto;border-radius:16px"><div style="font-size:36px;color:#ff6600;font-weight:bold;letter-spacing:6px;margin-bottom:6px">DELIVR</div><div style="font-size:11px;color:#444;letter-spacing:4px;margin-bottom:36px">DRIVER COMMUNITY</div><div style="font-size:11px;color:#666;letter-spacing:2px;margin-bottom:10px">YOUR VERIFICATION CODE</div><div style="font-size:52px;font-weight:bold;color:#ff6600;letter-spacing:10px;margin-bottom:28px">${code}</div><div style="font-size:12px;color:#555;line-height:1.6">Expires in 10 minutes.<br>If you didn't create a Delivr account, ignore this email.</div></div>`,
-      }),
-    });
-    if (!r.ok) { const t = await r.text(); console.error('Brevo error:', t); return res.status(500).json({ error: 'Failed to send email — check Brevo sender is verified' }); }
+    await sendBrevoEmail(email, 'Your Delivr verification code',
+      codeEmailHtml('YOUR VERIFICATION CODE', code, "Expires in 10 minutes.<br>If you didn't create a Delivr account, ignore this email."));
     res.json({ ok: true });
   } catch (e) {
-    console.error('Email error:', e);
-    res.status(500).json({ error: 'Email send failed' });
+    console.error('Email error:', e.message);
+    res.status(500).json({ error: 'Email send failed — check Brevo sender is verified' });
   }
 });
 
@@ -172,6 +198,52 @@ app.post('/auth/verify-code', (req, res) => {
   entry.used = true;
   saveDB();
   res.json({ ok: true });
+});
+
+// ── Password reset via Brevo (replaces Firebase default email) ────────────────
+// 1) Email a 6-digit reset code (Brevo)
+app.post('/auth/send-reset-code', async (req, res) => {
+  const { email } = req.body || {};
+  if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required' });
+  if (!adminAuth) return res.status(500).json({ error: 'Password reset not configured on server' });
+  // Only send if the account actually exists
+  try { await adminAuth.getUserByEmail(email); }
+  catch (e) { return res.status(404).json({ error: 'No account with that email' }); }
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 10 * 60 * 1000;
+  db.resetCodes = (db.resetCodes || []).filter(c => c.email !== email);
+  db.resetCodes.push({ email, code, expiresAt, used: false });
+  saveDB();
+  try {
+    await sendBrevoEmail(email, 'Your Delivr password reset code',
+      codeEmailHtml('YOUR PASSWORD RESET CODE', code, "Expires in 10 minutes.<br>If you didn't request this, ignore this email."));
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Reset email error:', e.message);
+    res.status(500).json({ error: 'Email send failed — check Brevo sender is verified' });
+  }
+});
+
+// 2) Verify code + set the new password (via Firebase Admin)
+app.post('/auth/reset-password', async (req, res) => {
+  const { email, code, password } = req.body || {};
+  if (!email || !code || !password) return res.status(400).json({ error: 'Missing fields' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (!adminAuth) return res.status(500).json({ error: 'Password reset not configured on server' });
+  const entry = (db.resetCodes || []).find(c => c.email === email && !c.used);
+  if (!entry)              return res.status(400).json({ error: 'No active code — request a new one' });
+  if (entry.code !== code) return res.status(400).json({ error: 'Wrong code — try again' });
+  if (Date.now() > entry.expiresAt) return res.status(400).json({ error: 'Code expired — request a new one' });
+  try {
+    const u = await adminAuth.getUserByEmail(email);
+    await adminAuth.updateUser(u.uid, { password });
+    entry.used = true;
+    saveDB();
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('reset-password error:', e.message);
+    res.status(500).json({ error: 'Could not reset password' });
+  }
 });
 
 // ── Stripe subscription ─────────────────────────────────────────────────────
