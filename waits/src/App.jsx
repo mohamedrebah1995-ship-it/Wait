@@ -162,6 +162,10 @@ const LANGS = [
   { code:"hi", name:"हिन्दी",      flag:"🇮🇳" },
   { code:"ur", name:"اردو",       flag:"🇵🇰", rtl:true },
   { code:"pt", name:"Português",  flag:"🇵🇹" },
+  { code:"zh", name:"中文",        flag:"🇨🇳" },
+  { code:"ro", name:"Română",     flag:"🇷🇴" },
+  { code:"es", name:"Español",    flag:"🇪🇸" },
+  { code:"ru", name:"Русский",    flag:"🇷🇺" },
 ];
 const T = {
   en:{ chooseLang:"Choose your language", continue:"CONTINUE →", tagline:"DRIVER COMMUNITY",
@@ -245,6 +249,54 @@ const T3 = {
   pt:{ disc_title:"ANTES DE COMEÇAR", disc_btn:"ENTENDI", disc_body:"O WAITS não se conecta ao Uber Eats, Deliveroo, Just Eat nem a qualquer outra plataforma de entrega. Não acessamos suas contas dos apps de entrega, não lemos suas notificações, não modificamos seu GPS e não interagimos com nenhuma API de plataforma. Usamos a localização do seu dispositivo apenas para detectar restaurantes próximos e a sua área local. Suas contas de entrega estão completamente seguras." },
 };
 for(const c of Object.keys(T3)){ Object.assign(T[c],T3[c]); }
+// Additional languages — full set
+const T4 = {
+  zh:{ chooseLang:"选择您的语言",continue:"继续 →",tagline:"司机社区",next:"下一步",join:"加入社区 →",skip:"跳过",
+    ob1_title:"你一直在等待。\n现在等待有回报。",ob1_body:"你在餐厅外等待的每一分钟都是数据。Delivr 把等待变成实时信息，为你和附近每位司机节省时间。",
+    ob2_title:"两次点击，就这么简单。",ob2_arrive_t:"到达",ob2_arrive_d:"到达餐厅时点一下，计时自动开始。",ob2_pickup_t:"取餐",ob2_pickup_d:"拿到订单时点一下，等待即被记录。",ob2_see_t:"所有人都能看到",ob2_see_d:"附近每位司机立即看到真实等待时间。",
+    ob3_title:"帮我。\n我帮你。",ob3_body:"Delivr 因司机分享而强大。你记录得越多，对所有人就越聪明。加入我们吧。",
+    signin:"登录",create:"创建账户",drivername:"司机名称",email:"电子邮箱",password:"密码",confirm:"确认密码",colour:"你的颜色",forgot:"忘记密码？",signinBtn:"登录 →",createBtn:"创建账户 →",changeLang:"🌐 语言",
+    nav_waits:"等待",nav_check:"查询",nav_chat:"聊天",
+    w_title:"餐厅等待时间",w_arrived:"📍 已到达餐厅",w_waitingAt:"正在等待",w_pickedUp:"✓ 已取餐",w_gotIt:"✓ 已取餐",w_arrivedShort:"已到达",w_timingNow:"● 计时中",w_noData:"暂无数据",w_closed:"已关闭",w_closedNow:"现在已关闭",w_waitingNow:"正在等待",w_noOne:"现在无人等待",w_liveActivity:"实时动态",w_viewAll:"查看全部 ›",w_communityLive:"社区数据实时更新",w_yourData:"你的数据",w_community:"社区",w_recent:"最近的等待记录",w_tapHint:"拿到订单后立即点“已取餐”",w_liveNow:"实时",
+    prof_title:"司机资料",prof_free:"免费版",prof_premium:"⭐ 高级版",prof_goPremium:"升级高级版",prof_premiumActive:"高级版已激活",prof_totalLogs:"总记录",prof_restaurants:"餐厅",prof_avgWait:"平均等待",prof_rank:"贡献等级",prof_noBadge:"暂无徽章",prof_qualityLogs:"记录",prof_name:"司机名称",prof_phone:"电话（可选）",prof_area:"你的区域",prof_areaHint:"设置你的聊天室和本地餐厅列表",prof_save:"保存",prof_saving:"保存中...",prof_saved:"✓ 已保存",prof_changePw:"修改密码",prof_appearance:"外观",prof_light:"浅色模式",prof_dark:"深色模式",prof_signout:"退出登录",prof_appStats:"📊 应用统计",
+    up_title:"DELIVR 高级版",up_month:"/月",up_cancel:"随时取消",up_noAds:"无广告",up_fullData:"完整社区数据",up_allChats:"所有区域聊天",up_export:"导出你的记录",up_upgradeNow:"立即升级 →",up_active:"✓ 你是高级会员",up_cancelSub:"取消订阅",
+    chk_title:"查询餐厅",chk_nearby:"附近 · 点击查看统计",chk_results:"搜索结果",chk_search:"搜索任意分店 — KFC…",
+    disc_title:"开始之前",disc_btn:"我明白了",disc_body:"WAITS 不连接 Uber Eats、Deliveroo、Just Eat 或任何其他配送平台。我们不会访问你的配送应用账户、读取你的通知、修改你的 GPS，也不会与任何平台 API 交互。我们仅使用你设备的位置来检测附近的餐厅和你所在的本地区域。你的配送账户完全安全。" },
+  ro:{ chooseLang:"Alege limba ta",continue:"CONTINUĂ →",tagline:"COMUNITATEA ȘOFERILOR",next:"ÎNAINTE",join:"INTRĂ ÎN COMUNITATE →",skip:"Omite",
+    ob1_title:"Ai tot așteptat.\nAcum așteptarea contează.",ob1_body:"Fiecare minut de așteptare în fața restaurantului înseamnă date. Delivr transformă această așteptare în informații live care îți economisesc timp ție și fiecărui șofer din apropiere.",
+    ob2_title:"Două atingeri. Atât.",ob2_arrive_t:"Ajuns",ob2_arrive_d:"Atinge o dată când ajungi la restaurant. Cronometrul pornește automat.",ob2_pickup_t:"Preluat",ob2_pickup_d:"Atinge când ai comanda. Așteptarea ta e înregistrată.",ob2_see_t:"Toți văd",ob2_see_d:"Fiecare șofer din apropiere vede instant timpul real de așteptare.",
+    ob3_title:"Ajută-mă.\nTe ajut.",ob3_body:"Delivr funcționează doar pentru că șoferii împărtășesc. Cu cât înregistrezi mai mult, cu atât e mai inteligent pentru toți. Alătură-te.",
+    signin:"AUTENTIFICARE",create:"CREEAZĂ CONT",drivername:"NUME ȘOFER",email:"ADRESĂ EMAIL",password:"PAROLĂ",confirm:"CONFIRMĂ PAROLA",colour:"CULOAREA TA",forgot:"Ai uitat parola?",signinBtn:"INTRĂ →",createBtn:"CREEAZĂ CONT →",changeLang:"🌐 Limbă",
+    nav_waits:"AȘTEPTĂRI",nav_check:"VERIFICĂ",nav_chat:"CHAT",
+    w_title:"AȘTEPTĂRI RESTAURANTE",w_arrived:"📍 AM AJUNS LA RESTAURANT",w_waitingAt:"AȘTEPT LA",w_pickedUp:"✓ PRELUAT",w_gotIt:"✓ AM PRELUAT",w_arrivedShort:"AJUNS",w_timingNow:"● SE CRONOMETREAZĂ",w_noData:"ÎNCĂ FĂRĂ DATE",w_closed:"ÎNCHIS",w_closedNow:"Închis acum",w_waitingNow:"AȘTEAPTĂ ACUM",w_noOne:"Nimeni nu așteaptă acum",w_liveActivity:"ACTIVITATE LIVE",w_viewAll:"Vezi tot ›",w_communityLive:"DATE COMUNITARE LIVE",w_yourData:"DATELE TALE",w_community:"COMUNITATE",w_recent:"ÎNREGISTRĂRI RECENTE",w_tapHint:"APASĂ PRELUAT IMEDIAT CE AI COMANDA",w_liveNow:"live",
+    prof_title:"PROFIL ȘOFER",prof_free:"PLAN GRATUIT",prof_premium:"⭐ PREMIUM",prof_goPremium:"TRECI LA PREMIUM",prof_premiumActive:"PREMIUM ACTIV",prof_totalLogs:"TOTAL ÎNREGISTRĂRI",prof_restaurants:"RESTAURANTE",prof_avgWait:"AȘTEPTARE MEDIE",prof_rank:"RANG",prof_noBadge:"ÎNCĂ FĂRĂ INSIGNĂ",prof_qualityLogs:"ÎNREGISTRĂRI",prof_name:"NUME ȘOFER",prof_phone:"TELEFON (OPȚIONAL)",prof_area:"ZONA TA",prof_areaHint:"Stabilește chatul și lista de restaurante locale",prof_save:"SALVEAZĂ",prof_saving:"SE SALVEAZĂ...",prof_saved:"✓ SALVAT",prof_changePw:"SCHIMBĂ PAROLA",prof_appearance:"ASPECT",prof_light:"Mod luminos",prof_dark:"Mod întunecat",prof_signout:"DECONECTARE",prof_appStats:"📊 STATISTICI",
+    up_title:"DELIVR PREMIUM",up_month:"/lună",up_cancel:"Anulează oricând",up_noAds:"Fără reclame",up_fullData:"Date complete ale comunității",up_allChats:"Toate chaturile",up_export:"Exportă înregistrările",up_upgradeNow:"TRECI LA PREMIUM →",up_active:"✓ EȘTI PREMIUM",up_cancelSub:"ANULEAZĂ ABONAMENTUL",
+    chk_title:"VERIFICĂ RESTAURANT",chk_nearby:"ÎN APROPIERE · APASĂ PENTRU STATISTICI",chk_results:"REZULTATE",chk_search:"Caută orice locație — KFC…",
+    disc_title:"ÎNAINTE SĂ ÎNCEPI",disc_btn:"AM ÎNȚELES",disc_body:"WAITS nu se conectează la Uber Eats, Deliveroo, Just Eat sau orice altă platformă de livrare. Nu accesăm conturile tale din aplicațiile de livrare, nu îți citim notificările, nu îți modificăm GPS-ul și nu interacționăm cu niciun API de platformă. Folosim locația dispozitivului tău doar pentru a detecta restaurantele din apropiere și zona ta. Conturile tale de livrare sunt complet în siguranță." },
+  es:{ chooseLang:"Elige tu idioma",continue:"CONTINUAR →",tagline:"COMUNIDAD DE CONDUCTORES",next:"SIGUIENTE",join:"UNIRME A LA COMUNIDAD →",skip:"Omitir",
+    ob1_title:"Has estado esperando.\nAhora esperar vale la pena.",ob1_body:"Cada minuto que esperas fuera de un restaurante son datos. Delivr convierte esa espera en información en vivo que te ahorra tiempo a ti y a cada conductor cercano.",
+    ob2_title:"Dos toques. Eso es todo.",ob2_arrive_t:"Llegada",ob2_arrive_d:"Toca una vez al llegar al restaurante. El cronómetro empieza solo.",ob2_pickup_t:"Recogida",ob2_pickup_d:"Toca cuando tengas el pedido. Tu espera queda registrada.",ob2_see_t:"Todos lo ven",ob2_see_d:"Cada conductor cercano ve al instante el tiempo real de espera.",
+    ob3_title:"Ayúdame.\nYo te ayudo.",ob3_body:"Delivr solo funciona porque los conductores comparten. Cuanto más registres, más inteligente es para todos. Únete al equipo.",
+    signin:"INICIAR SESIÓN",create:"CREAR CUENTA",drivername:"NOMBRE DEL CONDUCTOR",email:"CORREO ELECTRÓNICO",password:"CONTRASEÑA",confirm:"CONFIRMAR CONTRASEÑA",colour:"TU COLOR",forgot:"¿Olvidaste tu contraseña?",signinBtn:"INICIAR SESIÓN →",createBtn:"CREAR CUENTA →",changeLang:"🌐 Idioma",
+    nav_waits:"ESPERAS",nav_check:"CONSULTAR",nav_chat:"CHAT",
+    w_title:"ESPERAS EN RESTAURANTES",w_arrived:"📍 LLEGUÉ AL RESTAURANTE",w_waitingAt:"ESPERANDO EN",w_pickedUp:"✓ RECOGIDO",w_gotIt:"✓ YA LO TENGO",w_arrivedShort:"LLEGUÉ",w_timingNow:"● CRONOMETRANDO",w_noData:"SIN DATOS AÚN",w_closed:"CERRADO",w_closedNow:"Cerrado ahora",w_waitingNow:"ESPERANDO AHORA",w_noOne:"Nadie esperando ahora",w_liveActivity:"ACTIVIDAD EN VIVO",w_viewAll:"Ver todo ›",w_communityLive:"DATOS DE LA COMUNIDAD EN VIVO",w_yourData:"TUS DATOS",w_community:"COMUNIDAD",w_recent:"REGISTROS RECIENTES",w_tapHint:"TOCA RECOGIDO EN CUANTO TENGAS EL PEDIDO",w_liveNow:"en vivo",
+    prof_title:"PERFIL DEL CONDUCTOR",prof_free:"PLAN GRATIS",prof_premium:"⭐ PREMIUM",prof_goPremium:"OBTENER PREMIUM",prof_premiumActive:"PREMIUM ACTIVO",prof_totalLogs:"TOTAL DE REGISTROS",prof_restaurants:"RESTAURANTES",prof_avgWait:"ESPERA MEDIA",prof_rank:"RANGO",prof_noBadge:"SIN INSIGNIA AÚN",prof_qualityLogs:"REGISTROS",prof_name:"NOMBRE DEL CONDUCTOR",prof_phone:"TELÉFONO (OPCIONAL)",prof_area:"TU ZONA",prof_areaHint:"Define tu chat y lista de restaurantes locales",prof_save:"GUARDAR",prof_saving:"GUARDANDO...",prof_saved:"✓ GUARDADO",prof_changePw:"CAMBIAR CONTRASEÑA",prof_appearance:"APARIENCIA",prof_light:"Modo claro",prof_dark:"Modo oscuro",prof_signout:"CERRAR SESIÓN",prof_appStats:"📊 ESTADÍSTICAS",
+    up_title:"DELIVR PREMIUM",up_month:"/mes",up_cancel:"Cancela cuando quieras",up_noAds:"Sin anuncios",up_fullData:"Datos completos de la comunidad",up_allChats:"Todos los chats",up_export:"Exporta tus registros",up_upgradeNow:"MEJORAR AHORA →",up_active:"✓ ERES PREMIUM",up_cancelSub:"CANCELAR SUSCRIPCIÓN",
+    chk_title:"CONSULTAR RESTAURANTE",chk_nearby:"CERCA · TOCA PARA VER ESTADÍSTICAS",chk_results:"RESULTADOS",chk_search:"Busca cualquier sucursal — KFC…",
+    disc_title:"ANTES DE EMPEZAR",disc_btn:"ENTIENDO",disc_body:"WAITS no se conecta a Uber Eats, Deliveroo, Just Eat ni a ninguna otra plataforma de reparto. No accedemos a tus cuentas de las apps de reparto, no leemos tus notificaciones, no modificamos tu GPS ni interactuamos con ninguna API de plataforma. Solo usamos la ubicación de tu dispositivo para detectar restaurantes cercanos y tu zona local. Tus cuentas de reparto están completamente seguras." },
+  ru:{ chooseLang:"Выберите язык",continue:"ПРОДОЛЖИТЬ →",tagline:"СООБЩЕСТВО ВОДИТЕЛЕЙ",next:"ДАЛЕЕ",join:"ПРИСОЕДИНИТЬСЯ →",skip:"Пропустить",
+    ob1_title:"Вы ждали.\nТеперь ожидание окупается.",ob1_body:"Каждая минута ожидания у ресторана — это данные. Delivr превращает ожидание в живую информацию, экономящую время вам и каждому водителю рядом.",
+    ob2_title:"Два нажатия. Вот и всё.",ob2_arrive_t:"Прибытие",ob2_arrive_d:"Нажмите один раз по приезде в ресторан. Таймер запустится сам.",ob2_pickup_t:"Забрал",ob2_pickup_d:"Нажмите, когда получите заказ. Ваше ожидание записано.",ob2_see_t:"Все видят",ob2_see_d:"Каждый водитель рядом сразу видит реальное время ожидания.",
+    ob3_title:"Помоги мне.\nЯ помогу тебе.",ob3_body:"Delivr работает только потому, что водители делятся. Чем больше вы записываете, тем умнее он для всех. Присоединяйтесь.",
+    signin:"ВОЙТИ",create:"СОЗДАТЬ АККАУНТ",drivername:"ИМЯ ВОДИТЕЛЯ",email:"ЭЛ. ПОЧТА",password:"ПАРОЛЬ",confirm:"ПОДТВЕРДИТЕ ПАРОЛЬ",colour:"ВАШ ЦВЕТ",forgot:"Забыли пароль?",signinBtn:"ВОЙТИ →",createBtn:"СОЗДАТЬ АККАУНТ →",changeLang:"🌐 Язык",
+    nav_waits:"ОЖИДАНИЕ",nav_check:"ПРОВЕРКА",nav_chat:"ЧАТ",
+    w_title:"ОЖИДАНИЕ В РЕСТОРАНАХ",w_arrived:"📍 Я В РЕСТОРАНЕ",w_waitingAt:"ОЖИДАНИЕ В",w_pickedUp:"✓ ЗАБРАЛ",w_gotIt:"✓ ЗАБРАЛ ЗАКАЗ",w_arrivedShort:"ПРИБЫЛ",w_timingNow:"● ИДЁТ ОТСЧЁТ",w_noData:"ПОКА НЕТ ДАННЫХ",w_closed:"ЗАКРЫТО",w_closedNow:"Сейчас закрыто",w_waitingNow:"СЕЙЧАС ЖДУТ",w_noOne:"Сейчас никто не ждёт",w_liveActivity:"ЖИВАЯ ЛЕНТА",w_viewAll:"Показать всё ›",w_communityLive:"ДАННЫЕ СООБЩЕСТВА В ЭФИРЕ",w_yourData:"ВАШИ ДАННЫЕ",w_community:"СООБЩЕСТВО",w_recent:"ПОСЛЕДНИЕ ЗАПИСИ",w_tapHint:"НАЖМИТЕ «ЗАБРАЛ», КАК ТОЛЬКО ПОЛУЧИТЕ ЗАКАЗ",w_liveNow:"в эфире",
+    prof_title:"ПРОФИЛЬ ВОДИТЕЛЯ",prof_free:"БЕСПЛАТНО",prof_premium:"⭐ ПРЕМИУМ",prof_goPremium:"ПЕРЕЙТИ НА ПРЕМИУМ",prof_premiumActive:"ПРЕМИУМ АКТИВЕН",prof_totalLogs:"ВСЕГО ЗАПИСЕЙ",prof_restaurants:"РЕСТОРАНЫ",prof_avgWait:"СРЕДНЕЕ ОЖИДАНИЕ",prof_rank:"РАНГ",prof_noBadge:"ПОКА НЕТ ЗНАЧКА",prof_qualityLogs:"ЗАПИСИ",prof_name:"ИМЯ ВОДИТЕЛЯ",prof_phone:"ТЕЛЕФОН (НЕОБЯЗ.)",prof_area:"ВАШ РАЙОН",prof_areaHint:"Задаёт ваш чат и список местных ресторанов",prof_save:"СОХРАНИТЬ",prof_saving:"СОХРАНЕНИЕ...",prof_saved:"✓ СОХРАНЕНО",prof_changePw:"СМЕНИТЬ ПАРОЛЬ",prof_appearance:"ВНЕШНИЙ ВИД",prof_light:"Светлая тема",prof_dark:"Тёмная тема",prof_signout:"ВЫЙТИ",prof_appStats:"📊 СТАТИСТИКА",
+    up_title:"DELIVR ПРЕМИУМ",up_month:"/мес",up_cancel:"Отмена в любое время",up_noAds:"Без рекламы",up_fullData:"Полные данные сообщества",up_allChats:"Все чаты районов",up_export:"Экспорт записей",up_upgradeNow:"ОФОРМИТЬ →",up_active:"✓ У ВАС ПРЕМИУМ",up_cancelSub:"ОТМЕНИТЬ ПОДПИСКУ",
+    chk_title:"ПРОВЕРИТЬ РЕСТОРАН",chk_nearby:"РЯДОМ · НАЖМИТЕ ДЛЯ СТАТИСТИКИ",chk_results:"РЕЗУЛЬТАТЫ",chk_search:"Искать любой филиал — KFC…",
+    disc_title:"ПЕРЕД НАЧАЛОМ",disc_btn:"Я ПОНИМАЮ",disc_body:"WAITS не подключается к Uber Eats, Deliveroo, Just Eat или любой другой платформе доставки. Мы не получаем доступ к вашим аккаунтам в приложениях доставки, не читаем уведомления, не изменяем ваш GPS и не взаимодействуем с API каких-либо платформ. Мы используем местоположение вашего устройства только для определения ближайших ресторанов и вашего района. Ваши аккаунты доставки полностью в безопасности." },
+};
+for(const c of Object.keys(T4)){ T[c]=Object.assign({},T.en,T4[c]); }   // base on English so any missing key falls back
 let _lang="en";                                   // current language (set by App on render)
 const tr = (lang,key) => (T[lang]&&T[lang][key])||T.en[key]||key;
 const t  = key => (T[_lang]&&T[_lang][key])||T.en[key]||key;
@@ -750,6 +802,7 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
   // Join an area ONLY by physical GPS presence — no manual typing
   const [joining,setJoining]=useState(false);
   const [joinErr,setJoinErr]=useState("");
+  const [langPicker,setLangPicker]=useState(false);
   async function joinArea(){
     setJoinErr("");
     if(gps.status!=="active"||gps.lat==null){ setJoinErr("Location needed — enable GPS to join your area"); return; }
@@ -919,22 +972,34 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         </button>
       )}
 
-      {/* Language */}
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
-        <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:1,marginBottom:10}}>🌐 LANGUAGE</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-          {LANGS.map(l=>{
-            const active=lang===l.code;
-            return(
-              <button key={l.code} onClick={()=>onSetLang&&onSetLang(l.code)}
-                style={{display:"flex",alignItems:"center",gap:6,background:active?"#00b8a922":"var(--border3)",border:"1px solid "+(active?"#00b8a9":"var(--border)"),borderRadius:10,padding:"8px 10px",cursor:"pointer"}}>
-                <span style={{fontSize:16}}>{l.flag}</span>
-                <span style={{fontSize:12,...M,fontWeight:700,color:active?"#00b8a9":"var(--ink)"}}>{l.name}</span>
-              </button>
-            );
-          })}
+      {/* Language — tap to open full picker */}
+      <button onClick={()=>setLangPicker(true)} style={{width:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+        <div>
+          <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:1}}>🌐 LANGUAGE</div>
+          <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:3}}>{(LANGS.find(l=>l.code===lang)||LANGS[0]).flag} {(LANGS.find(l=>l.code===lang)||LANGS[0]).name}</div>
         </div>
-      </div>
+        <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
+      </button>
+      {langPicker&&(
+        <div onClick={()=>setLangPicker(false)} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:18,padding:"14px",boxShadow:"0 10px 36px rgba(0,0,0,0.35)",width:"100%",maxWidth:360,maxHeight:"70vh",overflowY:"auto"}}>
+            <div style={{...B,fontSize:16,color:"var(--ink)",letterSpacing:1,marginBottom:10,textAlign:"center"}}>🌐 CHOOSE LANGUAGE</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {LANGS.map(l=>{
+                const active=lang===l.code;
+                return(
+                  <button key={l.code} onClick={()=>{onSetLang&&onSetLang(l.code);setLangPicker(false);}}
+                    style={{display:"flex",alignItems:"center",gap:12,background:active?"#00b8a922":"var(--border3)",border:"1px solid "+(active?"#00b8a9":"var(--border)"),borderRadius:12,padding:"12px 14px",cursor:"pointer"}}>
+                    <span style={{fontSize:22}}>{l.flag}</span>
+                    <span style={{flex:1,textAlign:"left",fontSize:15,...M,fontWeight:700,color:active?"#00b8a9":"var(--ink)"}}>{l.name}</span>
+                    {active&&<span style={{color:"#00b8a9",fontSize:16}}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Appearance — light / dark toggle */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
