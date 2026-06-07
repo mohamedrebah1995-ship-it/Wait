@@ -1812,10 +1812,11 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
           const personal=getPersonalWait(ck,now,waitLog);
           const community=getCommunityWait(ck,now,communityPatterns);
           const usePersonal=personal?.hasEnough;
-          const useCommunity=!usePersonal&&community!=null;
-          const hasReal=usePersonal||useCommunity;
-          const realAvg=usePersonal?personal.avg:useCommunity?community.avg:null;  // real data only — no guessing
-          const dataSource=usePersonal?"YOUR DATA":useCommunity?"COMMUNITY":null;
+          // Big number prefers COMMUNITY data, falling back to your own
+          const useCommunity=community!=null;
+          const hasReal=useCommunity||usePersonal;
+          const realAvg=useCommunity?community.avg:usePersonal?personal.avg:null;
+          const dataSource=useCommunity?t("w_community"):usePersonal?t("w_yourData"):null;
           const closed=r.openNow===false;
           const waitingNow=activeCounts[ck]||0;
           const riskColor=realAvg==null?"var(--muted)":realAvg>18?"#ef4444":realAvg>10?"#f5a623":"#06c167";
