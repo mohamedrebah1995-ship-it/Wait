@@ -259,6 +259,26 @@ app.get('/stats/drivers', async (_req, res) => {
   } catch (e) { console.error('stats/drivers error:', e.message); res.json({ count: _driverCountCache.n }); }
 });
 
+// One-time: merge all historic chat into a single Braintree room (idempotent)
+app.post('/admin/merge-chat', async (_req, res) => {
+  if (!adminAuth) return res.status(500).json({ error: 'no admin' });
+  try {
+    const fs = admin.firestore();
+    const target = fs.collection('chats').doc('braintree').collection('messages');
+    const sources = [
+      ['legacy', fs.collection('messages')],
+      ['general', fs.collection('chats').doc('general').collection('messages')],
+      ['brainteree', fs.collection('chats').doc('brainteree').collection('messages')],
+    ];
+    let copied = 0;
+    for (const [tag, col] of sources) {
+      const snap = await col.get();
+      for (const d of snap.docs) { await target.doc(tag + '_' + d.id).set(d.data(), { merge: true }); copied++; }
+    }
+    res.json({ ok: true, copied });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 // Diagnostic: where do chat messages actually live?
 app.get('/debug/chatrooms', async (_req, res) => {
   if (!adminAuth) return res.json({ error: 'no admin' });

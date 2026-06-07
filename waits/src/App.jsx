@@ -1891,7 +1891,7 @@ function VoiceMessage({url,duration,isMe}){
 
 // ── CHAT SCREEN (Firestore real-time) ─────────────────────────────────────────
 function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
-  const room=(area||"general").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")||"general";
+  const room="braintree";   // single community room (all historic chat merged here)
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [ready,setReady]=useState(false);
