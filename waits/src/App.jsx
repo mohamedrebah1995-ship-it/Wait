@@ -1960,14 +1960,6 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
   const per=timePeriod(now.getHours());
   const meta=communityPatterns._meta;
 
-  // Driver-reported queue count for the restaurant you're currently waiting at (keyed
-  // identically to the write), with the same 20-min freshness window as the cards.
-  const awKey=activeWait?(chainKeyFromName(activeWait.restaurantName)||activeWait.restaurantId):null;
-  const awRep=awKey?reportedCounts?.[awKey]:null;
-  const awRepFresh=awRep&&(now.getTime()-new Date(awRep.ts).getTime()<REPORTED_COUNT_TTL_MS);
-  const awReportedWaiting=awRepFresh?awRep.count:null;
-  const awReportedAgo=awRepFresh?Math.max(0,Math.round((now.getTime()-new Date(awRep.ts).getTime())/60000)):null;
-
   const distMap={};
   if(gps.status==="active"&&restaurants?.length){
     restaurants.forEach(r=>{
@@ -2093,16 +2085,9 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
       {activeWait?(
         <div style={{background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
           <div style={{fontSize:9,color:"#00b8a9",letterSpacing:2,marginBottom:6}}>{"⏱ "+t("w_waitingAt")}</div>
-          <div style={{...B,fontSize:28,color:"var(--ink)",letterSpacing:1,marginBottom:awReportedWaiting!=null?8:14}}>
+          <div style={{...B,fontSize:28,color:"var(--ink)",letterSpacing:1,marginBottom:14}}>
             {(restaurants.find(r=>r.id===activeWait.restaurantId)||{name:activeWait.restaurantName||"Unknown"}).name}
           </div>
-          {awReportedWaiting!=null&&(
-            <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"var(--card)",border:"1px solid #ff5a2d55",borderRadius:9,padding:"6px 10px",marginBottom:14}}>
-              <span style={{fontSize:14}}>👥</span>
-              <span style={{...B,fontSize:13,color:"#ff5a2d",letterSpacing:0.5}}>{awReportedWaiting} waiting here</span>
-              <span style={{fontSize:9,...M,color:"var(--muted2)"}}>reported {awReportedAgo}m ago</span>
-            </div>
-          )}
           <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><LiveTimer startedAt={activeWait.startedAt}/></div>
           <EarningsLive session={session} pendingPayout={activeWait.payout} pendingPlatform={activeWait.platform}/>
           <div style={{display:"flex",gap:10}}>
