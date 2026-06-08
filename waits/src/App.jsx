@@ -412,34 +412,28 @@ function parseCount(v) {
   return Number.isFinite(n) && n >= 0 && n < 100 ? n : null;
 }
 const REPORTED_COUNT_TTL_MS = 20 * 60 * 1000;   // a reported queue count goes stale after 20 min
+// A payout banks against its full ARRIVED→next-ARRIVED window. When that next ARRIVED
+// never comes (last order of a shift) we estimate the delivery leg with this many minutes.
+const DEFAULT_DELIVERY_MINS = 12;
 function fmtGBP(n) { return "£" + (Math.round((n || 0) * 100) / 100).toFixed(2); }
 function fmtRate(r) { return r == null ? "—" : "£" + (Math.round(r * 10) / 10).toFixed(1) + "/hr"; }
 
 // Compute every personal statistic from this driver's own earnings entries.
-// £/hour buckets use wall-clock time attributed to each order proportionally to its
-// wait, so all rates reconcile to the same total session time the live rate uses.
+// Each order's £/hour is measured against its real ARRIVED→next-ARRIVED window
+// (cycleMins) — i.e. wait + drive + deliver — not just the time spent at the counter,
+// so the rates reflect what the driver actually earns per working hour.
 function computeEarningsStats(entries) {
   if (!entries || !entries.length) return null;
-  const bySession = {};
-  for (const e of entries) {
-    const sid = e.sessionId || ("solo_" + e.ts);
-    (bySession[sid] = bySession[sid] || []).push(e);
-  }
   const enriched = [];
   let totalEarnings = 0, totalHours = 0;
-  for (const list of Object.values(bySession)) {
-    const start = Math.min(...list.map(e => new Date(e.sessionStart || e.ts).getTime()));
-    const end   = Math.max(...list.map(e => new Date(e.ts).getTime()));
-    const sumWait = list.reduce((s, e) => s + (e.waitMins || 0), 0);
-    let durH = (end - start) / 3600000;
-    if (!(durH > 0)) durH = Math.max(sumWait / 60, list.length * 0.05);   // fallback for instant logs
-    totalHours += durH;
-    for (const e of list) {
-      const attrH  = sumWait > 0 ? durH * ((e.waitMins || 0) / sumWait) : durH / list.length;
-      const payout = Number(e.payout) || 0;
-      totalEarnings += payout;
-      enriched.push({ ...e, payout, attrH });
-    }
+  for (const e of entries) {
+    const payout = Number(e.payout) || 0;
+    // Real window if recorded; otherwise estimate (wait + a delivery leg) for older/edge logs.
+    const cycleMins = Number(e.cycleMins) > 0 ? Number(e.cycleMins) : (e.waitMins || 0) + DEFAULT_DELIVERY_MINS;
+    const attrH = cycleMins / 60;
+    totalEarnings += payout;
+    totalHours += attrH;
+    enriched.push({ ...e, payout, attrH });
   }
   const overallRate = totalHours > 0 ? totalEarnings / totalHours : null;
 
@@ -765,7 +759,7 @@ function EarningsLive({session,pendingPayout,pendingPlatform}) {
       </div>
       {hasPending&&(
         <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid var(--border)",fontSize:10,...M,color:"var(--muted)"}}>
-          {fmtGBP(pendingPayout)} pending{pendingPlatform?" · "+pendingPlatform:""} — added when you tap {t("w_gotIt").replace("✓ ","")}
+          {fmtGBP(pendingPayout)} pending{pendingPlatform?" · "+pendingPlatform:""} — counts at your next ARRIVED, after this order is delivered
         </div>
       )}
     </div>
@@ -1241,8 +1235,17 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
 
 // ── PERSONAL EARNINGS STATISTICS ──────────────────────────────────────────────
 // Reads only this driver's own earnings (users/{uid}/earnings). Never shows anyone else.
-function EarningsStatsScreen({earningsLog,onBack}) {
+function EarningsStatsScreen({earningsLog,pendingOrder,onBack}) {
   const s=useMemo(()=>computeEarningsStats(earningsLog),[earningsLog]);
+  const pendingBanner=pendingOrder&&(
+    <div style={{background:"var(--card)",border:"1px solid #f5a62366",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+      <span style={{fontSize:20}}>🛵</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:2}}>PENDING — NOT COUNTED YET</div>
+        <div style={{...B,fontSize:15,color:"var(--ink)"}}>{fmtGBP(pendingOrder.payout)}<span style={{...M,fontWeight:400,fontSize:11,color:"var(--muted)"}}>{" · counts at your next ARRIVED"}</span></div>
+      </div>
+    </div>
+  );
 
   const headline=(val,label,color)=>(
     <div style={{flex:1,minWidth:120,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px 14px",textAlign:"center"}}>
@@ -1268,11 +1271,13 @@ function EarningsStatsScreen({earningsLog,onBack}) {
         <div style={{...B,fontSize:26,color:"#00b8a9",letterSpacing:2}}>MY EARNINGS</div>
       </div>
 
+      {pendingBanner}
+
       {!s?(
         <div style={{textAlign:"center",padding:"60px 20px"}}>
           <div style={{fontSize:48,marginBottom:14}}>💰</div>
           <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1,marginBottom:8}}>NO EARNINGS LOGGED YET</div>
-          <div style={{fontSize:12,...M,color:"var(--muted)",lineHeight:1.6}}>When you tap ARRIVED, log the platform and payout for the order. Your personal stats build up here — only you can see them.</div>
+          <div style={{fontSize:12,...M,color:"var(--muted)",lineHeight:1.6}}>When you tap ARRIVED, log the platform and payout for the order — it banks once you arrive at your next order, so your £/hour reflects driving &amp; delivery time too. Only you can see this.</div>
         </div>
       ):(
         <>
@@ -1942,7 +1947,7 @@ function Logbook({communityLogs,contribCounts,onBack,myName}) {
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,driverCount,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrder,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,driverCount,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -2089,9 +2094,20 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,communityPa
           <div style={{fontSize:9,color:"var(--muted2)",textAlign:"center",marginTop:10,letterSpacing:1}}>{t("w_tapHint")}</div>
         </div>
       ):(
-        <button onClick={()=>setPicking(true)} style={{width:"100%",minHeight:80,background:"#ff5a2d",border:"none",borderRadius:18,...B,fontWeight:700,fontSize:24,letterSpacing:1,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:16,boxShadow:"0 8px 20px #ff5a2d40"}}>
-          {t("w_arrived")}
-        </button>
+        <>
+          {pendingOrder&&(
+            <div style={{background:"var(--card)",border:"1px solid #f5a62366",borderRadius:12,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:20}}>🛵</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:2}}>PENDING — DELIVERING</div>
+                <div style={{...B,fontSize:15,color:"var(--ink)"}}>{fmtGBP(pendingOrder.payout)}<span style={{...M,fontWeight:400,fontSize:11,color:"var(--muted)"}}>{" · counts at your next ARRIVED"}</span></div>
+              </div>
+            </div>
+          )}
+          <button onClick={()=>setPicking(true)} style={{width:"100%",minHeight:80,background:"#ff5a2d",border:"none",borderRadius:18,...B,fontWeight:700,fontSize:24,letterSpacing:1,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:16,boxShadow:"0 8px 20px #ff5a2d40"}}>
+            {t("w_arrived")}
+          </button>
+        </>
       )}
 
       {!premium&&<AdBanner premium={premium}/>}
@@ -2796,6 +2812,7 @@ export default function App() {
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
   const [activeWait,setActiveWait]=useState(()=>store.get("delivr_activewait")||null);
   const [session,setSession]=useState(()=>store.get("delivr_session")||null);   // earnings session (anchored to first ARRIVED)
+  const [pendingOrder,setPendingOrder]=useState(()=>store.get("delivr_pendingorder")||null); // picked-up order awaiting banking at next ARRIVED
   const [earningsLog,setEarningsLog]=useState([]);                               // this driver's own logged orders
   const [earningsPopup,setEarningsPopup]=useState(null);                         // {restaurantName} shown after a successful ARRIVED
   const [communityPatterns,setCommunityPatterns]=useState({});
@@ -2812,6 +2829,7 @@ export default function App() {
   const [driverCount,setDriverCount]=useState(0);          // live roster size
   const [signupCount,setSignupCount]=useState(0);          // true total sign-ups (backend)
   const lastFetchRef=useRef({lat:null,lng:null});
+  const bankingRef=useRef(false);   // guards the idle auto-bank effect against re-entry
   const gps=useGPS();
 
   // Restaurants with crowd-sourced pinned locations applied (overrides Google coords)
@@ -2927,6 +2945,20 @@ export default function App() {
   },[]);
 
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),15000);return ()=>clearInterval(id);},[]);
+
+  // Auto-bank a still-pending order once the shift goes idle (~6h with no next ARRIVED),
+  // so the last order of a shift is never lost. Uses an estimated delivery leg. Runs on the
+  // 15s `now` tick, so it also catches a pending order left over from a previous session.
+  useEffect(()=>{
+    if(!pendingOrder||bankingRef.current)return;
+    if(now.getTime()-new Date(pendingOrder.pickedUpAt).getTime()<=SESSION_GAP_MS)return;
+    bankingRef.current=true;
+    const sess=session||{sessionId:genId(),sessionStart:pendingOrder.arrivedAt,totalEarnings:0,lastActivity:pendingOrder.pickedUpAt};
+    const updated=bankOrder(pendingOrder,sess,(pendingOrder.waitMins||0)+DEFAULT_DELIVERY_MINS);
+    setSession(updated);store.set("delivr_session",updated);
+    setPendingOrder(null);store.del("delivr_pendingorder");
+    bankingRef.current=false;
+  },[pendingOrder,now]);
 
   // Reminders at 20 & 40 min into an open wait (in-app + browser notification if allowed).
   // Notifications only — never auto-closes or auto-logs the wait.
@@ -3082,16 +3114,28 @@ export default function App() {
     }
     const a={restaurantId,restaurantName:restaurant.name,startedAt:new Date().toISOString()};
     setActiveWait(a);store.set("delivr_activewait",a);
-    // Earnings session: anchor the clock to the very first ARRIVED of the shift.
-    // Continue the running session, or start a fresh one after a long idle gap.
-    setSession(prev=>{
-      const nowMs=Date.now();
-      const next=(!prev||nowMs-new Date(prev.lastActivity||prev.sessionStart).getTime()>SESSION_GAP_MS)
-        ?{sessionId:genId(),sessionStart:a.startedAt,totalEarnings:0,lastActivity:a.startedAt}
-        :{...prev,lastActivity:a.startedAt};
-      store.set("delivr_session",next);
-      return next;
-    });
+    // Earnings session: anchored to the very first ARRIVED of the shift. This ARRIVED also
+    // BANKS the previous picked-up order — its earning window (its ARRIVED → this ARRIVED)
+    // is now complete, so the £ counts against the full wait+drive+deliver time, not just
+    // the seconds spent at the counter.
+    const arrivedMs=new Date(a.startedAt).getTime();
+    const continuing=session&&(arrivedMs-new Date(session.lastActivity||session.sessionStart).getTime()<=SESSION_GAP_MS);
+    let sess;
+    if(continuing){
+      sess={...session,lastActivity:a.startedAt};
+      if(pendingOrder){
+        const cycleMins=(arrivedMs-new Date(pendingOrder.arrivedAt).getTime())/60000;
+        sess=bankOrder(pendingOrder,sess,cycleMins);
+        setPendingOrder(null);store.del("delivr_pendingorder");
+      }
+    }else{
+      // Long idle gap → new shift. Auto-bank any leftover order from the old shift with an
+      // estimated delivery leg (its real next-ARRIVED never came), then start fresh.
+      if(pendingOrder&&session)bankOrder(pendingOrder,session,(pendingOrder.waitMins||0)+DEFAULT_DELIVERY_MINS);
+      setPendingOrder(null);store.del("delivr_pendingorder");
+      sess={sessionId:genId(),sessionStart:a.startedAt,totalEarnings:0,lastActivity:a.startedAt};
+    }
+    setSession(sess);store.set("delivr_session",sess);
     // Optional earnings popup — driver can skip it
     setEarningsPopup({restaurantName:restaurant.name});
     // Ask for notification permission (on this tap gesture) so 20/40-min reminders can show
@@ -3123,6 +3167,35 @@ export default function App() {
       }catch(e){}
     }
     setEarningsPopup(null);
+  }
+
+  // Bank a picked-up order into its session: add the payout to the session total and write
+  // the private earnings doc. cycleMins is the order's real ARRIVED→next-ARRIVED window
+  // (wait + drive + deliver). Returns the updated session synchronously; the Firestore
+  // writes are fire-and-forget so the UI never blocks on the network.
+  function bankOrder(order,sess,cycleMins){
+    const pickedUp=new Date(order.pickedUpAt);
+    const updated={...sess,totalEarnings:(sess.totalEarnings||0)+order.payout,lastActivity:new Date().toISOString()};
+    const earnEntry={
+      platform:       order.platform,
+      payout:         order.payout,
+      restaurantId:   order.restaurantId,
+      restaurantName: order.restaurantName||"",
+      waitMins:       order.waitMins,
+      cycleMins:      Math.round(Math.max(order.waitMins||0,cycleMins)*10)/10,
+      sessionId:      updated.sessionId,
+      sessionStart:   updated.sessionStart,
+      ts:             order.pickedUpAt,
+      hour:           pickedUp.getHours(),
+      dow:            pickedUp.getDay(),
+      period:         timePeriod(pickedUp.getHours()),
+    };
+    const uid=auth.currentUser?.uid;
+    if(uid){
+      addDoc(collection(db,"users",uid,"earnings"),earnEntry).catch(()=>{});
+      setDoc(doc(db,"users",uid),{earningsSession:updated},{merge:true}).catch(()=>{});
+    }
+    return updated;
   }
 
   // Manual Arrive: record the driver's GPS as a location vote, then re-cluster.
@@ -3197,31 +3270,21 @@ export default function App() {
     try{
       await addDoc(collection(db,"waitLogs"),{...entry,username:user?.name||"anon"});
     }catch(e){}
-    // If a payout was logged for this order, add it to session earnings and store it
-    const payout=activeWait.payout, platform=activeWait.platform;
-    if(payout!=null&&platform){
-      const sess=session||{sessionId:genId(),sessionStart:activeWait.startedAt,totalEarnings:0};
-      const updatedSession={...sess,totalEarnings:(sess.totalEarnings||0)+payout,lastActivity:ts.toISOString()};
-      setSession(updatedSession);store.set("delivr_session",updatedSession);
-      const earnEntry={
-        platform, payout,
+    // If a payout was logged, HOLD it as pending — it doesn't count yet because the order
+    // still has to be driven & delivered. It banks at the next ARRIVED (window complete) or
+    // auto-banks when the shift goes idle. Until then it's shown as "£X pending".
+    if(activeWait.payout!=null&&activeWait.platform){
+      const po={
+        platform:       activeWait.platform,
+        payout:         activeWait.payout,
         restaurantId:   activeWait.restaurantId,
         restaurantName: activeWait.restaurantName||"",
         waitMins,
-        sessionId:      updatedSession.sessionId,
-        sessionStart:   updatedSession.sessionStart,
-        ts:             ts.toISOString(),
-        hour:           ts.getHours(),
-        dow:            ts.getDay(),
-        period:         timePeriod(ts.getHours()),
+        arrivedAt:      activeWait.startedAt,
+        pickedUpAt:     ts.toISOString(),
       };
-      try{
-        const uid=auth.currentUser?.uid;
-        if(uid){
-          await addDoc(collection(db,"users",uid,"earnings"),earnEntry);
-          await setDoc(doc(db,"users",uid),{earningsSession:updatedSession},{merge:true});
-        }
-      }catch(e){}
+      setPendingOrder(po);store.set("delivr_pendingorder",po);
+      if(session){const s={...session,lastActivity:ts.toISOString()};setSession(s);store.set("delivr_session",s);}
     }
   }
 
@@ -3311,7 +3374,7 @@ export default function App() {
           ):showStats&&isOwner(user)?(
             <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} contribCounts={contribCounts} onBack={()=>setShowStats(false)}/>
           ):showEarnings?(
-            <EarningsStatsScreen earningsLog={earningsLog} onBack={()=>setShowEarnings(false)}/>
+            <EarningsStatsScreen earningsLog={earningsLog} pendingOrder={pendingOrder} onBack={()=>setShowEarnings(false)}/>
           ):showUpgrade?(
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
           ):showProfile?(
@@ -3322,7 +3385,7 @@ export default function App() {
               onEarnings={()=>{setShowProfile(false);setShowEarnings(true);}}
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
-            <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait} session={session}
+            <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait} session={session} pendingOrder={pendingOrder}
               communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} reportedCounts={reportedCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} driverCount={Math.max(driverCount,signupCount)} onOpenLogbook={()=>setShowLogbook(true)}
               onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
