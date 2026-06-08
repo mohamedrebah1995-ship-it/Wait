@@ -4,6 +4,10 @@ service cloud.firestore {
     // Users can read/write their own profile
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Personal earnings log — strictly private to that driver
+      match /earnings/{earningId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
     // Wait logs — any authenticated user can read/write
     match /waitLogs/{logId} {
@@ -15,6 +19,10 @@ service cloud.firestore {
     }
     // Crowd-sourced pinned restaurant locations
     match /restaurantLocations/{restaurantId} {
+      allow read, write: if request.auth != null;
+    }
+    // Driver-reported "drivers waiting now" counts (latest per restaurant, 20-min TTL on read)
+    match /restaurantCounts/{restaurantId} {
       allow read, write: if request.auth != null;
     }
     // Live "waiting now" presence — anyone reads, you only write your own

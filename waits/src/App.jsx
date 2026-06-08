@@ -392,6 +392,119 @@ function computePatterns(logs) {
   return patterns;
 }
 
+// ── Earnings tracker (ARRIVED flow only) ──────────────────────────────────────
+// Optional per-order payout logging. The "session clock" starts at the very first
+// ARRIVED of a shift; the live £/hour rate = earnings so far ÷ time since that first
+// ARRIVED, so it drops every second the driver waits. All data is personal (stored
+// under users/{uid}/earnings) and never mixed with other drivers.
+const PLATFORMS = ["Uber Eats", "Just Eat", "Deliveroo"];
+const SESSION_GAP_MS = 6 * 60 * 60 * 1000;   // >6h idle → next ARRIVED begins a fresh session
+const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+function parsePayout(v) {
+  const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
+// Driver-reported queue size (whole number, sane range). Empty/garbage → null.
+function parseCount(v) {
+  const s = String(v ?? "").trim();
+  if (s === "") return null;
+  const n = parseInt(s.replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(n) && n >= 0 && n < 100 ? n : null;
+}
+const REPORTED_COUNT_TTL_MS = 20 * 60 * 1000;   // a reported queue count goes stale after 20 min
+function fmtGBP(n) { return "£" + (Math.round((n || 0) * 100) / 100).toFixed(2); }
+function fmtRate(r) { return r == null ? "—" : "£" + (Math.round(r * 10) / 10).toFixed(1) + "/hr"; }
+
+// Compute every personal statistic from this driver's own earnings entries.
+// £/hour buckets use wall-clock time attributed to each order proportionally to its
+// wait, so all rates reconcile to the same total session time the live rate uses.
+function computeEarningsStats(entries) {
+  if (!entries || !entries.length) return null;
+  const bySession = {};
+  for (const e of entries) {
+    const sid = e.sessionId || ("solo_" + e.ts);
+    (bySession[sid] = bySession[sid] || []).push(e);
+  }
+  const enriched = [];
+  let totalEarnings = 0, totalHours = 0;
+  for (const list of Object.values(bySession)) {
+    const start = Math.min(...list.map(e => new Date(e.sessionStart || e.ts).getTime()));
+    const end   = Math.max(...list.map(e => new Date(e.ts).getTime()));
+    const sumWait = list.reduce((s, e) => s + (e.waitMins || 0), 0);
+    let durH = (end - start) / 3600000;
+    if (!(durH > 0)) durH = Math.max(sumWait / 60, list.length * 0.05);   // fallback for instant logs
+    totalHours += durH;
+    for (const e of list) {
+      const attrH  = sumWait > 0 ? durH * ((e.waitMins || 0) / sumWait) : durH / list.length;
+      const payout = Number(e.payout) || 0;
+      totalEarnings += payout;
+      enriched.push({ ...e, payout, attrH });
+    }
+  }
+  const overallRate = totalHours > 0 ? totalEarnings / totalHours : null;
+
+  const plat = {};
+  for (const e of enriched) {
+    const p = e.platform || "Other";
+    (plat[p] = plat[p] || { sum: 0, hrs: 0, n: 0 });
+    plat[p].sum += e.payout; plat[p].hrs += e.attrH; plat[p].n += 1;
+  }
+  let bestPlatRate = null, bestPlatAvg = null;
+  for (const [p, v] of Object.entries(plat)) {
+    const rate = v.hrs > 0 ? v.sum / v.hrs : null;
+    const avg  = v.n   > 0 ? v.sum / v.n   : null;
+    if (rate != null && (!bestPlatRate || rate > bestPlatRate.rate)) bestPlatRate = { platform: p, rate, n: v.n };
+    if (avg  != null && (!bestPlatAvg  || avg  > bestPlatAvg.avg))   bestPlatAvg  = { platform: p, avg,  n: v.n };
+  }
+
+  const rest = {};
+  for (const e of enriched) {
+    const k = e.restaurantId || e.restaurantName || "?";
+    (rest[k] = rest[k] || { name: e.restaurantName || k, wait: 0, n: 0 });
+    rest[k].wait += (e.waitMins || 0); rest[k].n += 1;
+    if (e.restaurantName) rest[k].name = e.restaurantName;
+  }
+  let quickest = null, costliest = null;
+  for (const v of Object.values(rest)) {
+    const avgW = v.n > 0 ? v.wait / v.n : null;
+    if (avgW == null) continue;
+    if (!quickest  || avgW < quickest.avgW)  quickest  = { name: v.name, avgW, n: v.n };
+    if (!costliest || avgW > costliest.avgW) costliest = { name: v.name, avgW, n: v.n };
+  }
+
+  const dow = {};
+  for (const e of enriched) {
+    const d = e.dow ?? new Date(e.ts).getDay();
+    (dow[d] = dow[d] || { sum: 0, hrs: 0, n: 0 });
+    dow[d].sum += e.payout; dow[d].hrs += e.attrH; dow[d].n += 1;
+  }
+  let bestDay = null;
+  for (const [d, v] of Object.entries(dow)) {
+    const rate = v.hrs > 0 ? v.sum / v.hrs : null;
+    if (rate != null && (!bestDay || rate > bestDay.rate)) bestDay = { dow: Number(d), rate, n: v.n };
+  }
+
+  const per = {};
+  for (const e of enriched) {
+    const p = e.period || timePeriod(e.hour ?? new Date(e.ts).getHours());
+    (per[p] = per[p] || { sum: 0, hrs: 0, n: 0 });
+    per[p].sum += e.payout; per[p].hrs += e.attrH; per[p].n += 1;
+  }
+  let bestPeriod = null;
+  for (const [p, v] of Object.entries(per)) {
+    const rate = v.hrs > 0 ? v.sum / v.hrs : null;
+    if (rate != null && (!bestPeriod || rate > bestPeriod.rate)) bestPeriod = { period: p, rate, n: v.n };
+  }
+
+  return {
+    totalEarnings, overallRate, totalOrders: enriched.length, totalHours,
+    bestPlatRate, bestPlatAvg, quickest, costliest, bestDay, bestPeriod,
+    platforms: Object.entries(plat).map(([name, v]) => ({
+      name, n: v.n, avg: v.n > 0 ? v.sum / v.n : 0, rate: v.hrs > 0 ? v.sum / v.hrs : null,
+    })).sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1)),
+  };
+}
+
 // ── GPS ───────────────────────────────────────────────────────────────────────
 // Safari needs geolocation requested from a real tap. So: if permission is already
 // granted we acquire silently; otherwise we wait on a "prompt" state until the user
@@ -626,6 +739,95 @@ function PersistentWaitBanner({restaurantName,startedAt,onPickedUp}) {
   );
 }
 
+// Live earnings strip shown under the wait timer. Re-renders every second so the
+// £/hour rate keeps dropping while the driver waits (earnings ÷ time since the
+// session's first ARRIVED). Only appears once the driver is using the tracker.
+function EarningsLive({session,pendingPayout,pendingPlatform}) {
+  const [,tick]=useState(0);
+  useEffect(()=>{const id=setInterval(()=>tick(x=>x+1),1000);return ()=>clearInterval(id);},[]);
+  if(!session)return null;
+  const earned=session.totalEarnings||0;
+  const hasPending=pendingPayout!=null;
+  if(earned<=0&&!hasPending)return null;
+  const elapsedH=Math.max(0,(Date.now()-new Date(session.sessionStart).getTime())/3600000);
+  const rate=earned>0&&elapsedH>0?earned/elapsedH:null;
+  return(
+    <div style={{background:"var(--card)",border:"1px solid #06c16744",borderRadius:12,padding:"12px 14px",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:2}}>SESSION EARNINGS</div>
+          <div style={{...B,fontSize:22,color:"#06c167",letterSpacing:1}}>{fmtGBP(earned)}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:2}}>LIVE RATE</div>
+          <div style={{...B,fontSize:22,color:rate==null?"var(--faint2)":rate>=12?"#06c167":rate>=8?"#f5a623":"#ff5a2d",letterSpacing:1,fontVariantNumeric:"tabular-nums"}}>{fmtRate(rate)}</div>
+        </div>
+      </div>
+      {hasPending&&(
+        <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid var(--border)",fontSize:10,...M,color:"var(--muted)"}}>
+          {fmtGBP(pendingPayout)} pending{pendingPlatform?" · "+pendingPlatform:""} — added when you tap {t("w_gotIt").replace("✓ ","")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Optional popup after ARRIVED: pick the platform + type this order's payout in £.
+// Fully skippable — skipping just starts the wait as normal with no earnings logged.
+function EarningsPopup({restaurantName,onSave,onSkip}) {
+  const [platform,setPlatform]=useState(null);
+  const [amount,setAmount]=useState("");
+  const [drivers,setDrivers]=useState("");
+  const amt=parsePayout(amount);
+  const cnt=parseCount(drivers);
+  const earningsReady=amt!=null&&!!platform;
+  const canSave=earningsReady||cnt!=null;
+  return(
+    <div onClick={onSkip} style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:18,padding:"20px",boxShadow:"0 12px 40px rgba(0,0,0,0.4)",width:"100%",maxWidth:380}}>
+        <div style={{...B,fontSize:18,color:"#00b8a9",letterSpacing:1,marginBottom:2}}>💰 LOG THIS ORDER</div>
+        <div style={{fontSize:11,...M,color:"var(--muted)",marginBottom:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{restaurantName||"Restaurant"} · optional</div>
+
+        <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>WHICH PLATFORM?</div>
+        <div style={{display:"flex",gap:8,marginBottom:18}}>
+          {PLATFORMS.map(p=>{
+            const active=platform===p;
+            return(
+              <button key={p} onClick={()=>setPlatform(p)}
+                style={{flex:1,background:active?"#00b8a9":"var(--border3)",border:"1px solid "+(active?"#00b8a9":"var(--border)"),borderRadius:10,padding:"12px 6px",cursor:"pointer",...B,fontSize:12,letterSpacing:0.5,color:active?"#000":"var(--ink)"}}>
+                {p}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>PAYOUT FOR THIS ORDER</div>
+        <div style={{position:"relative",marginBottom:18}}>
+          <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",...B,fontSize:20,color:"var(--muted)"}}>£</span>
+          <input value={amount} onChange={e=>setAmount(e.target.value)} inputMode="decimal" placeholder="0.00" autoFocus
+            style={{width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px 14px 34px",color:"var(--ink)",fontSize:20,...B,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
+        </div>
+
+        <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>DRIVERS WAITING HERE NOW?</div>
+        <div style={{position:"relative",marginBottom:6}}>
+          <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",fontSize:18}}>👥</span>
+          <input value={drivers} onChange={e=>setDrivers(e.target.value)} inputMode="numeric" placeholder="e.g. 4"
+            style={{width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px 14px 44px",color:"var(--ink)",fontSize:20,...B,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
+        </div>
+        <div style={{fontSize:9,...M,color:"var(--faint)",marginBottom:18}}>Shared live with nearby drivers · expires in 20 min</div>
+
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onSkip} style={{flex:1,minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:15,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>SKIP</button>
+          <button onClick={()=>canSave&&onSave({platform:earningsReady?platform:null,payout:earningsReady?amt:null,count:cnt})} disabled={!canSave}
+            style={{flex:1.4,minHeight:52,background:canSave?"#06c167":"var(--border)",border:"none",borderRadius:12,...B,fontSize:16,letterSpacing:2,color:canSave?"#000":"var(--faint)",cursor:canSave?"pointer":"default"}}>SAVE</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PasswordInput({value,onChange,placeholder}) {
   const [show,setShow]=useState(false);
   return(
@@ -776,7 +978,7 @@ function GPSGateScreen({status,onRetry,onSkip}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,contribCount,lang,onSetLang}) {
+function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onEarnings,onStats,contribCount,lang,onSetLang}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -905,6 +1107,16 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         );
       })()}
 
+      {/* Personal earnings statistics — available to every driver */}
+      <button onClick={onEarnings}
+        style={{width:"100%",background:"linear-gradient(135deg,var(--tint-green),var(--tint-green))",border:"1px solid #06c16744",borderRadius:14,padding:"16px",marginBottom:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+        <div>
+          <div style={{...B,fontSize:18,color:"#06c167",letterSpacing:1}}>💰 MY EARNINGS</div>
+          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>Your personal £/hour, best platforms & more</div>
+        </div>
+        <span style={{...B,fontSize:24,color:"#06c167"}}>›</span>
+      </button>
+
       {/* Edit fields */}
       <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
         <div>
@@ -1023,6 +1235,83 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
       <div style={{textAlign:"center",marginTop:18}}>
         <a href="/privacy.html" style={{fontSize:10,...M,color:"var(--muted2)",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>
       </div>
+    </div>
+  );
+}
+
+// ── PERSONAL EARNINGS STATISTICS ──────────────────────────────────────────────
+// Reads only this driver's own earnings (users/{uid}/earnings). Never shows anyone else.
+function EarningsStatsScreen({earningsLog,onBack}) {
+  const s=useMemo(()=>computeEarningsStats(earningsLog),[earningsLog]);
+
+  const headline=(val,label,color)=>(
+    <div style={{flex:1,minWidth:120,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px 14px",textAlign:"center"}}>
+      <div style={{...B,fontSize:26,color:color||"#06c167",letterSpacing:1}}>{val}</div>
+      <div style={{fontSize:8,...M,color:"var(--muted)",marginTop:4,letterSpacing:1}}>{label}</div>
+    </div>
+  );
+  const row=(icon,label,value,sub)=>(
+    <div style={{display:"flex",alignItems:"center",gap:12,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px"}}>
+      <div style={{fontSize:22}}>{icon}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:1,marginBottom:2}}>{label}</div>
+        <div style={{...B,fontSize:16,color:"var(--ink)",letterSpacing:0.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</div>
+      </div>
+      {sub&&<div style={{...B,fontSize:15,color:"#00b8a9",flexShrink:0}}>{sub}</div>}
+    </div>
+  );
+
+  return(
+    <div style={{padding:"20px 16px 100px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+        <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
+        <div style={{...B,fontSize:26,color:"#00b8a9",letterSpacing:2}}>MY EARNINGS</div>
+      </div>
+
+      {!s?(
+        <div style={{textAlign:"center",padding:"60px 20px"}}>
+          <div style={{fontSize:48,marginBottom:14}}>💰</div>
+          <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1,marginBottom:8}}>NO EARNINGS LOGGED YET</div>
+          <div style={{fontSize:12,...M,color:"var(--muted)",lineHeight:1.6}}>When you tap ARRIVED, log the platform and payout for the order. Your personal stats build up here — only you can see them.</div>
+        </div>
+      ):(
+        <>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+            {headline(fmtGBP(s.totalEarnings),"TOTAL EARNINGS")}
+            {headline(s.overallRate==null?"—":fmtRate(s.overallRate),"AVG £/HOUR","#00b8a9")}
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:20}}>
+            {headline(s.totalOrders,"ORDERS LOGGED","#f5a623")}
+            {headline(s.totalHours>0?(Math.round(s.totalHours*10)/10)+"h":"—","TIME TRACKED","#2b8fff")}
+          </div>
+
+          <div style={{...B,fontSize:14,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>YOUR BESTS</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
+            {row("🏆","BEST PAYING PLATFORM / HOUR",s.bestPlatRate?s.bestPlatRate.platform:"—",s.bestPlatRate?fmtRate(s.bestPlatRate.rate):"")}
+            {row("💵","HIGHEST AVG PAYOUT / ORDER",s.bestPlatAvg?s.bestPlatAvg.platform:"—",s.bestPlatAvg?fmtGBP(s.bestPlatAvg.avg):"")}
+            {row("⚡","QUICKEST RESTAURANT",s.quickest?s.quickest.name:"—",s.quickest?(Math.round(s.quickest.avgW*10)/10)+"m":"")}
+            {row("🐌","MOST COSTLY BY WAIT",s.costliest?s.costliest.name:"—",s.costliest?(Math.round(s.costliest.avgW*10)/10)+"m":"")}
+            {row("📅","BEST DAY OF WEEK",s.bestDay?dayLabel(s.bestDay.dow):"—",s.bestDay?fmtRate(s.bestDay.rate):"")}
+            {row("🕒","BEST TIME OF DAY",s.bestPeriod?s.bestPeriod.period.replace(/\b\w/g,c=>c.toUpperCase()):"—",s.bestPeriod?fmtRate(s.bestPeriod.rate):"")}
+          </div>
+
+          {s.platforms.length>0&&(
+            <>
+              <div style={{...B,fontSize:14,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>BY PLATFORM</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {s.platforms.map(p=>(
+                  <div key={p.name} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px"}}>
+                    <span style={{flex:1,minWidth:0,...B,fontSize:14,color:"var(--ink)",letterSpacing:0.5}}>{p.name}</span>
+                    <span style={{fontSize:10,...M,color:"var(--muted)"}}>{p.n} order{p.n!==1?"s":""}</span>
+                    <span style={{...B,fontSize:13,color:"var(--muted2)"}}>{fmtGBP(p.avg)}/order</span>
+                    <span style={{...B,fontSize:14,color:"#06c167"}}>{fmtRate(p.rate)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -1653,7 +1942,7 @@ function Logbook({communityLogs,contribCounts,onBack,myName}) {
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,activeWaitsList,contribCounts,myName,driverCount,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,driverCount,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -1792,6 +2081,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
             {(restaurants.find(r=>r.id===activeWait.restaurantId)||{name:activeWait.restaurantName||"Unknown"}).name}
           </div>
           <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><LiveTimer startedAt={activeWait.startedAt}/></div>
+          <EarningsLive session={session} pendingPayout={activeWait.payout} pendingPlatform={activeWait.platform}/>
           <div style={{display:"flex",gap:10}}>
             <button onClick={onPickedUp} style={{flex:1,minHeight:72,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:24,letterSpacing:2,color:"#000",cursor:"pointer",boxShadow:"0 0 20px #06c16733"}}>{t("w_pickedUp")}</button>
             <button onClick={onCancelWait} style={{minHeight:72,width:72,background:"var(--border)",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:22,color:"var(--muted2)",cursor:"pointer"}}>✕</button>
@@ -1819,6 +2109,10 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
           const dataSource=useCommunity?t("w_community"):usePersonal?t("w_yourData"):null;
           const closed=r.openNow===false;
           const waitingNow=activeCounts[ck]||0;
+          const rep=reportedCounts?.[ck];
+          const repFresh=rep&&(now.getTime()-new Date(rep.ts).getTime()<REPORTED_COUNT_TTL_MS);
+          const reportedWaiting=repFresh?rep.count:null;
+          const reportedAgo=repFresh?Math.max(0,Math.round((now.getTime()-new Date(rep.ts).getTime())/60000)):null;
           const riskColor=realAvg==null?"var(--muted)":realAvg>18?"#ef4444":realAvg>10?"#f5a623":"#06c167";
           const riskLabel=realAvg==null?null:realAvg>18?"HIGH RISK":realAvg>10?"MODERATE":"LOW RISK";
           const isActive=activeWait?.restaurantId===r.id;
@@ -1839,10 +2133,11 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,communityPatterns,c
                     {r.name}
                     {dStr&&<span style={{fontSize:10,color:"#00b8a9",marginLeft:8,...M,fontWeight:400}}>{dStr}</span>}
                   </div>
-                  <div style={{fontSize:9,marginTop:2}}>
+                  <div style={{fontSize:9,marginTop:2,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     {waitingNow>0
                       ? <span style={{color:"#06c167",fontWeight:700}}>🟢 {waitingNow} waiting now</span>
                       : <span style={{color:"var(--muted)"}}>{closed?t("w_closedNow"):t("w_noOne")}</span>}
+                    {reportedWaiting!=null&&<span style={{color:"#ff5a2d",fontWeight:700}}>👥 {reportedWaiting} reported{reportedAgo!=null?" · "+reportedAgo+"m ago":""}</span>}
                   </div>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
@@ -2248,7 +2543,7 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
 }
 
 // ── CHECK SCREEN ─────────────────────────────────────────────────────────────
-function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gps,activeCounts}) {
+function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gps,activeCounts,reportedCounts}) {
   const [query,setQuery]=useState("");
   const [results,setResults]=useState([]);
   const [searching,setSearching]=useState(false);
@@ -2316,6 +2611,10 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
           const community=getCommunityWait(lid,now,communityPatterns);
           const recentLogs=logsLastHour(lid);
           const waitingNow=activeCounts?.[lid]||0;
+          const rep=reportedCounts?.[lid];
+          const repFresh=rep&&(now.getTime()-new Date(rep.ts).getTime()<REPORTED_COUNT_TTL_MS);
+          const reportedWaiting=repFresh?rep.count:null;
+          const reportedAgo=repFresh?Math.max(0,Math.round((now.getTime()-new Date(rep.ts).getTime())/60000)):null;
           const closed=r.openNow===false;
           const d=r.dist??distOf(r);
           const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
@@ -2325,7 +2624,7 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1}}>{r.name}</div>
                   {r.address&&<div style={{fontSize:9,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}</div>}
-                  <div style={{fontSize:9,marginTop:3}}>
+                  <div style={{fontSize:9,marginTop:3,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     {closed
                       ? <span style={{color:"var(--muted2)",fontWeight:700}}>● CLOSED right now</span>
                       : waitingNow>0
@@ -2333,6 +2632,7 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
                         : community
                           ? <span style={{color:"#2b8fff",fontWeight:700}}>~{community.avg}m typical wait</span>
                           : <span style={{color:"var(--muted)"}}>No wait data yet</span>}
+                    {reportedWaiting!=null&&<span style={{color:"#ff5a2d",fontWeight:700}}>👥 {reportedWaiting} reported{reportedAgo!=null?" · "+reportedAgo+"m ago":""}</span>}
                   </div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:10}}>
@@ -2464,6 +2764,7 @@ export default function App() {
   const [showProfile,setShowProfile]=useState(false);
   const [showUpgrade,setShowUpgrade]=useState(false);
   const [showStats,setShowStats]=useState(false);
+  const [showEarnings,setShowEarnings]=useState(false);
   const [showLogbook,setShowLogbook]=useState(false);
   const [reminder,setReminder]=useState(null);   // in-app "still waiting?" notification text
   const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
@@ -2494,6 +2795,9 @@ export default function App() {
   const [restaurants,setRestaurants]=useState(CURATED);
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
   const [activeWait,setActiveWait]=useState(()=>store.get("delivr_activewait")||null);
+  const [session,setSession]=useState(()=>store.get("delivr_session")||null);   // earnings session (anchored to first ARRIVED)
+  const [earningsLog,setEarningsLog]=useState([]);                               // this driver's own logged orders
+  const [earningsPopup,setEarningsPopup]=useState(null);                         // {restaurantName} shown after a successful ARRIVED
   const [communityPatterns,setCommunityPatterns]=useState({});
   const [communityLogs,setCommunityLogs]=useState([]);
   const [unreadChat,setUnreadChat]=useState(false);
@@ -2504,6 +2808,7 @@ export default function App() {
   const [gpsSkipped,setGpsSkipped]=useState(false);   // user chose to continue without location
   const [activeCounts,setActiveCounts]=useState({});  // restaurantId → # drivers waiting now
   const [activeWaitsList,setActiveWaitsList]=useState([]); // live active waits for the feed
+  const [reportedCounts,setReportedCounts]=useState({});   // chain key → driver-reported {count,ts} (20-min TTL applied on render)
   const [driverCount,setDriverCount]=useState(0);          // live roster size
   const [signupCount,setSignupCount]=useState(0);          // true total sign-ups (backend)
   const lastFetchRef=useRef({lat:null,lng:null});
@@ -2551,6 +2856,16 @@ export default function App() {
     return unsub;
   },[]);
 
+  // Live listener for THIS driver's own earnings — personal only, never anyone else's
+  useEffect(()=>{
+    const uid=auth.currentUser?.uid;
+    if(!uid){setEarningsLog([]);return;}
+    const unsub=onSnapshot(collection(db,"users",uid,"earnings"),snap=>{
+      setEarningsLog(snap.docs.map(d=>d.data()));
+    },()=>{});
+    return unsub;
+  },[user]);
+
   // Live listener for crowd-sourced pinned restaurant locations
   useEffect(()=>{
     const unsub=onSnapshot(collection(db,"restaurantLocations"),snap=>{
@@ -2593,6 +2908,15 @@ export default function App() {
       });
       setActiveCounts(counts);
       setActiveWaitsList(list);
+    },()=>{});
+    return unsub;
+  },[]);
+
+  // Live listener for driver-reported queue counts (latest per restaurant; expired on render)
+  useEffect(()=>{
+    const unsub=onSnapshot(collection(db,"restaurantCounts"),snap=>{
+      const m={};snap.docs.forEach(d=>{const c=d.data();m[d.id]={count:c.count,ts:c.ts};});
+      setReportedCounts(m);
     },()=>{});
     return unsub;
   },[]);
@@ -2753,11 +3077,47 @@ export default function App() {
     }
     const a={restaurantId,restaurantName:restaurant.name,startedAt:new Date().toISOString()};
     setActiveWait(a);store.set("delivr_activewait",a);
+    // Earnings session: anchor the clock to the very first ARRIVED of the shift.
+    // Continue the running session, or start a fresh one after a long idle gap.
+    setSession(prev=>{
+      const nowMs=Date.now();
+      const next=(!prev||nowMs-new Date(prev.lastActivity||prev.sessionStart).getTime()>SESSION_GAP_MS)
+        ?{sessionId:genId(),sessionStart:a.startedAt,totalEarnings:0,lastActivity:a.startedAt}
+        :{...prev,lastActivity:a.startedAt};
+      store.set("delivr_session",next);
+      return next;
+    });
+    // Optional earnings popup — driver can skip it
+    setEarningsPopup({restaurantName:restaurant.name});
     // Ask for notification permission (on this tap gesture) so 20/40-min reminders can show
     try{ if(window.Notification&&Notification.permission==="default")Notification.requestPermission(); }catch(e){}
     // Add to live "waiting now" presence list
     try{ await setDoc(doc(db,"activeWaits",auth.currentUser.uid),{restaurantId,restaurantName:restaurant.name,startedAt:a.startedAt,username:user?.name||"anon"}); }catch(e){}
     return true;
+  }
+
+  // Save the optional popup fields. Payout (+ platform) is attached to the active wait
+  // and counted on GOT IT; the reported driver count is shared live with nearby drivers.
+  function handleSaveEarnings({platform,payout,count}){
+    if(payout!=null&&platform){
+      setActiveWait(prev=>{
+        if(!prev)return prev;
+        const n={...prev,platform,payout};
+        store.set("delivr_activewait",n);
+        return n;
+      });
+    }
+    if(count!=null&&activeWait){
+      // Latest report wins (doc keyed per restaurant); a 20-min TTL is applied on read.
+      const key=chainKeyFromName(activeWait.restaurantName)||activeWait.restaurantId;
+      try{
+        setDoc(doc(db,"restaurantCounts",key),{
+          count, restaurantId:activeWait.restaurantId, restaurantName:activeWait.restaurantName||"",
+          username:user?.name||"anon", ts:new Date().toISOString(),
+        });
+      }catch(e){}
+    }
+    setEarningsPopup(null);
   }
 
   // Manual Arrive: record the driver's GPS as a location vote, then re-cluster.
@@ -2832,6 +3192,32 @@ export default function App() {
     try{
       await addDoc(collection(db,"waitLogs"),{...entry,username:user?.name||"anon"});
     }catch(e){}
+    // If a payout was logged for this order, add it to session earnings and store it
+    const payout=activeWait.payout, platform=activeWait.platform;
+    if(payout!=null&&platform){
+      const sess=session||{sessionId:genId(),sessionStart:activeWait.startedAt,totalEarnings:0};
+      const updatedSession={...sess,totalEarnings:(sess.totalEarnings||0)+payout,lastActivity:ts.toISOString()};
+      setSession(updatedSession);store.set("delivr_session",updatedSession);
+      const earnEntry={
+        platform, payout,
+        restaurantId:   activeWait.restaurantId,
+        restaurantName: activeWait.restaurantName||"",
+        waitMins,
+        sessionId:      updatedSession.sessionId,
+        sessionStart:   updatedSession.sessionStart,
+        ts:             ts.toISOString(),
+        hour:           ts.getHours(),
+        dow:            ts.getDay(),
+        period:         timePeriod(ts.getHours()),
+      };
+      try{
+        const uid=auth.currentUser?.uid;
+        if(uid){
+          await addDoc(collection(db,"users",uid,"earnings"),earnEntry);
+          await setDoc(doc(db,"users",uid),{earningsSession:updatedSession},{merge:true});
+        }
+      }catch(e){}
+    }
   }
 
   function handleCancelWait(){
@@ -2902,7 +3288,7 @@ export default function App() {
       <style>{CSS}</style>
       <div style={ROOT}>
         {/* Profile avatar button — fixed top right */}
-        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&(
+        {!showProfile&&!showUpgrade&&!showStats&&!showEarnings&&!showLogbook&&(
           <button onClick={()=>setShowProfile(true)}
             style={{position:"fixed",top:14,right:14,zIndex:300,width:38,height:38,borderRadius:"50%",background:user.color,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px "+user.color+"55"}}>
             <span style={{...B,fontSize:17,color:"#000"}}>{user.initial}</span>
@@ -2910,15 +3296,17 @@ export default function App() {
         )}
 
         {/* Persistent wait banner — visible on every tab while a wait is open */}
-        {activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&(
+        {activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showEarnings&&!showLogbook&&(
           <PersistentWaitBanner restaurantName={activeWait.restaurantName||"Restaurant"} startedAt={activeWait.startedAt} onPickedUp={handlePickedUp}/>
         )}
 
-        <div style={{height:"calc(100vh - 56px"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook?" - 56px":"")+")",overflowY:"auto"}}>
+        <div style={{height:"calc(100vh - 56px"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showEarnings&&!showLogbook?" - 56px":"")+")",overflowY:"auto"}}>
           {showLogbook?(
             <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)} myName={user.name}/>
           ):showStats&&isOwner(user)?(
             <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} contribCounts={contribCounts} onBack={()=>setShowStats(false)}/>
+          ):showEarnings?(
+            <EarningsStatsScreen earningsLog={earningsLog} onBack={()=>setShowEarnings(false)}/>
           ):showUpgrade?(
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
           ):showProfile?(
@@ -2926,13 +3314,14 @@ export default function App() {
               lang={lang||"en"} onSetLang={chooseLang}
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
               onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}
+              onEarnings={()=>{setShowProfile(false);setShowEarnings(true);}}
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
-            <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait}
-              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} driverCount={Math.max(driverCount,signupCount)} onOpenLogbook={()=>setShowLogbook(true)}
+            <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait} session={session}
+              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} reportedCounts={reportedCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} driverCount={Math.max(driverCount,signupCount)} onOpenLogbook={()=>setShowLogbook(true)}
               onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
-            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts}/>
+            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts}/>
           ):(
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)}/>
           )}
@@ -2946,7 +3335,11 @@ export default function App() {
             <button onClick={()=>setReminder(null)} style={{flexShrink:0,background:"none",border:"none",color:"var(--muted2)",fontSize:18,cursor:"pointer",padding:"0 2px"}}>✕</button>
           </div>
         )}
-        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
+        {/* Optional earnings popup — shown right after a successful ARRIVED */}
+        {earningsPopup&&(
+          <EarningsPopup restaurantName={earningsPopup.restaurantName} onSave={handleSaveEarnings} onSkip={()=>setEarningsPopup(null)}/>
+        )}
+        {!showProfile&&!showUpgrade&&!showStats&&!showEarnings&&!showLogbook&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
       </div>
     </div>
   );
