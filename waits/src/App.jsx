@@ -2856,15 +2856,20 @@ export default function App() {
     return unsub;
   },[]);
 
-  // Live listener for THIS driver's own earnings — personal only, never anyone else's
+  // Live listener for THIS driver's own earnings — personal only, never anyone else's.
+  // Waits for Firebase Auth to finish restoring (auth.currentUser is null on first mount,
+  // so reading it synchronously on a refresh would miss the session and never re-attach).
   useEffect(()=>{
-    const uid=auth.currentUser?.uid;
-    if(!uid){setEarningsLog([]);return;}
-    const unsub=onSnapshot(collection(db,"users",uid,"earnings"),snap=>{
-      setEarningsLog(snap.docs.map(d=>d.data()));
-    },()=>{});
-    return unsub;
-  },[user]);
+    let unsubSnap=null;
+    const unsubAuth=onAuthStateChanged(auth,fbUser=>{
+      if(unsubSnap){unsubSnap();unsubSnap=null;}
+      if(!fbUser){setEarningsLog([]);return;}
+      unsubSnap=onSnapshot(collection(db,"users",fbUser.uid,"earnings"),snap=>{
+        setEarningsLog(snap.docs.map(d=>d.data()));
+      },()=>{});
+    });
+    return ()=>{ if(unsubSnap)unsubSnap(); unsubAuth(); };
+  },[]);
 
   // Live listener for crowd-sourced pinned restaurant locations
   useEffect(()=>{
