@@ -33,6 +33,9 @@ const SUB_PRICE = "£4.99";
 // Accounts that can see the admin APP STATS screen (add more emails if needed)
 const OWNER_EMAILS = ["mohamedrebah1995@gmail.com","contact.morebah@gmail.com"];
 const isOwner = u => !!u?.email && OWNER_EMAILS.includes(u.email.toLowerCase());
+// Delegated admins: see real driver names in the live activity + get premium perks.
+const ADMIN_PERK_EMAILS = ["contact.morebah@gmail.com"];
+const hasAdminPerks = u => !!u?.email && ADMIN_PERK_EMAILS.includes(u.email.toLowerCase());
 const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 1 };
 
 const RESTAURANTS = [
@@ -1854,7 +1857,7 @@ function relTime(ts){
   const h=Math.floor(m/60); if(h<24)return h+"h ago";
   return Math.floor(h/24)+"d ago";
 }
-function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen,myName}) {
+function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen,myName,revealNames}) {
   const [,tick]=useState(0);
   useEffect(()=>{const id=setInterval(()=>tick(x=>x+1),30000);return ()=>clearInterval(id);},[]); // refresh relative times
   const events=[
@@ -1877,7 +1880,7 @@ function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen,myName}) {
             <div key={i} style={{display:"flex",alignItems:"center",gap:9,fontSize:12,...M}}>
               <span style={{fontSize:14}}>{e.kind==="arrived"?"🟢":"✅"}</span>
               <span style={{color:"var(--ink)",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                <b style={{fontWeight:700}}>{e.user===myName?e.user:"Driver"}</b>{(()=>{const bg=badgeFor(contribCounts?.[e.user]||0);return bg?<span style={{marginLeft:2}}>{bg.emoji}</span>:null;})()}
+                <b style={{fontWeight:700}}>{(revealNames||e.user===myName)?e.user:"Driver"}</b>{(()=>{const bg=badgeFor(contribCounts?.[e.user]||0);return bg?<span style={{marginLeft:2}}>{bg.emoji}</span>:null;})()}
                 {e.kind==="arrived"?" arrived at ":" picked up at "}
                 <b style={{fontWeight:700}}>{e.rest}</b>
                 {e.kind==="picked"&&e.waitMins!=null&&<span style={{color:"#06c167"}}>{" · "+e.waitMins}m</span>}
@@ -1892,7 +1895,7 @@ function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen,myName}) {
 }
 
 // ── LOGBOOK (date-based community activity) ───────────────────────────────────
-function Logbook({communityLogs,contribCounts,onBack,myName}) {
+function Logbook({communityLogs,contribCounts,onBack,myName,revealNames}) {
   const [offset,setOffset]=useState(0); // 0 = today, 1 = yesterday, ...
   const day=new Date(); day.setDate(day.getDate()-offset);
   const dayStr=day.toISOString().slice(0,10);
@@ -1932,7 +1935,7 @@ function Logbook({communityLogs,contribCounts,onBack,myName}) {
                 <span style={{fontSize:14}}>✅</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12,...M,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                    <b style={{fontWeight:700}}>{l.username===myName?l.username:"Driver"}</b>{bg&&<span style={{marginLeft:2}}>{bg.emoji}</span>} picked up at <b style={{fontWeight:700}}>{l.restaurantName||"a restaurant"}</b>
+                    <b style={{fontWeight:700}}>{(revealNames||l.username===myName)?l.username:"Driver"}</b>{bg&&<span style={{marginLeft:2}}>{bg.emoji}</span>} picked up at <b style={{fontWeight:700}}>{l.restaurantName||"a restaurant"}</b>
                   </div>
                   <div style={{fontSize:9,...M,color:"var(--muted)",marginTop:1}}>{new Date(l.ts).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>
                 </div>
@@ -1947,7 +1950,7 @@ function Logbook({communityLogs,contribCounts,onBack,myName}) {
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrder,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,driverCount,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrder,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,revealNames,driverCount,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -1956,6 +1959,14 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
   const searchTimer=useRef(null);
   const per=timePeriod(now.getHours());
   const meta=communityPatterns._meta;
+
+  // Driver-reported queue count for the restaurant you're currently waiting at (keyed
+  // identically to the write), with the same 20-min freshness window as the cards.
+  const awKey=activeWait?(chainKeyFromName(activeWait.restaurantName)||activeWait.restaurantId):null;
+  const awRep=awKey?reportedCounts?.[awKey]:null;
+  const awRepFresh=awRep&&(now.getTime()-new Date(awRep.ts).getTime()<REPORTED_COUNT_TTL_MS);
+  const awReportedWaiting=awRepFresh?awRep.count:null;
+  const awReportedAgo=awRepFresh?Math.max(0,Math.round((now.getTime()-new Date(awRep.ts).getTime())/60000)):null;
 
   const distMap={};
   if(gps.status==="active"&&restaurants?.length){
@@ -2077,14 +2088,21 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
         </div>
       )}
 
-      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs} contribCounts={contribCounts} onOpen={onOpenLogbook} myName={myName}/>
+      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs} contribCounts={contribCounts} onOpen={onOpenLogbook} myName={myName} revealNames={revealNames}/>
 
       {activeWait?(
         <div style={{background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
           <div style={{fontSize:9,color:"#00b8a9",letterSpacing:2,marginBottom:6}}>{"⏱ "+t("w_waitingAt")}</div>
-          <div style={{...B,fontSize:28,color:"var(--ink)",letterSpacing:1,marginBottom:14}}>
+          <div style={{...B,fontSize:28,color:"var(--ink)",letterSpacing:1,marginBottom:awReportedWaiting!=null?8:14}}>
             {(restaurants.find(r=>r.id===activeWait.restaurantId)||{name:activeWait.restaurantName||"Unknown"}).name}
           </div>
+          {awReportedWaiting!=null&&(
+            <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"var(--card)",border:"1px solid #ff5a2d55",borderRadius:9,padding:"6px 10px",marginBottom:14}}>
+              <span style={{fontSize:14}}>👥</span>
+              <span style={{...B,fontSize:13,color:"#ff5a2d",letterSpacing:0.5}}>{awReportedWaiting} waiting here</span>
+              <span style={{fontSize:9,...M,color:"var(--muted2)"}}>reported {awReportedAgo}m ago</span>
+            </div>
+          )}
           <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><LiveTimer startedAt={activeWait.startedAt}/></div>
           <EarningsLive session={session} pendingPayout={activeWait.payout} pendingPlatform={activeWait.platform}/>
           <div style={{display:"flex",gap:10}}>
@@ -2789,7 +2807,7 @@ export default function App() {
   const [lang,setLang]=useState(()=>store.get("delivr_lang")||null);
   const [disclaimerOk,setDisclaimerOk]=useState(()=>!!store.get("delivr_disclaimer"));
   _lang=lang||"en";   // make t() use the current language for all child screens this render
-  const premium=!!user?.premium;
+  const premium=!!user?.premium||hasAdminPerks(user);   // delegated admins get premium perks
 
   // Apply + persist the colour theme
   useEffect(()=>{
@@ -3370,7 +3388,7 @@ export default function App() {
 
         <div style={{height:"calc(100vh - 56px"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showEarnings&&!showLogbook?" - 56px":"")+")",overflowY:"auto"}}>
           {showLogbook?(
-            <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)} myName={user.name}/>
+            <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)} myName={user.name} revealNames={hasAdminPerks(user)}/>
           ):showStats&&isOwner(user)?(
             <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} contribCounts={contribCounts} onBack={()=>setShowStats(false)}/>
           ):showEarnings?(
@@ -3386,7 +3404,7 @@ export default function App() {
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait} session={session} pendingOrder={pendingOrder}
-              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} reportedCounts={reportedCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} driverCount={Math.max(driverCount,signupCount)} onOpenLogbook={()=>setShowLogbook(true)}
+              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} reportedCounts={reportedCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} revealNames={hasAdminPerks(user)} driverCount={Math.max(driverCount,signupCount)} onOpenLogbook={()=>setShowLogbook(true)}
               onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts}/>
