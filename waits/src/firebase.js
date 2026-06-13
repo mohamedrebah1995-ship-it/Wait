@@ -18,7 +18,7 @@ export const db    = getFirestore(fbApp);
 // ── Push notifications (FCM) ───────────────────────────────────────────────────
 // VAPID public key from Firebase Console → Project Settings → Cloud Messaging →
 // Web Push certificates → "Key pair". Push stays inactive until this is set.
-const VAPID_KEY = "REPLACE_WITH_VAPID_KEY";
+const VAPID_KEY = "BFX6FDZ7iIokmowbUGcJl9C_DvPJWxbcgVOeMnBfBzuG3ek3zvgypA0O5-n6qygKfr7bN-L-JHSVEuT_lanjnVs";
 
 // Register the SW, get this device's FCM token and store it on the driver's user doc so the
 // backend can push wait reminders. Requires notification permission to already be granted.
