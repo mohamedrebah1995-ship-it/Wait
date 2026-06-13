@@ -1,6 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react";
-import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment, lazy, Suspense } from "react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -13,20 +11,24 @@ import {
 } from "firebase/auth";
 import {
   doc, setDoc, getDoc, updateDoc, deleteDoc,
-  collection, addDoc, query, where, orderBy, limitToLast,
-  onSnapshot, getDocs, serverTimestamp,
+  collection, addDoc, query, where, orderBy, limit,
+  onSnapshot, getDocs,
 } from "firebase/firestore";
-import { auth, db, storage } from "./firebase";
-import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { auth, db, setupPush } from "./firebase";
+
+// Chat is the heaviest screen and rarely the landing tab — load it (and firebase/storage)
+// on demand the first time a driver opens CHAT, not on first paint.
+const ChatScreen = lazy(() => import("./ChatScreen.jsx"));
 
 const FL = document.createElement("link");
 FL.rel = "stylesheet";
 FL.href = "https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Nunito:wght@400;600;700;800&display=swap";
 document.head.appendChild(FL);
 
-const MAPBOX_TOKEN = "pk.eyJ1Ijoia2luZ29mbWFkbmVzcyIsImEiOiJjbXAzZTFoNDYwbGNtMnBzODZuYnNiY3FvIn0.yVEwZEGgiP8gqqOIycdJWA";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-const GOOGLE_MAPS_KEY = "AIzaSyARDTROkeGrhMw_ZKsYw8SuLnw3skQf2yk";
+// Public Mapbox token — all restaurant location lookup runs on Mapbox (50k free req/month).
+// Google Places has been removed entirely (it was running up real cost via many calls).
+const MAPBOX_TOKEN = "pk.eyJ1Ijoia2luZ29mbWFkbmVzcyIsImEiOiJjbXAzZTFoNDYwbGNtMnBzODZuYnNiY3FvIn0.yVEwZEGgiP8gqqOIycdJWA";
 const ADSENSE_CLIENT = "ca-pub-3527173535512943";
 const ADSENSE_SLOT   = "";  // ← paste your AdSense ad-unit slot ID here once AdSense is approved
 const SUB_PRICE = "£4.99";
@@ -38,71 +40,49 @@ const ADMIN_PERK_EMAILS = ["contact.morebah@gmail.com"];
 const hasAdminPerks = u => !!u?.email && ADMIN_PERK_EMAILS.includes(u.email.toLowerCase());
 const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 1 };
 
-const RESTAURANTS = [
-  { id:"mcdonalds",       name:"McDonald's Braintree",                      baseWait:4,  rel:0.86, label:"Usually fast" },
-  { id:"kfc",             name:"KFC Braintree - Galleys Island",            baseWait:13, rel:0.42, label:"High queue risk" },
-  { id:"nandos",          name:"Nando's Braintree",                         baseWait:17, rel:0.45, label:"Unpredictable" },
-  { id:"fiveguys",        name:"Five Guys Braintree",                       baseWait:12, rel:0.55, label:"Wait likely" },
-  { id:"subway",          name:"Subway Manor Street Braintree",             baseWait:5,  rel:0.82, label:"Mostly quick" },
-  { id:"pizzahut",        name:"Pizza Hut Braintree",                       baseWait:10, rel:0.62, label:"Variable" },
-  { id:"timhortons",      name:"Tim Hortons Braintree",                     baseWait:5,  rel:0.80, label:"Usually fast" },
-  { id:"starbucks",       name:"Starbucks Braintree",                       baseWait:6,  rel:0.75, label:"Moderate wait" },
-  { id:"wagamama",        name:"wagamama Braintree Village",                baseWait:16, rel:0.48, label:"Wait likely" },
-  { id:"zizzi",           name:"Zizzi Braintree",                           baseWait:15, rel:0.50, label:"Sit-down wait" },
-  { id:"pizzaexpress",    name:"PizzaExpress Braintree",                    baseWait:13, rel:0.55, label:"Variable" },
-  { id:"prezzo",          name:"Prezzo Braintree",                          baseWait:14, rel:0.52, label:"Sit-down wait" },
-  { id:"wildwood",        name:"Wildwood Braintree",                        baseWait:14, rel:0.52, label:"Variable" },
-  { id:"realgreek",       name:"The Real Greek Braintree",                  baseWait:13, rel:0.58, label:"Moderate wait" },
-  { id:"bills",           name:"Bill's Braintree Restaurant",               baseWait:15, rel:0.50, label:"Sit-down wait" },
-  { id:"cocodimama",      name:"Coco di Mama Braintree",                    baseWait:8,  rel:0.70, label:"Moderate wait" },
-  { id:"tobycarvery",     name:"Toby Carvery Braintree",                    baseWait:18, rel:0.45, label:"Often delayed" },
-  { id:"fowlersfarm",     name:"The Fowler's Farm Braintree",               baseWait:12, rel:0.60, label:"Variable" },
-  { id:"hasturk",         name:"Hasturk Braintree",                         baseWait:10, rel:0.65, label:"Moderate wait" },
-  { id:"bfcperiperi",     name:"BFC Peri Peri Braintree",                   baseWait:8,  rel:0.72, label:"Usually fast" },
-  { id:"salamis",         name:"Salamis Fish and Chips Braintree",          baseWait:10, rel:0.65, label:"Moderate wait" },
-  { id:"kaspas",          name:"Kaspa's Braintree",                         baseWait:8,  rel:0.68, label:"Usually fast" },
-  { id:"mosaic",          name:"Mosaic Mediterranean Restaurant Braintree", baseWait:12, rel:0.60, label:"Moderate wait" },
-  { id:"yumy",            name:"Yumy Braintree",                            baseWait:10, rel:0.65, label:"Moderate wait" },
-  { id:"bagels",          name:"Braintree Bagels",                          baseWait:4,  rel:0.85, label:"Very fast" },
-  { id:"thaitree",        name:"Braintree Thai Restaurant",                 baseWait:12, rel:0.62, label:"Variable" },
-  { id:"oysters",         name:"Oysters Braintree",                         baseWait:10, rel:0.65, label:"Moderate wait" },
-  { id:"sainsburys",      name:"Sainsbury's Braintree",                     baseWait:6,  rel:0.78, label:"Usually quick" },
-  { id:"tesco",           name:"Tesco Superstore Braintree",                baseWait:5,  rel:0.80, label:"Usually quick" },
-  { id:"tescoexpress",    name:"Tesco Express Braintree",                   baseWait:4,  rel:0.85, label:"Very fast" },
-  { id:"coopchallislane", name:"Co-op Food Challis Lane Braintree",         baseWait:4,  rel:0.85, label:"Very fast" },
-  { id:"coopchurchst",    name:"Co-op Food Church Street Braintree",        baseWait:4,  rel:0.85, label:"Very fast" },
-  { id:"coopgalleys",     name:"Co-op Food Galleys Corner Braintree",       baseWait:3,  rel:0.88, label:"Very fast" },
-  { id:"morrisonsdaily",  name:"Morrisons Daily Braintree",                 baseWait:4,  rel:0.85, label:"Usually quick" },
-  { id:"onestop",         name:"One Stop Braintree",                        baseWait:3,  rel:0.88, label:"Very fast" },
-  { id:"bp",              name:"BP Braintree",                              baseWait:3,  rel:0.90, label:"Very fast" },
-];
-
 // Curated chains always shown first (in this order), then Google nearby for the rest.
 // `keys` are lowercase name fragments used to match a real nearby branch from Google.
+// Hardcoded fallback list with real branch coordinates, so the app can always show & sort by
+// distance (Haversine) with ZERO API calls when no cache/API is available.
 const CURATED = [
-  { id:"mcdonalds",   name:"McDonald's",    keys:["mcdonald"],                  baseWait:4,  rel:0.86, label:"Usually fast" },
-  { id:"kfc",         name:"KFC",           keys:["kfc"],                       baseWait:13, rel:0.45, label:"High queue risk" },
-  { id:"nandos",      name:"Nando's",       keys:["nando"],                     baseWait:17, rel:0.45, label:"Unpredictable" },
-  { id:"wagamama",    name:"Wagamama",      keys:["wagamama"],                  baseWait:16, rel:0.48, label:"Wait likely" },
-  { id:"pizzaexpress",name:"Pizza Express", keys:["pizza express","pizzaexpress","pizzaexp"], baseWait:13, rel:0.55, label:"Variable" },
-  { id:"zizzi",       name:"Zizzi",         keys:["zizzi"],                     baseWait:15, rel:0.50, label:"Sit-down wait" },
-  { id:"cocodimama",  name:"Coco di Mama",  keys:["coco di mama","coco"],       baseWait:8,  rel:0.70, label:"Moderate wait" },
-  { id:"sainsburys",  name:"Sainsbury's",   keys:["sainsbury"],                 baseWait:6,  rel:0.78, label:"Usually quick" },
+  { id:"mcdonalds",   name:"McDonald's",    keys:["mcdonald"],                  branchLat:51.86762, branchLng:0.58112, baseWait:4,  rel:0.86, label:"Usually fast" },
+  { id:"kfc",         name:"KFC",           keys:["kfc"],                       branchLat:51.86744, branchLng:0.58075, baseWait:13, rel:0.45, label:"High queue risk" },
+  { id:"nandos",      name:"Nando's",       keys:["nando"],                     branchLat:51.86784, branchLng:0.57229, baseWait:17, rel:0.45, label:"Unpredictable" },
+  { id:"wagamama",    name:"Wagamama",      keys:["wagamama"],                  branchLat:51.86948, branchLng:0.57110, baseWait:16, rel:0.48, label:"Wait likely" },
+  { id:"pizzaexpress",name:"Pizza Express", keys:["pizza express","pizzaexpress","pizzaexp"], branchLat:51.86790, branchLng:0.57150, baseWait:13, rel:0.55, label:"Variable" },
+  { id:"zizzi",       name:"Zizzi",         keys:["zizzi"],                     branchLat:51.86792, branchLng:0.57150, baseWait:15, rel:0.50, label:"Sit-down wait" },
+  { id:"cocodimama",  name:"Coco di Mama",  keys:["coco di mama","coco"],       branchLat:51.86794, branchLng:0.57154, baseWait:8,  rel:0.70, label:"Moderate wait" },
+  { id:"sainsburys",  name:"Sainsbury's",   keys:["sainsbury"],                 branchLat:51.87881, branchLng:0.55298, baseWait:6,  rel:0.78, label:"Usually quick" },
 ];
 
 // Merge: curated chains (pinned to their nearest real branch) first, then other nearby places.
+// Cache of curated-chain branch locations resolved via Mapbox, persisted in localStorage for
+// 24h (per entry). Once a chain's branch is looked up, its coords are reused — across reloads —
+// so rebuilding the nearby list makes no API call for chains we already know within 24h.
+// Hydrated lazily because `store` is defined further down.
+const CHAIN_CACHE_KEY = "delivr_chainBranch";
+const CHAIN_CACHE_TTL = 24 * 60 * 60 * 1000;
+let _chainBranchCache = null;
+function chainCache(){ if(!_chainBranchCache) _chainBranchCache = store.get(CHAIN_CACHE_KEY) || {}; return _chainBranchCache; }
+
 async function buildRestaurantList(places, lat, lng) {
   const matchesCurated = p => { const n=(p.name||"").toLowerCase(); return CURATED.find(c=>c.keys.some(k=>n.includes(k))); };
-  // Each curated chain: use the nearby match if it has hours; otherwise look it up
-  // directly so we always know its real Google open/closed status.
+  const cache = chainCache();
+  // Each curated chain: prefer the nearby match (with hours); else reuse a cached branch
+  // location (<24h old); else look it up once via Google and cache it.
   const seed = await Promise.all(CURATED.map(async c => {
     let m = places.find(p => { const n=(p.name||"").toLowerCase(); return c.keys.some(k=>n.includes(k)); });
     if(!m || m.openNow===undefined){
-      try{
-        const res = await searchRestaurants(c.name, lat, lng);
-        const t = res.find(x=>{ const n=(x.name||"").toLowerCase(); return c.keys.some(k=>n.includes(k)); }) || res[0];
-        if(t) m = t;
-      }catch(e){}
+      const cached = cache[c.id];
+      if(cached && cached.loc && Date.now()-cached.ts < CHAIN_CACHE_TTL){
+        m = m ? { ...m, ...cached.loc } : { ...cached.loc };   // reuse known coords, skip the API call
+      }else{
+        try{
+          const res = await searchRestaurants(c.name, lat, lng);
+          const hit = res.find(x=>{ const n=(x.name||"").toLowerCase(); return c.keys.some(k=>n.includes(k)); }) || res[0];
+          if(hit){ m = hit; cache[c.id] = { loc:{ id:hit.id, branchLat:hit.branchLat, branchLng:hit.branchLng, address:hit.address }, ts:Date.now() }; store.set(CHAIN_CACHE_KEY, cache); }
+        }catch(e){}
+      }
     }
     return m ? { ...c, id:m.id, branchLat:m.branchLat, branchLng:m.branchLng, address:m.address, openNow:m.openNow } : c;
   }));
@@ -130,10 +110,10 @@ const BADGE_TIERS = [
   { min:50,   emoji:"🥈", label:"Regular" },
   { min:10,   emoji:"🥉", label:"Starter" },
 ];
-const REACTIONS = ["👍","❤️","😂","🔥","😮","🙏"];   // chat message reactions
+export const REACTIONS = ["👍","❤️","😂","🔥","😮","🙏"];   // chat message reactions
 const QUALITY_MIN_WAIT = 0.5;  // minutes — instant arrive→collect (<30s) doesn't count
 const DAILY_CAP = 15;          // max logs counted per driver per day (anti-spam)
-function badgeFor(count){ return BADGE_TIERS.find(t=>count>=t.min)||null; }
+export function badgeFor(count){ return BADGE_TIERS.find(t=>count>=t.min)||null; }
 function nextTier(count){ const sorted=[...BADGE_TIERS].sort((a,b)=>a.min-b.min); return sorted.find(t=>count<t.min)||null; }
 // username → counted quality logs (per-day capped) used for badges & leaderboard
 function computeContributions(logs){
@@ -153,8 +133,8 @@ function computeContributions(logs){
 }
 
 const AVATAR_COLORS = ["#00b8a9","#06c167","#ff5a2d","#2b8fff","#f5a623","#a855f7","#ef4444","#ec4899"];
-const B = { fontFamily:"'Poppins',sans-serif" };
-const M = { fontFamily:"'Nunito',sans-serif" };
+export const B = { fontFamily:"'Poppins',sans-serif" };
+export const M = { fontFamily:"'Nunito',sans-serif" };
 const ROOT = { ...M, background:"var(--bg)", color:"var(--ink)", minHeight:"100vh", maxWidth:430, margin:"0 auto", userSelect:"none" };
 
 // ── Languages / i18n ──────────────────────────────────────────────────────────
@@ -210,32 +190,32 @@ const T = {
 };
 // Strings used across the rest of the app
 const T2 = {
-  en:{ nav_waits:"WAITS",nav_check:"CHECK",nav_chat:"CHAT",
-    w_title:"RESTAURANT WAITS",w_arrived:"📍 ARRIVED AT RESTAURANT",w_waitingAt:"WAITING AT",w_pickedUp:"✓ PICKED UP",w_gotIt:"✓ GOT IT — PICKED UP",w_arrivedShort:"ARRIVED",w_timingNow:"● TIMING NOW",w_noData:"NO DATA YET",w_closed:"CLOSED",w_closedNow:"Closed right now",w_waitingNow:"WAITING NOW",w_noOne:"No one waiting now",w_liveActivity:"LIVE ACTIVITY",w_viewAll:"View all ›",w_communityLive:"COMMUNITY DATA LIVE",w_yourData:"YOUR DATA",w_community:"COMMUNITY",w_recent:"RECENT WAIT LOGS",w_tapHint:"TAP PICKED UP THE MOMENT YOU HAVE THE ORDER",w_liveNow:"live now",
+  en:{ nav_waits:"WAITS",nav_check:"CHECK",nav_stats:"STATS",nav_chat:"CHAT",
+    w_title:"RESTAURANT WAITS",w_arrived:"📍 ARRIVED AT RESTAURANT",w_waitingAt:"WAITING AT",w_pickedUp:"✓ PICKED UP",w_gotIt:"✓ GOT IT — PICKED UP",w_delivered:"✓ DELIVERED",w_arrivedShort:"ARRIVED",w_timingNow:"● TIMING NOW",w_noData:"NO DATA YET",w_closed:"CLOSED",w_closedNow:"Closed right now",w_waitingNow:"WAITING NOW",w_noOne:"No one waiting now",w_liveActivity:"LIVE ACTIVITY",w_viewAll:"View all ›",w_communityLive:"COMMUNITY DATA LIVE",w_yourData:"YOUR DATA",w_community:"COMMUNITY",w_recent:"RECENT WAIT LOGS",w_tapHint:"TAP PICKED UP THE MOMENT YOU HAVE THE ORDER",w_liveNow:"live now",
     prof_title:"DRIVER PROFILE",prof_free:"FREE PLAN",prof_premium:"⭐ PREMIUM",prof_goPremium:"GO PREMIUM",prof_premiumActive:"PREMIUM ACTIVE",prof_totalLogs:"TOTAL LOGS",prof_restaurants:"RESTAURANTS",prof_avgWait:"AVG WAIT",prof_rank:"CONTRIBUTOR RANK",prof_noBadge:"NO BADGE YET",prof_qualityLogs:"QUALITY LOGS",prof_name:"DRIVER NAME",prof_phone:"PHONE (OPTIONAL)",prof_area:"YOUR AREA",prof_areaHint:"Sets your chat room and local restaurant list",prof_save:"SAVE CHANGES",prof_saving:"SAVING...",prof_saved:"✓ SAVED",prof_changePw:"CHANGE PASSWORD",prof_appearance:"APPEARANCE",prof_light:"Light mode",prof_dark:"Dark mode",prof_signout:"SIGN OUT",prof_appStats:"📊 APP STATS",
     up_title:"DELIVR PREMIUM",up_month:"/month",up_cancel:"Cancel anytime",up_noAds:"No ads",up_fullData:"Full community data",up_allChats:"All area chats",up_export:"Export your logs",up_upgradeNow:"UPGRADE NOW →",up_active:"✓ YOU'RE PREMIUM",up_cancelSub:"CANCEL SUBSCRIPTION",
     chk_title:"CHECK RESTAURANT",chk_nearby:"NEARBY · TAP FOR FULL STATS",chk_results:"SEARCH RESULTS",chk_search:"Search any branch — KFC, Sainsbury's…" },
-  pl:{ nav_waits:"CZASY",nav_check:"SPRAWDŹ",nav_chat:"CZAT",
+  pl:{ nav_waits:"CZASY",nav_check:"SPRAWDŹ",nav_stats:"STATY",nav_chat:"CZAT",
     w_title:"CZASY OCZEKIWANIA",w_arrived:"📍 DOTARŁEM DO RESTAURACJI",w_waitingAt:"CZEKASZ W",w_pickedUp:"✓ ODEBRANE",w_gotIt:"✓ MAM — ODEBRANE",w_arrivedShort:"DOTARŁEM",w_timingNow:"● MIERZENIE",w_noData:"BRAK DANYCH",w_closed:"ZAMKNIĘTE",w_closedNow:"Teraz zamknięte",w_waitingNow:"CZEKA TERAZ",w_noOne:"Nikt teraz nie czeka",w_liveActivity:"NA ŻYWO",w_viewAll:"Zobacz wszystko ›",w_communityLive:"DANE SPOŁECZNOŚCI NA ŻYWO",w_yourData:"TWOJE DANE",w_community:"SPOŁECZNOŚĆ",w_recent:"OSTATNIE WPISY",w_tapHint:"KLIKNIJ ODEBRANE GDY MASZ ZAMÓWIENIE",w_liveNow:"na żywo",
     prof_title:"PROFIL KIEROWCY",prof_free:"PLAN DARMOWY",prof_premium:"⭐ PREMIUM",prof_goPremium:"PRZEJDŹ NA PREMIUM",prof_premiumActive:"PREMIUM AKTYWNE",prof_totalLogs:"WSZYSTKIE WPISY",prof_restaurants:"RESTAURACJE",prof_avgWait:"ŚR. CZAS",prof_rank:"RANGA",prof_noBadge:"BRAK ODZNAKI",prof_qualityLogs:"WPISY",prof_name:"NAZWA KIEROWCY",prof_phone:"TELEFON (OPCJON.)",prof_area:"TWÓJ OBSZAR",prof_areaHint:"Ustawia czat i listę lokalnych restauracji",prof_save:"ZAPISZ",prof_saving:"ZAPISYWANIE...",prof_saved:"✓ ZAPISANO",prof_changePw:"ZMIEŃ HASŁO",prof_appearance:"WYGLĄD",prof_light:"Tryb jasny",prof_dark:"Tryb ciemny",prof_signout:"WYLOGUJ",prof_appStats:"📊 STATYSTYKI",
     up_title:"DELIVR PREMIUM",up_month:"/miesiąc",up_cancel:"Anuluj w każdej chwili",up_noAds:"Bez reklam",up_fullData:"Pełne dane społeczności",up_allChats:"Wszystkie czaty",up_export:"Eksport wpisów",up_upgradeNow:"ULEPSZ TERAZ →",up_active:"✓ MASZ PREMIUM",up_cancelSub:"ANULUJ SUBSKRYPCJĘ",
     chk_title:"SPRAWDŹ RESTAURACJĘ",chk_nearby:"W POBLIŻU · DOTKNIJ PO STATYSTYKI",chk_results:"WYNIKI",chk_search:"Szukaj — KFC, Sainsbury's…" },
-  ar:{ nav_waits:"الانتظار",nav_check:"تحقّق",nav_chat:"الدردشة",
+  ar:{ nav_waits:"الانتظار",nav_check:"تحقّق",nav_stats:"إحصاء",nav_chat:"الدردشة",
     w_title:"أوقات الانتظار",w_arrived:"📍 وصلت إلى المطعم",w_waitingAt:"تنتظر في",w_pickedUp:"✓ تم الاستلام",w_gotIt:"✓ استلمت الطلب",w_arrivedShort:"وصلت",w_timingNow:"● جارٍ القياس",w_noData:"لا بيانات بعد",w_closed:"مغلق",w_closedNow:"مغلق الآن",w_waitingNow:"ينتظر الآن",w_noOne:"لا أحد ينتظر الآن",w_liveActivity:"النشاط المباشر",w_viewAll:"عرض الكل ›",w_communityLive:"بيانات المجتمع مباشرة",w_yourData:"بياناتك",w_community:"المجتمع",w_recent:"آخر السجلات",w_tapHint:"اضغط استلام فور حصولك على الطلب",w_liveNow:"مباشر",
     prof_title:"ملف السائق",prof_free:"الخطة المجانية",prof_premium:"⭐ مميّز",prof_goPremium:"اشترك في المميّز",prof_premiumActive:"المميّز مُفعّل",prof_totalLogs:"إجمالي السجلات",prof_restaurants:"المطاعم",prof_avgWait:"متوسط الانتظار",prof_rank:"رتبة المساهم",prof_noBadge:"لا شارة بعد",prof_qualityLogs:"سجلات",prof_name:"اسم السائق",prof_phone:"الهاتف (اختياري)",prof_area:"منطقتك",prof_areaHint:"يحدّد غرفة الدردشة وقائمة المطاعم المحلية",prof_save:"حفظ التغييرات",prof_saving:"جارٍ الحفظ...",prof_saved:"✓ تم الحفظ",prof_changePw:"تغيير كلمة المرور",prof_appearance:"المظهر",prof_light:"الوضع الفاتح",prof_dark:"الوضع الداكن",prof_signout:"تسجيل الخروج",prof_appStats:"📊 إحصائيات",
     up_title:"ديليفر المميّز",up_month:"/شهر",up_cancel:"إلغاء في أي وقت",up_noAds:"بدون إعلانات",up_fullData:"بيانات المجتمع الكاملة",up_allChats:"كل غرف الدردشة",up_export:"تصدير سجلاتك",up_upgradeNow:"اشترك الآن →",up_active:"✓ أنت مميّز",up_cancelSub:"إلغاء الاشتراك",
     chk_title:"تحقّق من مطعم",chk_nearby:"قريب · اضغط للإحصائيات",chk_results:"نتائج البحث",chk_search:"ابحث عن أي فرع — KFC…" },
-  hi:{ nav_waits:"इंतज़ार",nav_check:"जाँचें",nav_chat:"चैट",
+  hi:{ nav_waits:"इंतज़ार",nav_check:"जाँचें",nav_stats:"आँकड़े",nav_chat:"चैट",
     w_title:"रेस्टोरेंट इंतज़ार",w_arrived:"📍 रेस्टोरेंट पहुँच गया",w_waitingAt:"यहाँ इंतज़ार",w_pickedUp:"✓ पिक अप हो गया",w_gotIt:"✓ मिल गया — पिक अप",w_arrivedShort:"पहुँचे",w_timingNow:"● समय गिन रहा है",w_noData:"अभी डेटा नहीं",w_closed:"बंद",w_closedNow:"अभी बंद है",w_waitingNow:"अभी इंतज़ार",w_noOne:"अभी कोई इंतज़ार नहीं",w_liveActivity:"लाइव गतिविधि",w_viewAll:"सब देखें ›",w_communityLive:"समुदाय डेटा लाइव",w_yourData:"आपका डेटा",w_community:"समुदाय",w_recent:"हाल के लॉग",w_tapHint:"ऑर्डर मिलते ही पिक अप दबाएँ",w_liveNow:"लाइव",
     prof_title:"ड्राइवर प्रोफ़ाइल",prof_free:"फ्री प्लान",prof_premium:"⭐ प्रीमियम",prof_goPremium:"प्रीमियम लें",prof_premiumActive:"प्रीमियम चालू",prof_totalLogs:"कुल लॉग",prof_restaurants:"रेस्टोरेंट",prof_avgWait:"औसत इंतज़ार",prof_rank:"योगदान रैंक",prof_noBadge:"अभी बैज नहीं",prof_qualityLogs:"लॉग",prof_name:"ड्राइवर नाम",prof_phone:"फ़ोन (वैकल्पिक)",prof_area:"आपका क्षेत्र",prof_areaHint:"आपका चैट रूम और स्थानीय रेस्टोरेंट सेट करता है",prof_save:"सहेजें",prof_saving:"सहेजा जा रहा...",prof_saved:"✓ सहेजा गया",prof_changePw:"पासवर्ड बदलें",prof_appearance:"रूप",prof_light:"लाइट मोड",prof_dark:"डार्क मोड",prof_signout:"साइन आउट",prof_appStats:"📊 आँकड़े",
     up_title:"डेलिवर प्रीमियम",up_month:"/माह",up_cancel:"कभी भी रद्द करें",up_noAds:"कोई विज्ञापन नहीं",up_fullData:"पूरा समुदाय डेटा",up_allChats:"सभी चैट",up_export:"लॉग एक्सपोर्ट",up_upgradeNow:"अभी अपग्रेड करें →",up_active:"✓ आप प्रीमियम हैं",up_cancelSub:"सदस्यता रद्द करें",
     chk_title:"रेस्टोरेंट जाँचें",chk_nearby:"पास · आँकड़ों के लिए टैप करें",chk_results:"खोज परिणाम",chk_search:"कोई भी ब्रांच खोजें — KFC…" },
-  ur:{ nav_waits:"انتظار",nav_check:"چیک",nav_chat:"چیٹ",
+  ur:{ nav_waits:"انتظار",nav_check:"چیک",nav_stats:"شماریات",nav_chat:"چیٹ",
     w_title:"ریستوران انتظار",w_arrived:"📍 ریستوران پہنچ گیا",w_waitingAt:"یہاں انتظار",w_pickedUp:"✓ پک اپ ہو گیا",w_gotIt:"✓ مل گیا — پک اپ",w_arrivedShort:"پہنچے",w_timingNow:"● وقت گن رہا ہے",w_noData:"ابھی ڈیٹا نہیں",w_closed:"بند",w_closedNow:"ابھی بند ہے",w_waitingNow:"ابھی انتظار",w_noOne:"ابھی کوئی انتظار نہیں",w_liveActivity:"لائیو سرگرمی",w_viewAll:"سب دیکھیں ›",w_communityLive:"کمیونٹی ڈیٹا لائیو",w_yourData:"آپ کا ڈیٹا",w_community:"کمیونٹی",w_recent:"حالیہ لاگ",w_tapHint:"آرڈر ملتے ہی پک اپ دبائیں",w_liveNow:"لائیو",
     prof_title:"ڈرائیور پروفائل",prof_free:"فری پلان",prof_premium:"⭐ پریمیم",prof_goPremium:"پریمیم لیں",prof_premiumActive:"پریمیم فعال",prof_totalLogs:"کل لاگ",prof_restaurants:"ریستوران",prof_avgWait:"اوسط انتظار",prof_rank:"کنٹری بیوٹر رینک",prof_noBadge:"ابھی بیج نہیں",prof_qualityLogs:"لاگ",prof_name:"ڈرائیور نام",prof_phone:"فون (اختیاری)",prof_area:"آپ کا علاقہ",prof_areaHint:"آپ کا چیٹ روم اور مقامی ریستوران سیٹ کرتا ہے",prof_save:"محفوظ کریں",prof_saving:"محفوظ ہو رہا...",prof_saved:"✓ محفوظ",prof_changePw:"پاس ورڈ تبدیل کریں",prof_appearance:"ظاہری شکل",prof_light:"لائٹ موڈ",prof_dark:"ڈارک موڈ",prof_signout:"سائن آؤٹ",prof_appStats:"📊 شماریات",
     up_title:"ڈیلیور پریمیم",up_month:"/ماہ",up_cancel:"کسی بھی وقت منسوخ کریں",up_noAds:"کوئی اشتہار نہیں",up_fullData:"مکمل کمیونٹی ڈیٹا",up_allChats:"تمام چیٹس",up_export:"لاگ ایکسپورٹ",up_upgradeNow:"ابھی اپ گریڈ کریں →",up_active:"✓ آپ پریمیم ہیں",up_cancelSub:"سبسکرپشن منسوخ کریں",
     chk_title:"ریستوران چیک کریں",chk_nearby:"قریب · شماریات کے لیے ٹیپ کریں",chk_results:"تلاش کے نتائج",chk_search:"کوئی برانچ تلاش کریں — KFC…" },
-  pt:{ nav_waits:"ESPERAS",nav_check:"VERIFICAR",nav_chat:"CHAT",
+  pt:{ nav_waits:"ESPERAS",nav_check:"VERIFICAR",nav_stats:"DADOS",nav_chat:"CHAT",
     w_title:"ESPERAS NOS RESTAURANTES",w_arrived:"📍 CHEGUEI AO RESTAURANTE",w_waitingAt:"ESPERANDO EM",w_pickedUp:"✓ PEGUEI",w_gotIt:"✓ PEGUEI — RETIRADO",w_arrivedShort:"CHEGUEI",w_timingNow:"● CRONOMETRANDO",w_noData:"SEM DADOS AINDA",w_closed:"FECHADO",w_closedNow:"Fechado agora",w_waitingNow:"ESPERANDO AGORA",w_noOne:"Ninguém esperando agora",w_liveActivity:"ATIVIDADE AO VIVO",w_viewAll:"Ver tudo ›",w_communityLive:"DADOS DA COMUNIDADE AO VIVO",w_yourData:"SEUS DADOS",w_community:"COMUNIDADE",w_recent:"REGISTROS RECENTES",w_tapHint:"TOQUE EM PEGUEI ASSIM QUE RECEBER O PEDIDO",w_liveNow:"ao vivo",
     prof_title:"PERFIL DO MOTORISTA",prof_free:"PLANO GRÁTIS",prof_premium:"⭐ PREMIUM",prof_goPremium:"OBTER PREMIUM",prof_premiumActive:"PREMIUM ATIVO",prof_totalLogs:"TOTAL DE REGISTROS",prof_restaurants:"RESTAURANTES",prof_avgWait:"ESPERA MÉDIA",prof_rank:"RANQUE",prof_noBadge:"SEM EMBLEMA AINDA",prof_qualityLogs:"REGISTROS",prof_name:"NOME DO MOTORISTA",prof_phone:"TELEFONE (OPCIONAL)",prof_area:"SUA ÁREA",prof_areaHint:"Define seu chat e lista de restaurantes locais",prof_save:"SALVAR",prof_saving:"SALVANDO...",prof_saved:"✓ SALVO",prof_changePw:"ALTERAR SENHA",prof_appearance:"APARÊNCIA",prof_light:"Modo claro",prof_dark:"Modo escuro",prof_signout:"SAIR",prof_appStats:"📊 ESTATÍSTICAS",
     up_title:"DELIVR PREMIUM",up_month:"/mês",up_cancel:"Cancele quando quiser",up_noAds:"Sem anúncios",up_fullData:"Dados completos da comunidade",up_allChats:"Todos os chats",up_export:"Exportar registros",up_upgradeNow:"ASSINAR AGORA →",up_active:"✓ VOCÊ É PREMIUM",up_cancelSub:"CANCELAR ASSINATURA",
@@ -259,7 +239,7 @@ const T4 = {
     ob2_title:"两次点击，就这么简单。",ob2_arrive_t:"到达",ob2_arrive_d:"到达餐厅时点一下，计时自动开始。",ob2_pickup_t:"取餐",ob2_pickup_d:"拿到订单时点一下，等待即被记录。",ob2_see_t:"所有人都能看到",ob2_see_d:"附近每位司机立即看到真实等待时间。",
     ob3_title:"帮我。\n我帮你。",ob3_body:"Delivr 因司机分享而强大。你记录得越多，对所有人就越聪明。加入我们吧。",
     signin:"登录",create:"创建账户",drivername:"司机名称",email:"电子邮箱",password:"密码",confirm:"确认密码",colour:"你的颜色",forgot:"忘记密码？",signinBtn:"登录 →",createBtn:"创建账户 →",changeLang:"🌐 语言",
-    nav_waits:"等待",nav_check:"查询",nav_chat:"聊天",
+    nav_waits:"等待",nav_check:"查询",nav_stats:"统计",nav_chat:"聊天",
     w_title:"餐厅等待时间",w_arrived:"📍 已到达餐厅",w_waitingAt:"正在等待",w_pickedUp:"✓ 已取餐",w_gotIt:"✓ 已取餐",w_arrivedShort:"已到达",w_timingNow:"● 计时中",w_noData:"暂无数据",w_closed:"已关闭",w_closedNow:"现在已关闭",w_waitingNow:"正在等待",w_noOne:"现在无人等待",w_liveActivity:"实时动态",w_viewAll:"查看全部 ›",w_communityLive:"社区数据实时更新",w_yourData:"你的数据",w_community:"社区",w_recent:"最近的等待记录",w_tapHint:"拿到订单后立即点“已取餐”",w_liveNow:"实时",
     prof_title:"司机资料",prof_free:"免费版",prof_premium:"⭐ 高级版",prof_goPremium:"升级高级版",prof_premiumActive:"高级版已激活",prof_totalLogs:"总记录",prof_restaurants:"餐厅",prof_avgWait:"平均等待",prof_rank:"贡献等级",prof_noBadge:"暂无徽章",prof_qualityLogs:"记录",prof_name:"司机名称",prof_phone:"电话（可选）",prof_area:"你的区域",prof_areaHint:"设置你的聊天室和本地餐厅列表",prof_save:"保存",prof_saving:"保存中...",prof_saved:"✓ 已保存",prof_changePw:"修改密码",prof_appearance:"外观",prof_light:"浅色模式",prof_dark:"深色模式",prof_signout:"退出登录",prof_appStats:"📊 应用统计",
     up_title:"DELIVR 高级版",up_month:"/月",up_cancel:"随时取消",up_noAds:"无广告",up_fullData:"完整社区数据",up_allChats:"所有区域聊天",up_export:"导出你的记录",up_upgradeNow:"立即升级 →",up_active:"✓ 你是高级会员",up_cancelSub:"取消订阅",
@@ -270,7 +250,7 @@ const T4 = {
     ob2_title:"Două atingeri. Atât.",ob2_arrive_t:"Ajuns",ob2_arrive_d:"Atinge o dată când ajungi la restaurant. Cronometrul pornește automat.",ob2_pickup_t:"Preluat",ob2_pickup_d:"Atinge când ai comanda. Așteptarea ta e înregistrată.",ob2_see_t:"Toți văd",ob2_see_d:"Fiecare șofer din apropiere vede instant timpul real de așteptare.",
     ob3_title:"Ajută-mă.\nTe ajut.",ob3_body:"Delivr funcționează doar pentru că șoferii împărtășesc. Cu cât înregistrezi mai mult, cu atât e mai inteligent pentru toți. Alătură-te.",
     signin:"AUTENTIFICARE",create:"CREEAZĂ CONT",drivername:"NUME ȘOFER",email:"ADRESĂ EMAIL",password:"PAROLĂ",confirm:"CONFIRMĂ PAROLA",colour:"CULOAREA TA",forgot:"Ai uitat parola?",signinBtn:"INTRĂ →",createBtn:"CREEAZĂ CONT →",changeLang:"🌐 Limbă",
-    nav_waits:"AȘTEPTĂRI",nav_check:"VERIFICĂ",nav_chat:"CHAT",
+    nav_waits:"AȘTEPTĂRI",nav_check:"VERIFICĂ",nav_stats:"STATS",nav_chat:"CHAT",
     w_title:"AȘTEPTĂRI RESTAURANTE",w_arrived:"📍 AM AJUNS LA RESTAURANT",w_waitingAt:"AȘTEPT LA",w_pickedUp:"✓ PRELUAT",w_gotIt:"✓ AM PRELUAT",w_arrivedShort:"AJUNS",w_timingNow:"● SE CRONOMETREAZĂ",w_noData:"ÎNCĂ FĂRĂ DATE",w_closed:"ÎNCHIS",w_closedNow:"Închis acum",w_waitingNow:"AȘTEAPTĂ ACUM",w_noOne:"Nimeni nu așteaptă acum",w_liveActivity:"ACTIVITATE LIVE",w_viewAll:"Vezi tot ›",w_communityLive:"DATE COMUNITARE LIVE",w_yourData:"DATELE TALE",w_community:"COMUNITATE",w_recent:"ÎNREGISTRĂRI RECENTE",w_tapHint:"APASĂ PRELUAT IMEDIAT CE AI COMANDA",w_liveNow:"live",
     prof_title:"PROFIL ȘOFER",prof_free:"PLAN GRATUIT",prof_premium:"⭐ PREMIUM",prof_goPremium:"TRECI LA PREMIUM",prof_premiumActive:"PREMIUM ACTIV",prof_totalLogs:"TOTAL ÎNREGISTRĂRI",prof_restaurants:"RESTAURANTE",prof_avgWait:"AȘTEPTARE MEDIE",prof_rank:"RANG",prof_noBadge:"ÎNCĂ FĂRĂ INSIGNĂ",prof_qualityLogs:"ÎNREGISTRĂRI",prof_name:"NUME ȘOFER",prof_phone:"TELEFON (OPȚIONAL)",prof_area:"ZONA TA",prof_areaHint:"Stabilește chatul și lista de restaurante locale",prof_save:"SALVEAZĂ",prof_saving:"SE SALVEAZĂ...",prof_saved:"✓ SALVAT",prof_changePw:"SCHIMBĂ PAROLA",prof_appearance:"ASPECT",prof_light:"Mod luminos",prof_dark:"Mod întunecat",prof_signout:"DECONECTARE",prof_appStats:"📊 STATISTICI",
     up_title:"DELIVR PREMIUM",up_month:"/lună",up_cancel:"Anulează oricând",up_noAds:"Fără reclame",up_fullData:"Date complete ale comunității",up_allChats:"Toate chaturile",up_export:"Exportă înregistrările",up_upgradeNow:"TRECI LA PREMIUM →",up_active:"✓ EȘTI PREMIUM",up_cancelSub:"ANULEAZĂ ABONAMENTUL",
@@ -281,7 +261,7 @@ const T4 = {
     ob2_title:"Dos toques. Eso es todo.",ob2_arrive_t:"Llegada",ob2_arrive_d:"Toca una vez al llegar al restaurante. El cronómetro empieza solo.",ob2_pickup_t:"Recogida",ob2_pickup_d:"Toca cuando tengas el pedido. Tu espera queda registrada.",ob2_see_t:"Todos lo ven",ob2_see_d:"Cada conductor cercano ve al instante el tiempo real de espera.",
     ob3_title:"Ayúdame.\nYo te ayudo.",ob3_body:"Delivr solo funciona porque los conductores comparten. Cuanto más registres, más inteligente es para todos. Únete al equipo.",
     signin:"INICIAR SESIÓN",create:"CREAR CUENTA",drivername:"NOMBRE DEL CONDUCTOR",email:"CORREO ELECTRÓNICO",password:"CONTRASEÑA",confirm:"CONFIRMAR CONTRASEÑA",colour:"TU COLOR",forgot:"¿Olvidaste tu contraseña?",signinBtn:"INICIAR SESIÓN →",createBtn:"CREAR CUENTA →",changeLang:"🌐 Idioma",
-    nav_waits:"ESPERAS",nav_check:"CONSULTAR",nav_chat:"CHAT",
+    nav_waits:"ESPERAS",nav_check:"CONSULTAR",nav_stats:"DATOS",nav_chat:"CHAT",
     w_title:"ESPERAS EN RESTAURANTES",w_arrived:"📍 LLEGUÉ AL RESTAURANTE",w_waitingAt:"ESPERANDO EN",w_pickedUp:"✓ RECOGIDO",w_gotIt:"✓ YA LO TENGO",w_arrivedShort:"LLEGUÉ",w_timingNow:"● CRONOMETRANDO",w_noData:"SIN DATOS AÚN",w_closed:"CERRADO",w_closedNow:"Cerrado ahora",w_waitingNow:"ESPERANDO AHORA",w_noOne:"Nadie esperando ahora",w_liveActivity:"ACTIVIDAD EN VIVO",w_viewAll:"Ver todo ›",w_communityLive:"DATOS DE LA COMUNIDAD EN VIVO",w_yourData:"TUS DATOS",w_community:"COMUNIDAD",w_recent:"REGISTROS RECIENTES",w_tapHint:"TOCA RECOGIDO EN CUANTO TENGAS EL PEDIDO",w_liveNow:"en vivo",
     prof_title:"PERFIL DEL CONDUCTOR",prof_free:"PLAN GRATIS",prof_premium:"⭐ PREMIUM",prof_goPremium:"OBTENER PREMIUM",prof_premiumActive:"PREMIUM ACTIVO",prof_totalLogs:"TOTAL DE REGISTROS",prof_restaurants:"RESTAURANTES",prof_avgWait:"ESPERA MEDIA",prof_rank:"RANGO",prof_noBadge:"SIN INSIGNIA AÚN",prof_qualityLogs:"REGISTROS",prof_name:"NOMBRE DEL CONDUCTOR",prof_phone:"TELÉFONO (OPCIONAL)",prof_area:"TU ZONA",prof_areaHint:"Define tu chat y lista de restaurantes locales",prof_save:"GUARDAR",prof_saving:"GUARDANDO...",prof_saved:"✓ GUARDADO",prof_changePw:"CAMBIAR CONTRASEÑA",prof_appearance:"APARIENCIA",prof_light:"Modo claro",prof_dark:"Modo oscuro",prof_signout:"CERRAR SESIÓN",prof_appStats:"📊 ESTADÍSTICAS",
     up_title:"DELIVR PREMIUM",up_month:"/mes",up_cancel:"Cancela cuando quieras",up_noAds:"Sin anuncios",up_fullData:"Datos completos de la comunidad",up_allChats:"Todos los chats",up_export:"Exporta tus registros",up_upgradeNow:"MEJORAR AHORA →",up_active:"✓ ERES PREMIUM",up_cancelSub:"CANCELAR SUSCRIPCIÓN",
@@ -292,7 +272,7 @@ const T4 = {
     ob2_title:"Два нажатия. Вот и всё.",ob2_arrive_t:"Прибытие",ob2_arrive_d:"Нажмите один раз по приезде в ресторан. Таймер запустится сам.",ob2_pickup_t:"Забрал",ob2_pickup_d:"Нажмите, когда получите заказ. Ваше ожидание записано.",ob2_see_t:"Все видят",ob2_see_d:"Каждый водитель рядом сразу видит реальное время ожидания.",
     ob3_title:"Помоги мне.\nЯ помогу тебе.",ob3_body:"Delivr работает только потому, что водители делятся. Чем больше вы записываете, тем умнее он для всех. Присоединяйтесь.",
     signin:"ВОЙТИ",create:"СОЗДАТЬ АККАУНТ",drivername:"ИМЯ ВОДИТЕЛЯ",email:"ЭЛ. ПОЧТА",password:"ПАРОЛЬ",confirm:"ПОДТВЕРДИТЕ ПАРОЛЬ",colour:"ВАШ ЦВЕТ",forgot:"Забыли пароль?",signinBtn:"ВОЙТИ →",createBtn:"СОЗДАТЬ АККАУНТ →",changeLang:"🌐 Язык",
-    nav_waits:"ОЖИДАНИЕ",nav_check:"ПРОВЕРКА",nav_chat:"ЧАТ",
+    nav_waits:"ОЖИДАНИЕ",nav_check:"ПРОВЕРКА",nav_stats:"СТАТЫ",nav_chat:"ЧАТ",
     w_title:"ОЖИДАНИЕ В РЕСТОРАНАХ",w_arrived:"📍 Я В РЕСТОРАНЕ",w_waitingAt:"ОЖИДАНИЕ В",w_pickedUp:"✓ ЗАБРАЛ",w_gotIt:"✓ ЗАБРАЛ ЗАКАЗ",w_arrivedShort:"ПРИБЫЛ",w_timingNow:"● ИДЁТ ОТСЧЁТ",w_noData:"ПОКА НЕТ ДАННЫХ",w_closed:"ЗАКРЫТО",w_closedNow:"Сейчас закрыто",w_waitingNow:"СЕЙЧАС ЖДУТ",w_noOne:"Сейчас никто не ждёт",w_liveActivity:"ЖИВАЯ ЛЕНТА",w_viewAll:"Показать всё ›",w_communityLive:"ДАННЫЕ СООБЩЕСТВА В ЭФИРЕ",w_yourData:"ВАШИ ДАННЫЕ",w_community:"СООБЩЕСТВО",w_recent:"ПОСЛЕДНИЕ ЗАПИСИ",w_tapHint:"НАЖМИТЕ «ЗАБРАЛ», КАК ТОЛЬКО ПОЛУЧИТЕ ЗАКАЗ",w_liveNow:"в эфире",
     prof_title:"ПРОФИЛЬ ВОДИТЕЛЯ",prof_free:"БЕСПЛАТНО",prof_premium:"⭐ ПРЕМИУМ",prof_goPremium:"ПЕРЕЙТИ НА ПРЕМИУМ",prof_premiumActive:"ПРЕМИУМ АКТИВЕН",prof_totalLogs:"ВСЕГО ЗАПИСЕЙ",prof_restaurants:"РЕСТОРАНЫ",prof_avgWait:"СРЕДНЕЕ ОЖИДАНИЕ",prof_rank:"РАНГ",prof_noBadge:"ПОКА НЕТ ЗНАЧКА",prof_qualityLogs:"ЗАПИСИ",prof_name:"ИМЯ ВОДИТЕЛЯ",prof_phone:"ТЕЛЕФОН (НЕОБЯЗ.)",prof_area:"ВАШ РАЙОН",prof_areaHint:"Задаёт ваш чат и список местных ресторанов",prof_save:"СОХРАНИТЬ",prof_saving:"СОХРАНЕНИЕ...",prof_saved:"✓ СОХРАНЕНО",prof_changePw:"СМЕНИТЬ ПАРОЛЬ",prof_appearance:"ВНЕШНИЙ ВИД",prof_light:"Светлая тема",prof_dark:"Тёмная тема",prof_signout:"ВЫЙТИ",prof_appStats:"📊 СТАТИСТИКА",
     up_title:"DELIVR ПРЕМИУМ",up_month:"/мес",up_cancel:"Отмена в любое время",up_noAds:"Без рекламы",up_fullData:"Полные данные сообщества",up_allChats:"Все чаты районов",up_export:"Экспорт записей",up_upgradeNow:"ОФОРМИТЬ →",up_active:"✓ У ВАС ПРЕМИУМ",up_cancelSub:"ОТМЕНИТЬ ПОДПИСКУ",
@@ -401,7 +381,7 @@ function computePatterns(logs) {
 // ARRIVED, so it drops every second the driver waits. All data is personal (stored
 // under users/{uid}/earnings) and never mixed with other drivers.
 const PLATFORMS = ["Uber Eats", "Just Eat", "Deliveroo"];
-const SESSION_GAP_MS = 6 * 60 * 60 * 1000;   // >6h idle → next ARRIVED begins a fresh session
+const SESSION_GAP_MS = 60 * 60 * 1000;   // >1h with no ARRIVED → the driver stopped working; next ARRIVED begins a fresh session
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 function parsePayout(v) {
   const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g, ""));
@@ -415,9 +395,15 @@ function parseCount(v) {
   return Number.isFinite(n) && n >= 0 && n < 100 ? n : null;
 }
 const REPORTED_COUNT_TTL_MS = 20 * 60 * 1000;   // a reported queue count goes stale after 20 min
+const QUEUE_ALERT_TTL_MS = 20 * 60 * 1000;        // a long-queue alert auto-disappears after 20 min
+const QUEUE_ALERT_COOLDOWN_MS = 10 * 60 * 1000;   // a driver can alert a given restaurant once per 10 min
 // A payout banks against its full ARRIVED→next-ARRIVED window. When that next ARRIVED
 // never comes (last order of a shift) we estimate the delivery leg with this many minutes.
 const DEFAULT_DELIVERY_MINS = 12;
+// Multi-delivery guard: two ARRIVED presses <10 min apart are a quick/stacked pickup, not a
+// full earning window. We don't attribute that tiny gap to £/hour (it would inflate the rate);
+// instead we fall back to the estimated delivery leg.
+const MIN_CYCLE_GAP_MINS = 10;
 function fmtGBP(n) { return "£" + (Math.round((n || 0) * 100) / 100).toFixed(2); }
 function fmtRate(r) { return r == null ? "—" : "£" + (Math.round(r * 10) / 10).toFixed(1) + "/hr"; }
 
@@ -425,33 +411,80 @@ function fmtRate(r) { return r == null ? "—" : "£" + (Math.round(r * 10) / 10
 // Each order's £/hour is measured against its real ARRIVED→next-ARRIVED window
 // (cycleMins) — i.e. wait + drive + deliver — not just the time spent at the counter,
 // so the rates reflect what the driver actually earns per working hour.
-function computeEarningsStats(entries) {
+// periodStartMs clamps each session's start to the start of the view (e.g. midnight for TODAY),
+// so a session that began before the period can't drag pre-period time into its £/hour.
+function computeEarningsStats(entries, periodStartMs = 0) {
   if (!entries || !entries.length) return null;
+  const orders = entries.filter(e => !e.bulk);   // per-delivery entries (drive £/hour + order stats)
   const enriched = [];
-  let totalEarnings = 0, totalHours = 0;
-  for (const e of entries) {
-    const payout = Number(e.payout) || 0;
+  let orderEarnings = 0, totalHours = 0, totalTips = 0, totalBase = 0;
+  let bestOrder = null, worstWait = null;   // single-order extremes (highest payout / longest wait)
+  for (const e of orders) {
+    const base = Number(e.payout) || 0;
+    const tip = Number(e.tip) || 0;
+    const payout = base + tip;   // tip is part of the order's total earnings
     // Real window if recorded; otherwise estimate (wait + a delivery leg) for older/edge logs.
     const cycleMins = Number(e.cycleMins) > 0 ? Number(e.cycleMins) : (e.waitMins || 0) + DEFAULT_DELIVERY_MINS;
     const attrH = cycleMins / 60;
-    totalEarnings += payout;
+    orderEarnings += payout;
+    totalTips += tip;
+    totalBase += base;
     totalHours += attrH;
+    if (!bestOrder || payout > bestOrder.payout) bestOrder = { name: e.restaurantName || "Order", payout, platform: e.platform || null };
+    const w = e.waitMins || 0;
+    if (!worstWait || w > worstWait.waitMins) worstWait = { name: e.restaurantName || "Restaurant", waitMins: w };
     enriched.push({ ...e, payout, attrH });
   }
-  const overallRate = totalHours > 0 ? totalEarnings / totalHours : null;
+  // Platform bulk totals (a lump £ logged for a whole platform). They add to total earnings and
+  // the platform/day totals, but carry NO time, so they never affect £/hour or order counts.
+  let bulkTotal = 0; const bulkByPlat = {}; const bulkByDow = {};
+  for (const e of entries) {
+    if (!e.bulk) continue;
+    const amt = (Number(e.payout) || 0) + (Number(e.tip) || 0);
+    bulkTotal += amt; totalBase += Number(e.payout) || 0; totalTips += Number(e.tip) || 0;
+    const p = e.platform || "Other"; bulkByPlat[p] = (bulkByPlat[p] || 0) + amt;
+    const d = e.dow ?? new Date(e.ts).getDay(); bulkByDow[d] = (bulkByDow[d] || 0) + amt;
+  }
+  const totalEarnings = orderEarnings + bulkTotal;
+  // Headline £/hour uses the whole WORKING TIME per session: first ARRIVED → last DELIVERED,
+  // so all the driving/waiting between deliveries counts — not just summed per-order windows.
+  // Legacy/manual entries (no session timestamps) fall back to their own per-order time.
+  const sessGroups = {};
+  for (const e of enriched) {
+    const sid = e.sessionId || ("__solo_" + (e.id || e.ts));
+    const g = sessGroups[sid] || (sessGroups[sid] = { start: null, end: null, solo: 0 });
+    g.solo += e.attrH;
+    const st = e.sessionStart ? Math.max(new Date(e.sessionStart).getTime(), periodStartMs) : null;
+    const en = e.deliveredAt ? new Date(e.deliveredAt).getTime() : null;
+    if (st != null) g.start = g.start == null ? st : Math.min(g.start, st);
+    if (en != null) g.end = g.end == null ? en : Math.max(g.end, en);
+  }
+  let sessionHours = 0;
+  for (const g of Object.values(sessGroups)) {
+    const span = (g.start != null && g.end != null && g.end > g.start) ? (g.end - g.start) / 3600000 : null;
+    sessionHours += (span != null && span > 0) ? span : g.solo;
+  }
+  const workHours = sessionHours > 0 ? sessionHours : totalHours;
+  totalHours = workHours;   // "TIME" card + headline rate both reflect real working time
+  const overallRate = totalHours > 0 ? orderEarnings / totalHours : null;   // bulk lump sums excluded from £/hour
 
   const plat = {};
   for (const e of enriched) {
     const p = e.platform || "Other";
-    (plat[p] = plat[p] || { sum: 0, hrs: 0, n: 0 });
-    plat[p].sum += e.payout; plat[p].hrs += e.attrH; plat[p].n += 1;
+    (plat[p] = plat[p] || { sum: 0, hrs: 0, n: 0, total: 0 });
+    plat[p].sum += e.payout; plat[p].hrs += e.attrH; plat[p].n += 1; plat[p].total += e.payout;
   }
-  let bestPlatRate = null, bestPlatAvg = null;
+  for (const [p, amt] of Object.entries(bulkByPlat)) {   // bulk adds to a platform's displayed total only
+    (plat[p] = plat[p] || { sum: 0, hrs: 0, n: 0, total: 0 });
+    plat[p].total += amt;
+  }
+  let bestPlatRate = null, bestPlatAvg = null, bestPlatTotal = null;
   for (const [p, v] of Object.entries(plat)) {
     const rate = v.hrs > 0 ? v.sum / v.hrs : null;
     const avg  = v.n   > 0 ? v.sum / v.n   : null;
     if (rate != null && (!bestPlatRate || rate > bestPlatRate.rate)) bestPlatRate = { platform: p, rate, n: v.n };
     if (avg  != null && (!bestPlatAvg  || avg  > bestPlatAvg.avg))   bestPlatAvg  = { platform: p, avg,  n: v.n };
+    if (!bestPlatTotal || v.total > bestPlatTotal.sum) bestPlatTotal = { platform: p, sum: v.total, rate, n: v.n };
   }
 
   const rest = {};
@@ -475,11 +508,18 @@ function computeEarningsStats(entries) {
     (dow[d] = dow[d] || { sum: 0, hrs: 0, n: 0 });
     dow[d].sum += e.payout; dow[d].hrs += e.attrH; dow[d].n += 1;
   }
-  let bestDay = null;
+  const dayTotal = d => (dow[d] ? dow[d].sum : 0) + (bulkByDow[d] || 0);
+  let bestDay = null, bestDayTotal = null;
   for (const [d, v] of Object.entries(dow)) {
     const rate = v.hrs > 0 ? v.sum / v.hrs : null;
     if (rate != null && (!bestDay || rate > bestDay.rate)) bestDay = { dow: Number(d), rate, n: v.n };
   }
+  for (const d of new Set([...Object.keys(dow), ...Object.keys(bulkByDow)])) {
+    const tot = dayTotal(d);
+    if (tot > 0 && (!bestDayTotal || tot > bestDayTotal.sum)) bestDayTotal = { dow: Number(d), sum: tot, n: dow[d] ? dow[d].n : 0 };
+  }
+  // Mon→Sun earnings totals (incl. bulk), for the weekly bar chart
+  const byDay = [1, 2, 3, 4, 5, 6, 0].map(d => ({ dow: d, sum: dayTotal(d) }));
 
   const per = {};
   for (const e of enriched) {
@@ -494,13 +534,19 @@ function computeEarningsStats(entries) {
   }
 
   return {
-    totalEarnings, overallRate, totalOrders: enriched.length, totalHours,
-    bestPlatRate, bestPlatAvg, quickest, costliest, bestDay, bestPeriod,
+    totalEarnings, totalBase, totalTips, overallRate, totalOrders: enriched.length, totalHours,
+    bestPlatRate, bestPlatAvg, bestPlatTotal, quickest, costliest,
+    bestDay, bestDayTotal, bestPeriod, bestOrder, worstWait, byDay,
     platforms: Object.entries(plat).map(([name, v]) => ({
-      name, n: v.n, avg: v.n > 0 ? v.sum / v.n : 0, rate: v.hrs > 0 ? v.sum / v.hrs : null,
-    })).sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1)),
+      name, n: v.n, avg: v.n > 0 ? v.sum / v.n : 0, rate: v.hrs > 0 ? v.sum / v.hrs : null, total: v.total,
+    })).sort((a, b) => b.total - a.total),
   };
 }
+
+// Local-time day/week boundaries, so the daily view resets at midnight and the weekly
+// summary always runs Monday → Sunday in the driver's own timezone.
+function startOfDayMs(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); }
+function startOfWeekMs(d) { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); x.setHours(0, 0, 0, 0); return x.getTime(); }
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
 // Safari needs geolocation requested from a real tap. So: if permission is already
@@ -561,90 +607,106 @@ function distMeters(lat1,lng1,lat2,lng2) {
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-// Fetch real nearby restaurants from Google Places based on driver's GPS position
+// Fetch nearby restaurants from the Mapbox Search Box category endpoint (driver's GPS position).
+// Mapbox: 50k free requests/month. No Google.
 async function fetchNearbyRestaurants(lat,lng) {
-  if(!GOOGLE_MAPS_KEY||lat==null||lng==null)return[];
+  if(!MAPBOX_TOKEN||lat==null||lng==null)return[];
   try{
-    const res=await fetch("https://places.googleapis.com/v1/places:searchNearby",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.types,places.currentOpeningHours,places.businessStatus"},
-      body:JSON.stringify({
-        includedTypes:["restaurant","fast_food_restaurant","cafe","bakery","meal_takeaway","sandwich_shop","pizza_restaurant","coffee_shop","supermarket","convenience_store","grocery_store"],
-        maxResultCount:20,
-        rankPreference:"DISTANCE",
-        locationRestriction:{circle:{center:{latitude:lat,longitude:lng},radius:5000}},
-      }),
-    });
+    const res=await fetch(`https://api.mapbox.com/search/searchbox/v1/category/restaurant?proximity=${lng},${lat}&limit=25&access_token=${MAPBOX_TOKEN}`);
     const g=await res.json();
-    if(!g.places?.length)return[];
-    return g.places.map(p=>{
-      const types=p.types||[];
+    if(!g.features?.length)return[];
+    return g.features.map(f=>{
+      const p=f.properties||{};
+      const cats=[...(p.poi_category_ids||[]),p.maki].filter(Boolean);
+      const ct=cats.join(" ").toLowerCase();
       let baseWait=10,rel=0.70,label="Variable";
-      if(types.some(t=>["fast_food_restaurant","hamburger_restaurant","sandwich_shop","meal_takeaway"].includes(t))){baseWait=5;rel=0.80;label="Usually fast";}
-      else if(types.some(t=>["cafe","coffee_shop","bakery"].includes(t))){baseWait=4;rel=0.85;label="Quick grab";}
-      else if(types.includes("pizza_restaurant")){baseWait=10;rel=0.68;label="Variable";}
-      else if(types.some(t=>["supermarket","convenience_store","grocery_store"].includes(t))){baseWait=5;rel=0.82;label="Usually quick";}
-      // openNow: true/false from Google; undefined when Google has no hours data
-      const openNow=p.businessStatus&&p.businessStatus!=="OPERATIONAL"?false:p.currentOpeningHours?.openNow;
-      return{id:p.id,name:p.displayName?.text||"Unknown",branchLat:p.location.latitude,branchLng:p.location.longitude,baseWait,rel,label,openNow};
+      if(/fast_food|burger|sandwich|takeaway|chicken|kebab/.test(ct)){baseWait=5;rel=0.80;label="Usually fast";}
+      else if(/cafe|coffee|bakery/.test(ct)){baseWait=4;rel=0.85;label="Quick grab";}
+      else if(/pizza/.test(ct)){baseWait=10;rel=0.68;label="Variable";}
+      else if(/grocery|supermarket|convenience/.test(ct)){baseWait=5;rel=0.82;label="Usually quick";}
+      const lngv=p.coordinates?.longitude??f.geometry?.coordinates?.[0];
+      const latv=p.coordinates?.latitude??f.geometry?.coordinates?.[1];
+      return{id:p.mapbox_id||f.id,name:p.name||"Unknown",branchLat:latv,branchLng:lngv,baseWait,rel,label,openNow:undefined,cats};
     });
   }catch(e){return[];}
 }
 
-// Single-restaurant live geocode using Google Places API (more reliable than Mapbox for chains)
+// Single-restaurant geocode via the Mapbox Search Box forward endpoint → {lat,lng}. No Google.
 async function geocodeBranch(lat,lng,name) {
+  if(!MAPBOX_TOKEN||!name)return null;
   try{
-    const res=await fetch("https://places.googleapis.com/v1/places:searchText",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.location,places.displayName"},
-      body:JSON.stringify({
-        textQuery:name,
-        locationBias:{circle:{center:{latitude:lat,longitude:lng},radius:2000}},
-        maxResultCount:1,
-      }),
-    });
+    let url=`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(name)}&limit=1&access_token=${MAPBOX_TOKEN}`;
+    if(lat!=null&&lng!=null)url+=`&proximity=${lng},${lat}`;
+    const res=await fetch(url);
     const g=await res.json();
-    if(!g.places?.length)return null;
-    const loc=g.places[0].location;
-    return{lat:loc.latitude,lng:loc.longitude};
+    const f=g.features?.[0];
+    if(!f)return null;
+    const p=f.properties||{};
+    const lngv=p.coordinates?.longitude??f.geometry?.coordinates?.[0];
+    const latv=p.coordinates?.latitude??f.geometry?.coordinates?.[1];
+    return latv!=null?{lat:latv,lng:lngv}:null;
   }catch(e){return null;}
 }
 
-// Search restaurants by name — used in the picker so drivers can find any restaurant anywhere
+// Search restaurants by name — used in the picker so drivers can find any restaurant anywhere.
+// Mapbox Search Box only (no Google). Mapbox carries no opening hours, so openNow stays unknown.
 async function searchRestaurants(query,lat,lng) {
-  if(!query||query.trim().length<2)return[];
+  if(!query||query.trim().length<2||!MAPBOX_TOKEN)return[];
   try{
-    const body={textQuery:query.trim(),maxResultCount:20};
-    if(lat!=null&&lng!=null)body.locationBias={circle:{center:{latitude:lat,longitude:lng},radius:50000}};
-    const res=await fetch("https://places.googleapis.com/v1/places:searchText",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","X-Goog-Api-Key":GOOGLE_MAPS_KEY,"X-Goog-FieldMask":"places.id,places.displayName,places.location,places.formattedAddress,places.currentOpeningHours,places.businessStatus"},
-      body:JSON.stringify(body),
-    });
+    let url=`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(query.trim())}&limit=10&access_token=${MAPBOX_TOKEN}`;
+    if(lat!=null&&lng!=null)url+=`&proximity=${lng},${lat}`;
+    const res=await fetch(url);
     const g=await res.json();
-    if(!g.places?.length)return[];
-    return g.places.map(p=>({
-      id:p.id,
-      name:p.displayName?.text||"Unknown",
-      address:p.formattedAddress||"",
-      branchLat:p.location.latitude,
-      branchLng:p.location.longitude,
-      openNow:p.businessStatus&&p.businessStatus!=="OPERATIONAL"?false:p.currentOpeningHours?.openNow,
-      baseWait:10,rel:0.70,label:"",
-    }));
-  }catch(e){console.error("searchRestaurants error:",e);return[];}
+    if(!g.features?.length)return[];
+    const pois=g.features.filter(f=>f.properties?.feature_type==="poi");
+    return (pois.length?pois:g.features).map(f=>{
+      const p=f.properties||{};
+      const lngv=p.coordinates?.longitude??f.geometry?.coordinates?.[0];
+      const latv=p.coordinates?.latitude??f.geometry?.coordinates?.[1];
+      return{
+        id:p.mapbox_id||f.id||(p.name+":"+lngv+","+latv),
+        name:p.name||"Unknown",
+        address:p.full_address||p.place_formatted||"",
+        branchLat:latv,branchLng:lngv,
+        openNow:undefined,   // no Google-equivalent hours from Mapbox
+        cats:[...(p.poi_category_ids||[]),p.maki].filter(Boolean),   // for food-first ranking
+        baseWait:10,rel:0.70,label:"",
+      };
+    });
+  }catch(e){console.error("searchRestaurants (mapbox) error:",e);return[];}
 }
 
-// Reverse-geocode the driver's GPS to their town/area (used to verify physical presence for area join)
+// Rank search results: real food places / restaurants first, then nearest by GPS. Used by
+// both the ARRIVED picker and the CHECK search so a driver sees relevant nearby branches first.
+const FOOD_HINTS=["restaurant","food","cafe","coffee","bakery","bar","meal_takeaway","meal_delivery","fast_food","ice_cream","sandwich","pizza","deli","diner","steak","sushi","burger","chicken","grocery","supermarket","convenience"];
+function isFoodResult(r){
+  const t=(r.cats||[]).join(" ").toLowerCase();
+  return FOOD_HINTS.some(h=>t.includes(h));
+}
+function rankResults(list,gps){
+  const hasGps=gps&&gps.status==="active"&&gps.lat!=null;
+  const withDist=list.map(r=>{
+    const lat=r.branchLat??r.lat,lng=r.branchLng??r.lng;
+    const dist=hasGps&&lat!=null?distMeters(gps.lat,gps.lng,lat,lng):null;
+    return{...r,dist};
+  });
+  return withDist.sort((a,b)=>{
+    const fa=isFoodResult(a),fb=isFoodResult(b);
+    if(fa!==fb)return fa?-1:1;                              // food / restaurants first
+    if(a.dist!=null&&b.dist!=null)return a.dist-b.dist;     // then nearest
+    if(a.dist!=null)return -1; if(b.dist!=null)return 1;
+    return 0;
+  });
+}
+
+// Reverse-geocode the driver's GPS to their town/area (used to verify physical presence for
+// area join). Mapbox reverse geocode (place type). No Google.
 async function reverseGeocodeArea(lat,lng){
-  if(!GOOGLE_MAPS_KEY||lat==null||lng==null)return null;
+  if(!MAPBOX_TOKEN||lat==null||lng==null)return null;
   try{
-    const res=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&result_type=postal_town|locality|administrative_area_level_2&key=${GOOGLE_MAPS_KEY}`);
+    const res=await fetch(`https://api.mapbox.com/search/geocode/v6/reverse?longitude=${lng}&latitude=${lat}&types=place&access_token=${MAPBOX_TOKEN}`);
     const g=await res.json();
-    if(!g.results?.length)return null;
-    const comps=g.results[0].address_components||[];
-    const pick=types=>comps.find(c=>types.some(t=>c.types.includes(t)))?.long_name;
-    return pick(["postal_town"])||pick(["locality"])||pick(["administrative_area_level_2"])||null;
+    return g.features?.[0]?.properties?.name||null;
   }catch(e){console.error("reverseGeocodeArea error:",e);return null;}
 }
 
@@ -762,7 +824,7 @@ function EarningsLive({session,pendingPayout,pendingPlatform}) {
       </div>
       {hasPending&&(
         <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid var(--border)",fontSize:10,...M,color:"var(--muted)"}}>
-          {fmtGBP(pendingPayout)} pending{pendingPlatform?" · "+pendingPlatform:""} — counts at your next ARRIVED, after this order is delivered
+          {fmtGBP(pendingPayout)} pending{pendingPlatform?" · "+pendingPlatform:""} — counts when you mark it delivered
         </div>
       )}
     </div>
@@ -819,6 +881,31 @@ function EarningsPopup({restaurantName,onSave,onSkip}) {
           <button onClick={onSkip} style={{flex:1,minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:15,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>SKIP</button>
           <button onClick={()=>canSave&&onSave({platform:earningsReady?platform:null,payout:earningsReady?amt:null,count:cnt})} disabled={!canSave}
             style={{flex:1.4,minHeight:52,background:canSave?"#06c167":"var(--border)",border:"none",borderRadius:12,...B,fontSize:16,letterSpacing:2,color:canSave?"#000":"var(--faint)",cursor:canSave?"pointer":"default"}}>SAVE</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Shown after a delivery is marked DELIVERED. Optional cash tip (free text £) added to that
+// order's total payout; kept separate from base pay in statistics. Dismissing = no tip.
+function TipPopup({restaurantName,onConfirm}) {
+  const [amount,setAmount]=useState("");
+  const num=v=>{const n=parseFloat(String(v).replace(/[^0-9.]/g,""));return Number.isFinite(n)&&n>0?Math.round(n*100)/100:0;};
+  return(
+    <div onClick={()=>onConfirm(0)} style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:18,padding:"20px",boxShadow:"0 12px 40px rgba(0,0,0,0.4)",width:"100%",maxWidth:380}}>
+        <div style={{...B,fontSize:18,color:"#06c167",letterSpacing:1,marginBottom:2}}>💵 ADD A CASH TIP?</div>
+        <div style={{fontSize:11,...M,color:"var(--muted)",marginBottom:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{restaurantName||"Order"} · optional</div>
+        <div style={{position:"relative",marginBottom:18}}>
+          <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",...B,fontSize:20,color:"var(--muted)"}}>£</span>
+          <input value={amount} onChange={e=>setAmount(e.target.value)} inputMode="decimal" placeholder="0.00" autoFocus
+            style={{width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px 14px 34px",color:"var(--ink)",fontSize:20,...B,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#06c167"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>onConfirm(0)} style={{flex:1,minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:15,letterSpacing:1,color:"var(--muted2)",cursor:"pointer"}}>NO TIP</button>
+          <button onClick={()=>onConfirm(num(amount))} style={{flex:1.4,minHeight:52,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:16,letterSpacing:1,color:"#fff",cursor:"pointer"}}>ADD TIP</button>
         </div>
       </div>
     </div>
@@ -975,7 +1062,7 @@ function GPSGateScreen({status,onRetry,onSkip}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onEarnings,onStats,contribCount,lang,onSetLang}) {
+function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,contribCount,lang,onSetLang}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -1006,9 +1093,13 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
     setJoinErr("");
     if(gps.status!=="active"||gps.lat==null){ setJoinErr("Location needed — enable GPS to join your area"); return; }
     setJoining(true);
-    const a=await reverseGeocodeArea(gps.lat,gps.lng);
+    // Cached area assignment: only re-geocode via Google if the driver has moved >1km
+    // from where their area was last detected.
+    const last=store.get("delivr_areaPos");
+    const a=(last&&last.area&&distMeters(last.lat,last.lng,gps.lat,gps.lng)<1000)?last.area:await reverseGeocodeArea(gps.lat,gps.lng);
     setJoining(false);
     if(!a){ setJoinErr("Couldn't detect your area — make sure GPS is on and try again"); return; }
+    store.set("delivr_areaPos",{lat:gps.lat,lng:gps.lng,area:a});
     setArea(a);
     await onSave({name:name.trim()||user.name,phone:phone.trim(),area:a});
   }
@@ -1103,16 +1194,6 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
           </div>
         );
       })()}
-
-      {/* Personal earnings statistics — available to every driver */}
-      <button onClick={onEarnings}
-        style={{width:"100%",background:"linear-gradient(135deg,var(--tint-green),var(--tint-green))",border:"1px solid #06c16744",borderRadius:14,padding:"16px",marginBottom:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
-        <div>
-          <div style={{...B,fontSize:18,color:"#06c167",letterSpacing:1}}>💰 MY EARNINGS</div>
-          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>Your personal £/hour, best platforms & more</div>
-        </div>
-        <span style={{...B,fontSize:24,color:"#06c167"}}>›</span>
-      </button>
 
       {/* Edit fields */}
       <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
@@ -1236,84 +1317,406 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
   );
 }
 
-// ── PERSONAL EARNINGS STATISTICS ──────────────────────────────────────────────
+// ── STATS TAB — PERSONAL EARNINGS STATISTICS ──────────────────────────────────
 // Reads only this driver's own earnings (users/{uid}/earnings). Never shows anyone else.
-function EarningsStatsScreen({earningsLog,pendingOrder,onBack}) {
-  const s=useMemo(()=>computeEarningsStats(earningsLog),[earningsLog]);
-  const pendingBanner=pendingOrder&&(
-    <div style={{background:"var(--card)",border:"1px solid #f5a62366",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
-      <span style={{fontSize:20}}>🛵</span>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:2}}>PENDING — NOT COUNTED YET</div>
-        <div style={{...B,fontSize:15,color:"var(--ink)"}}>{fmtGBP(pendingOrder.payout)}<span style={{...M,fontWeight:400,fontSize:11,color:"var(--muted)"}}>{" · counts at your next ARRIVED"}</span></div>
-      </div>
-    </div>
-  );
+// Daily view (default) resets at local midnight; weekly view runs Monday → Sunday.
+const DOW_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
+const titleCase = s => (s || "").replace(/\b\w/g, c => c.toUpperCase());
 
-  const headline=(val,label,color)=>(
-    <div style={{flex:1,minWidth:120,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px 14px",textAlign:"center"}}>
-      <div style={{...B,fontSize:26,color:color||"#06c167",letterSpacing:1}}>{val}</div>
+function StatCard({val,label,color}){
+  return(
+    <div style={{flex:1,minWidth:0,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px 12px",textAlign:"center"}}>
+      <div style={{...B,fontSize:24,color:color||"#06c167",letterSpacing:0.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val}</div>
       <div style={{fontSize:8,...M,color:"var(--muted)",marginTop:4,letterSpacing:1}}>{label}</div>
     </div>
   );
-  const row=(icon,label,value,sub)=>(
+}
+function StatRow({icon,label,value,sub,subColor}){
+  return(
     <div style={{display:"flex",alignItems:"center",gap:12,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px"}}>
       <div style={{fontSize:22}}>{icon}</div>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:1,marginBottom:2}}>{label}</div>
         <div style={{...B,fontSize:16,color:"var(--ink)",letterSpacing:0.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</div>
       </div>
-      {sub&&<div style={{...B,fontSize:15,color:"#00b8a9",flexShrink:0}}>{sub}</div>}
+      {sub&&<div style={{...B,fontSize:15,color:subColor||"#00b8a9",flexShrink:0}}>{sub}</div>}
     </div>
   );
+}
+function SectionLabel({children}){
+  return <div style={{...B,fontSize:13,color:"var(--muted2)",letterSpacing:2,margin:"22px 0 8px"}}>{children}</div>;
+}
+
+// Mon→Sun earnings bar chart for the weekly view
+function WeekChart({byDay}){
+  const max=Math.max(...byDay.map(d=>d.sum),0.01);
+  return(
+    <div style={{display:"flex",alignItems:"flex-end",gap:6,height:120,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 12px 10px"}}>
+      {byDay.map((d,i)=>{
+        const h=Math.max(4,Math.round((d.sum/max)*78));
+        const isTop=d.sum>0&&d.sum===max;
+        return(
+          <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:5,height:"100%",justifyContent:"flex-end"}}>
+            <div style={{...B,fontSize:8,color:d.sum>0?"var(--muted)":"var(--faint2)"}}>{d.sum>0?"£"+Math.round(d.sum):""}</div>
+            <div style={{width:"72%",height:h,borderRadius:6,background:isTop?"#06c167":d.sum>0?"#00b8a9":"var(--border2)",transition:"height .3s"}}/>
+            <div style={{...B,fontSize:10,color:"var(--faint)"}}>{DOW_SHORT[d.dow]}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Add OR edit one delivery. Saves straight to Firestore; the live earnings listener then
+// refreshes every calculation. Every number is editable — platform, payout, restaurant, tip,
+// and how long the delivery took (minutes, which drives £/hour). `isNew` = manual add (no delete).
+function EarningsEditScreen({entry,isNew,bulk,onSave,onDelete,onCancel}){
+  const isBulk=bulk||entry.bulk;   // platform-total entry: platform + amount only, no time/restaurant/tip
+  const [platform,setPlatform]=useState(entry.platform||"");
+  const [payout,setPayout]=useState(entry.payout!=null&&entry.payout!==""?String(entry.payout):"");
+  const [restaurant,setRestaurant]=useState(entry.restaurantName||"");
+  const [tip,setTip]=useState(entry.tip!=null&&entry.tip!==0&&entry.tip!==""?String(entry.tip):"");
+  const [mins,setMins]=useState(entry.cycleMins>0?String(Math.round(entry.cycleMins)):"");
+  const [confirmDel,setConfirmDel]=useState(false);
+  const num=v=>{const n=parseFloat(String(v).replace(/[^0-9.]/g,""));return Number.isFinite(n)&&n>0?Math.round(n*100)/100:0;};
+  const inputStyle={width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
+  function save(){
+    if(isBulk){ onSave({platform:platform||null,payout:num(payout),bulk:true}); return; }
+    const obj={platform:platform||null,payout:num(payout),restaurantName:restaurant.trim(),tip:num(tip)};
+    const m=num(mins);
+    if(m>0)obj.cycleMins=m;   // minutes the delivery took → drives £/hour
+    onSave(obj);
+  }
+  return(
+    <div style={{padding:"22px 16px 100px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+        <button onClick={onCancel} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
+        <div style={{...B,fontSize:24,color:"#00b8a9",letterSpacing:2}}>{isBulk?(isNew?"LOG PLATFORM TOTAL":"EDIT PLATFORM TOTAL"):(isNew?"ADD DELIVERY":"EDIT DELIVERY")}</div>
+      </div>
+      {isNew&&<div style={{fontSize:11,...M,color:"var(--muted)",marginBottom:18,lineHeight:1.5}}>{isBulk?"Log one total for a platform — e.g. your whole Uber Eats total for today. Adds to your earnings total (not to £/hour).":"Manually log what you earned — e.g. an order you forgot to track. It counts toward your stats & £/hour."}</div>}
+      {!isNew&&<div style={{height:14}}/>}
+      <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>PLATFORM</div>
+      <div style={{display:"flex",gap:8,marginBottom:18}}>
+        {PLATFORMS.map(p=>(
+          <button key={p} onClick={()=>setPlatform(p)} style={{flex:1,border:"1px solid "+(platform===p?"#00b8a9":"var(--border2)"),background:platform===p?"#00b8a9":"var(--card)",color:platform===p?"#00261f":"var(--ink)",borderRadius:10,padding:"11px 0",cursor:"pointer",...B,fontSize:11,letterSpacing:0.3}}>{p}</button>
+        ))}
+      </div>
+      <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>{isBulk?"TOTAL EARNED ON THIS PLATFORM (£)":"PAYOUT (£)"}</div>
+      <input value={payout} onChange={e=>setPayout(e.target.value)} inputMode="decimal" placeholder="0.00" style={{...inputStyle,marginBottom:isBulk?24:18}}/>
+      {!isBulk&&<>
+      <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>RESTAURANT</div>
+      <input value={restaurant} onChange={e=>setRestaurant(e.target.value)} placeholder={isNew?"Restaurant (optional)":"Restaurant name"} style={{...inputStyle,marginBottom:18}}/>
+      <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>TIP (£)</div>
+      <input value={tip} onChange={e=>setTip(e.target.value)} inputMode="decimal" placeholder="0.00" style={{...inputStyle,marginBottom:18}}/>
+      <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>TIME TAKEN (MINUTES) · OPTIONAL — SETS £/HOUR</div>
+      <input value={mins} onChange={e=>setMins(e.target.value)} inputMode="numeric" placeholder="e.g. 25" style={{...inputStyle,marginBottom:24}}/>
+      </>}
+      <button onClick={save}
+        style={{width:"100%",background:"#06c167",border:"none",borderRadius:12,padding:"15px",cursor:"pointer",...B,fontSize:15,color:"#fff",letterSpacing:1,marginBottom:12}}>{isBulk?(isNew?"LOG TOTAL":"SAVE CHANGES"):(isNew?"ADD DELIVERY":"SAVE CHANGES")}</button>
+      {!isNew&&(!confirmDel?(
+        <button onClick={()=>setConfirmDel(true)} style={{width:"100%",background:"none",border:"1px solid #ef444466",borderRadius:12,padding:"13px",cursor:"pointer",...B,fontSize:13,color:"#ef4444",letterSpacing:1}}>DELETE ENTRY</button>
+      ):(
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>setConfirmDel(false)} style={{flex:1,background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"13px",cursor:"pointer",...B,fontSize:13,color:"var(--ink)"}}>CANCEL</button>
+          <button onClick={onDelete} style={{flex:1,background:"#ef4444",border:"none",borderRadius:12,padding:"13px",cursor:"pointer",...B,fontSize:13,color:"#fff",letterSpacing:1}}>CONFIRM DELETE</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// One delivery row in the STATS lists — whole row is tappable to open the edit screen.
+function DeliveryRow({e,onTap}){
+  return(
+    <button onClick={()=>onTap(e)} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",cursor:"pointer",textAlign:"left",width:"100%"}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{...B,fontSize:14,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.bulk?(e.platform||"Platform")+" — total":(e.restaurantName||"Order")}</div>
+        <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{e.bulk?("Platform total · "+new Date(e.ts).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})):((e.platform||"—")+" · "+new Date(e.ts).toLocaleString("en-GB",{weekday:"short",hour:"2-digit",minute:"2-digit"})+(e.tip>0?" · tip "+fmtGBP(e.tip):""))}</div>
+      </div>
+      <div style={{...B,fontSize:14,color:"#06c167",flexShrink:0}}>{fmtGBP((Number(e.payout)||0)+(Number(e.tip)||0))}</div>
+      <span style={{...B,fontSize:11,color:"#00b8a9",letterSpacing:0.5,flexShrink:0,border:"1px solid var(--border2)",borderRadius:8,padding:"5px 9px"}}>EDIT</span>
+    </button>
+  );
+}
+
+function MyStats({earningsLog,activeOrders,now,shiftMins}){
+  const [view,setView]=useState("today");   // today | week | all
+  const [editing,setEditing]=useState(null);   // entry being edited, or null
+  const [adding,setAdding]=useState(null);      // manual add: null | {platform} (prefill)
+  const [drill,setDrill]=useState(null);        // drill-down: null | "__list__" (platform filter) | platform name
+  // Re-bucket only when the calendar day rolls over (drives the midnight reset), not every tick.
+  const dayKey=startOfDayMs(now||new Date());
+  const {today,week,all,entries}=useMemo(()=>{
+    const sod=startOfDayMs(dayKey);
+    const sow=startOfWeekMs(dayKey);
+    const tMs=e=>new Date(e.ts).getTime();
+    const todayE=earningsLog.filter(e=>tMs(e)>=sod);
+    const weekE=earningsLog.filter(e=>tMs(e)>=sow);
+    return {
+      today:computeEarningsStats(todayE,sod),   // clamp session time to midnight → today starts fresh
+      week: computeEarningsStats(weekE,sow),
+      all:  computeEarningsStats(earningsLog,0),
+      entries:{today:todayE,week:weekE,all:earningsLog},
+    };
+  },[earningsLog,dayKey]);
+
+  // Manual-delivery cap: max 20 per-delivery manual adds per day (bulk-platform totals don't count).
+  const manualToday=entries.today.filter(e=>e.manual&&!e.bulk).length;
+  const manualCapReached=manualToday>=20;
+
+  // Edit/delete write straight to this driver's own earnings collection; the live listener
+  // refreshes earningsLog → every stat recomputes in real time.
+  async function saveEdit(updates){
+    const uid=auth.currentUser?.uid;
+    if(uid&&editing?.id){ try{ await updateDoc(doc(db,"users",uid,"earnings",editing.id),updates); }catch(e){} }
+    setEditing(null);
+  }
+  async function deleteEdit(){
+    const uid=auth.currentUser?.uid;
+    if(uid&&editing?.id){ try{ await deleteDoc(doc(db,"users",uid,"earnings",editing.id)); }catch(e){} }
+    setEditing(null);
+  }
+  // Manually add a delivery / platform income — for drivers who didn't run the ARRIVED flow.
+  // Written to the same earnings collection so it counts in every stat exactly like a tracked order.
+  async function saveNew(obj){
+    const uid=auth.currentUser?.uid;
+    setAdding(null);
+    if(!uid||manualCapReached)return;   // enforce the 20-per-day manual cap
+    const ts=new Date();
+    const entry={
+      platform:       obj.platform||null,
+      payout:         obj.payout||0,
+      tip:            obj.tip||0,
+      restaurantId:   "manual-"+genId(),
+      restaurantName: obj.restaurantName||"",
+      waitMins:       0,
+      cycleMins:      obj.cycleMins||0,   // 0 → £/hour is estimated until a time is set
+      ts:             ts.toISOString(),
+      hour:           ts.getHours(),
+      dow:            ts.getDay(),
+      period:         timePeriod(ts.getHours()),
+      manual:         true,
+    };
+    try{ await addDoc(collection(db,"users",uid,"earnings"),entry); }catch(e){}
+  }
+  // Platform bulk total — one lump sum logged for a whole platform (counts toward total earnings,
+  // not £/hour). Tagged bulk:true so it's excluded from the per-delivery stats.
+  async function saveBulk(obj){
+    const uid=auth.currentUser?.uid;
+    setAdding(null);
+    if(!uid)return;
+    const ts=new Date();
+    const entry={
+      platform:obj.platform||null, payout:obj.payout||0, tip:0,
+      restaurantId:"bulk-"+genId(), restaurantName:"", waitMins:0, cycleMins:0,
+      ts:ts.toISOString(), hour:ts.getHours(), dow:ts.getDay(), period:timePeriod(ts.getHours()),
+      manual:true, bulk:true,
+    };
+    try{ await addDoc(collection(db,"users",uid,"earnings"),entry); }catch(e){}
+  }
+  if(editing) return <EarningsEditScreen entry={editing} bulk={!!editing.bulk} onSave={saveEdit} onDelete={deleteEdit} onCancel={()=>setEditing(null)}/>;
+  if(adding) return <EarningsEditScreen entry={{platform:adding.platform||"",payout:"",restaurantName:"",tip:"",cycleMins:0,bulk:adding.bulk}} isNew bulk={!!adding.bulk} onSave={adding.bulk?saveBulk:saveNew} onCancel={()=>setAdding(null)}/>;
+
+  const s=view==="today"?today:view==="week"?week:all;
+  const viewEntries=entries[view];
+  const tabs=[["today","TODAY"],["week","THIS WEEK"],["all","ALL TIME"]];
+
+  // Drill-down: tap total → platform list → that platform's deliveries → tap one → edit screen.
+  if(drill&&s){
+    const headerBack=(title,sub)=>(
+      <div style={{marginBottom:16}}>
+        <button onClick={()=>setDrill(null)} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:14,padding:0,...B,letterSpacing:1,marginBottom:8}}>‹ BACK</button>
+        <div style={{...B,fontSize:22,color:"#00b8a9",letterSpacing:1}}>{title}</div>
+        {sub&&<div style={{fontSize:11,...M,color:"var(--muted)",marginTop:2}}>{sub}</div>}
+      </div>
+    );
+    const viewLabel=view==="today"?"Today":view==="week"?"This week":"All time";
+    if(drill==="__list__"){
+      return(
+        <div style={{padding:"22px 16px 100px"}}>
+          {headerBack("FILTER BY PLATFORM",viewLabel+" · tap a platform")}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {s.platforms.map(p=>(
+              <button key={p.name} onClick={()=>setDrill(p.name)} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",cursor:"pointer",textAlign:"left",width:"100%"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{...B,fontSize:15,color:"var(--ink)"}}>{p.name}</div>
+                  <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{p.n>0?p.n+" order"+(p.n!==1?"s":""):"bulk total"}{p.rate!=null?<><span style={{margin:"0 5px",color:"var(--faint2)"}}>·</span>{fmtRate(p.rate)}</>:""}</div>
+                </div>
+                <span style={{...B,fontSize:15,color:"#06c167"}}>{fmtGBP(p.total)}</span>
+                <span style={{...B,fontSize:18,color:"#00b8a9"}}>›</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    // a specific platform → its deliveries (tap any to edit)
+    const filtered=viewEntries.filter(e=>(e.platform||"Other")===drill).slice().sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+    const total=filtered.reduce((sum,e)=>sum+(Number(e.payout)||0)+(Number(e.tip)||0),0);
+    return(
+      <div style={{padding:"22px 16px 100px"}}>
+        {headerBack(drill.toUpperCase(),filtered.length+" item"+(filtered.length===1?"":"s")+" · "+fmtGBP(total))}
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          <button onClick={()=>!manualCapReached&&setAdding({platform:drill})} disabled={manualCapReached} style={{flex:1,background:"var(--card)",border:"1px dashed "+(manualCapReached?"var(--border2)":"#06c16788"),borderRadius:12,padding:"12px 8px",cursor:manualCapReached?"default":"pointer",...B,fontSize:11,letterSpacing:0.5,color:manualCapReached?"var(--faint)":"#06c167"}}>{manualCapReached?"20/20 TODAY":"+ ADD DELIVERY"}</button>
+          <button onClick={()=>setAdding({bulk:true,platform:drill})} style={{flex:1,background:"var(--card)",border:"1px dashed #00b8a988",borderRadius:12,padding:"12px 8px",cursor:"pointer",...B,fontSize:11,letterSpacing:0.5,color:"#00b8a9"}}>+ PLATFORM TOTAL</button>
+        </div>
+        {filtered.length===0?(
+          <div style={{textAlign:"center",padding:"30px 20px",fontSize:12,...M,color:"var(--muted)"}}>No deliveries on this platform yet — tap “+ ADD” above.</div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {filtered.map((e,i)=><DeliveryRow key={e.id||i} e={e} onTap={setEditing}/>)}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return(
-    <div style={{padding:"20px 16px 100px"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
-        <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
-        <div style={{...B,fontSize:26,color:"#00b8a9",letterSpacing:2}}>MY EARNINGS</div>
+    <div style={{padding:"22px 16px 100px"}}>
+      {/* Header */}
+      <div style={{marginBottom:14}}>
+        <div style={{...B,fontSize:26,color:"#00b8a9",letterSpacing:2}}>MY STATS</div>
+        <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:2}}>Your earnings — only you can see this</div>
       </div>
 
-      {pendingBanner}
+      {/* Segmented control */}
+      <div style={{display:"flex",gap:4,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:4,marginBottom:12}}>
+        {tabs.map(([id,lbl])=>(
+          <button key={id} onClick={()=>setView(id)}
+            style={{flex:1,border:"none",borderRadius:9,padding:"9px 0",cursor:"pointer",...B,fontSize:11,letterSpacing:1,
+              background:view===id?"#00b8a9":"transparent",color:view===id?"#00261f":"var(--muted)"}}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* Manually log earnings — per delivery, or one lump total per platform. Always available. */}
+      <div style={{display:"flex",gap:8,marginBottom:manualCapReached?6:16}}>
+        <button onClick={()=>!manualCapReached&&setAdding({})} disabled={manualCapReached} style={{flex:1,background:"var(--card)",border:"1px dashed "+(manualCapReached?"var(--border2)":"#06c16788"),borderRadius:12,padding:"12px 8px",cursor:manualCapReached?"default":"pointer",...B,fontSize:11,letterSpacing:0.5,color:manualCapReached?"var(--faint)":"#06c167"}}>{manualCapReached?"20/20 TODAY":"+ ADD DELIVERY"}</button>
+        <button onClick={()=>setAdding({bulk:true})} style={{flex:1,background:"var(--card)",border:"1px dashed #00b8a988",borderRadius:12,padding:"12px 8px",cursor:"pointer",...B,fontSize:11,letterSpacing:0.5,color:"#00b8a9"}}>+ PLATFORM TOTAL</button>
+      </div>
+      {manualCapReached&&<div style={{fontSize:10,...M,color:"var(--muted2)",textAlign:"center",marginBottom:16}}>Daily manual delivery limit reached — edit/delete an entry, or use platform total.</div>}
+
+      {/* Today's clocked shift time (from the WAITS shift timer) */}
+      {view==="today"&&shiftMins>0&&(
+        <div style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
+          <span style={{fontSize:20}}>⏱️</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:2}}>SHIFT TIME TODAY (CLOCKED)</div>
+            <div style={{...B,fontSize:16,color:"var(--ink)"}}>{fmtHM(shiftMins)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Out-for-delivery orders — not counted until marked delivered */}
+      {activeOrders&&activeOrders.length>0&&(
+        <div style={{background:"var(--card)",border:"1px solid #f5a62366",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>🛵</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:2}}>{activeOrders.length} OUT FOR DELIVERY — NOT COUNTED YET</div>
+            <div style={{...B,fontSize:15,color:"var(--ink)"}}>{fmtGBP(activeOrders.reduce((s,o)=>s+(Number(o.payout)||0),0))}<span style={{...M,fontWeight:400,fontSize:11,color:"var(--muted)"}}>{" · counts when delivered"}</span></div>
+          </div>
+        </div>
+      )}
 
       {!s?(
-        <div style={{textAlign:"center",padding:"60px 20px"}}>
-          <div style={{fontSize:48,marginBottom:14}}>💰</div>
-          <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1,marginBottom:8}}>NO EARNINGS LOGGED YET</div>
-          <div style={{fontSize:12,...M,color:"var(--muted)",lineHeight:1.6}}>When you tap ARRIVED, log the platform and payout for the order — it banks once you arrive at your next order, so your £/hour reflects driving &amp; delivery time too. Only you can see this.</div>
+        <div style={{textAlign:"center",padding:"50px 20px"}}>
+          <div style={{fontSize:48,marginBottom:14}}>{view==="today"?"📅":view==="week"?"📊":"💰"}</div>
+          <div style={{...B,fontSize:17,color:"var(--ink)",letterSpacing:1,marginBottom:8}}>
+            {view==="today"?"NOTHING LOGGED TODAY":view==="week"?"NOTHING LOGGED THIS WEEK":"NO EARNINGS LOGGED YET"}
+          </div>
+          <div style={{fontSize:12,...M,color:"var(--muted)",lineHeight:1.6}}>When you tap ARRIVED, log the platform and payout — it banks once you arrive at your next order, so your £/hour reflects driving &amp; delivery time too.</div>
         </div>
       ):(
         <>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
-            {headline(fmtGBP(s.totalEarnings),"TOTAL EARNINGS")}
-            {headline(s.overallRate==null?"—":fmtRate(s.overallRate),"AVG £/HOUR","#00b8a9")}
-          </div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:20}}>
-            {headline(s.totalOrders,"ORDERS LOGGED","#f5a623")}
-            {headline(s.totalHours>0?(Math.round(s.totalHours*10)/10)+"h":"—","TIME TRACKED","#2b8fff")}
+          {/* Hero — period total (tap to drill into platforms) */}
+          <button onClick={()=>s.platforms.length>0&&setDrill("__list__")} style={{display:"block",width:"100%",textAlign:"center",background:"linear-gradient(135deg,var(--tint-teal),var(--tint-green))",border:"1px solid #00b8a944",borderRadius:18,padding:"20px 18px",marginBottom:10,cursor:s.platforms.length>0?"pointer":"default"}}>
+            <div style={{fontSize:9,...M,color:"var(--muted)",letterSpacing:2,marginBottom:4}}>
+              {view==="today"?"EARNED TODAY":view==="week"?"EARNED THIS WEEK":"TOTAL EARNED"}
+            </div>
+            <div style={{...B,fontSize:42,color:"#06c167",letterSpacing:0.5,lineHeight:1.05}}>{fmtGBP(s.totalEarnings)}</div>
+            <div style={{fontSize:12,...M,color:"var(--muted)",marginTop:6}}>
+              {s.overallRate==null?"—":fmtRate(s.overallRate)}<span style={{margin:"0 6px",color:"var(--faint2)"}}>·</span>{s.totalOrders} order{s.totalOrders!==1?"s":""}
+            </div>
+            {s.totalTips>0&&(
+              <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:6,paddingTop:6,borderTop:"1px solid #00b8a922"}}>
+                {fmtGBP(s.totalBase)} base<span style={{margin:"0 6px",color:"var(--faint2)"}}>·</span><span style={{color:"#06c167",fontWeight:700}}>{fmtGBP(s.totalTips)} tips</span>
+              </div>
+            )}
+            {s.platforms.length>0&&<div style={{fontSize:9,...M,color:"#00b8a9",letterSpacing:1,marginTop:8}}>TAP TO FILTER BY PLATFORM ›</div>}
+          </button>
+
+          <div style={{display:"flex",gap:8,marginBottom:4}}>
+            <StatCard val={s.overallRate==null?"—":fmtRate(s.overallRate)} label="AVG £/HOUR" color="#00b8a9"/>
+            <StatCard val={s.totalOrders} label="ORDERS" color="#f5a623"/>
+            <StatCard val={s.totalHours>0?(Math.round(s.totalHours*10)/10)+"h":"—"} label="TIME" color="#2b8fff"/>
           </div>
 
-          <div style={{...B,fontSize:14,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>YOUR BESTS</div>
-          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
-            {row("🏆","BEST PAYING PLATFORM / HOUR",s.bestPlatRate?s.bestPlatRate.platform:"—",s.bestPlatRate?fmtRate(s.bestPlatRate.rate):"")}
-            {row("💵","HIGHEST AVG PAYOUT / ORDER",s.bestPlatAvg?s.bestPlatAvg.platform:"—",s.bestPlatAvg?fmtGBP(s.bestPlatAvg.avg):"")}
-            {row("⚡","QUICKEST RESTAURANT",s.quickest?s.quickest.name:"—",s.quickest?(Math.round(s.quickest.avgW*10)/10)+"m":"")}
-            {row("🐌","MOST COSTLY BY WAIT",s.costliest?s.costliest.name:"—",s.costliest?(Math.round(s.costliest.avgW*10)/10)+"m":"")}
-            {row("📅","BEST DAY OF WEEK",s.bestDay?dayLabel(s.bestDay.dow):"—",s.bestDay?fmtRate(s.bestDay.rate):"")}
-            {row("🕒","BEST TIME OF DAY",s.bestPeriod?s.bestPeriod.period.replace(/\b\w/g,c=>c.toUpperCase()):"—",s.bestPeriod?fmtRate(s.bestPeriod.rate):"")}
-          </div>
+          {view==="week"&&(
+            <>
+              <SectionLabel>EARNINGS BY DAY</SectionLabel>
+              <WeekChart byDay={s.byDay}/>
+            </>
+          )}
+
+          {view==="today"?(
+            <>
+              <SectionLabel>TODAY'S HIGHLIGHTS</SectionLabel>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <StatRow icon="🏆" label="BEST PLATFORM TODAY" value={s.bestPlatTotal?s.bestPlatTotal.platform:"—"} sub={s.bestPlatTotal?fmtGBP(s.bestPlatTotal.sum):""} subColor="#06c167"/>
+                <StatRow icon="💵" label="BEST ORDER" value={s.bestOrder?s.bestOrder.name:"—"} sub={s.bestOrder?fmtGBP(s.bestOrder.payout):""} subColor="#06c167"/>
+                <StatRow icon="🐌" label="WORST WAIT" value={s.worstWait?s.worstWait.name:"—"} sub={s.worstWait?(Math.round(s.worstWait.waitMins*10)/10)+"m":""} subColor="#ef4444"/>
+              </div>
+            </>
+          ):view==="week"?(
+            <>
+              <SectionLabel>THIS WEEK'S HIGHLIGHTS</SectionLabel>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <StatRow icon="📅" label="HIGHEST EARNING DAY" value={s.bestDayTotal?dayLabel(s.bestDayTotal.dow):"—"} sub={s.bestDayTotal?fmtGBP(s.bestDayTotal.sum):""} subColor="#06c167"/>
+                <StatRow icon="🏆" label="BEST PAYING PLATFORM" value={s.bestPlatRate?s.bestPlatRate.platform:"—"} sub={s.bestPlatRate?fmtRate(s.bestPlatRate.rate):""}/>
+                <StatRow icon="⚡" label="BEST RESTAURANT (QUICKEST)" value={s.quickest?s.quickest.name:"—"} sub={s.quickest?(Math.round(s.quickest.avgW*10)/10)+"m":""} subColor="#06c167"/>
+                <StatRow icon="🐢" label="WORST RESTAURANT (SLOWEST)" value={s.costliest?s.costliest.name:"—"} sub={s.costliest?(Math.round(s.costliest.avgW*10)/10)+"m":""} subColor="#ef4444"/>
+                <StatRow icon="🕒" label="MOST PROFITABLE TIME" value={s.bestPeriod?titleCase(s.bestPeriod.period):"—"} sub={s.bestPeriod?fmtRate(s.bestPeriod.rate):""}/>
+                <StatRow icon="💎" label="BEST ORDER" value={s.bestOrder?s.bestOrder.name:"—"} sub={s.bestOrder?fmtGBP(s.bestOrder.payout):""} subColor="#06c167"/>
+              </div>
+              <div style={{fontSize:10,...M,color:"var(--faint)",textAlign:"center",marginTop:16}}>↻ Fresh summary every Monday</div>
+            </>
+          ):(
+            <>
+              <SectionLabel>YOUR BESTS</SectionLabel>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <StatRow icon="🏆" label="BEST PAYING PLATFORM / HOUR" value={s.bestPlatRate?s.bestPlatRate.platform:"—"} sub={s.bestPlatRate?fmtRate(s.bestPlatRate.rate):""}/>
+                <StatRow icon="💵" label="HIGHEST AVG PAYOUT / ORDER" value={s.bestPlatAvg?s.bestPlatAvg.platform:"—"} sub={s.bestPlatAvg?fmtGBP(s.bestPlatAvg.avg):""} subColor="#06c167"/>
+                <StatRow icon="⚡" label="QUICKEST RESTAURANT" value={s.quickest?s.quickest.name:"—"} sub={s.quickest?(Math.round(s.quickest.avgW*10)/10)+"m":""} subColor="#06c167"/>
+                <StatRow icon="🐌" label="MOST COSTLY BY WAIT" value={s.costliest?s.costliest.name:"—"} sub={s.costliest?(Math.round(s.costliest.avgW*10)/10)+"m":""} subColor="#ef4444"/>
+                <StatRow icon="📅" label="BEST DAY OF WEEK" value={s.bestDay?dayLabel(s.bestDay.dow):"—"} sub={s.bestDay?fmtRate(s.bestDay.rate):""}/>
+                <StatRow icon="🕒" label="BEST TIME OF DAY" value={s.bestPeriod?titleCase(s.bestPeriod.period):"—"} sub={s.bestPeriod?fmtRate(s.bestPeriod.rate):""}/>
+              </div>
+            </>
+          )}
 
           {s.platforms.length>0&&(
             <>
-              <div style={{...B,fontSize:14,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>BY PLATFORM</div>
+              <SectionLabel>BY PLATFORM</SectionLabel>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {s.platforms.map(p=>(
-                  <div key={p.name} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px"}}>
-                    <span style={{flex:1,minWidth:0,...B,fontSize:14,color:"var(--ink)",letterSpacing:0.5}}>{p.name}</span>
-                    <span style={{fontSize:10,...M,color:"var(--muted)"}}>{p.n} order{p.n!==1?"s":""}</span>
-                    <span style={{...B,fontSize:13,color:"var(--muted2)"}}>{fmtGBP(p.avg)}/order</span>
-                    <span style={{...B,fontSize:14,color:"#06c167"}}>{fmtRate(p.rate)}</span>
-                  </div>
+                  <button key={p.name} onClick={()=>setDrill(p.name)} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",cursor:"pointer",width:"100%",textAlign:"left"}}>
+                    <span style={{flex:1,minWidth:0,...B,fontSize:14,color:"var(--ink)",letterSpacing:0.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+                    <span style={{fontSize:10,...M,color:"var(--muted)"}}>{p.n>0?p.n+" order"+(p.n!==1?"s":""):"bulk"}</span>
+                    {p.rate!=null&&<span style={{...B,fontSize:13,color:"var(--muted2)"}}>{fmtRate(p.rate)}</span>}
+                    <span style={{...B,fontSize:14,color:"#06c167"}}>{fmtGBP(p.total)}</span>
+                    <span style={{...B,fontSize:16,color:"#00b8a9"}}>›</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Individual deliveries — tap any row to open the edit screen */}
+          {viewEntries.length>0&&(
+            <>
+              <SectionLabel>DELIVERIES</SectionLabel>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {viewEntries.slice().sort((a,b)=>new Date(b.ts)-new Date(a.ts)).map((e,i)=>(
+                  <DeliveryRow key={e.id||i} e={e} onTap={setEditing}/>
                 ))}
               </div>
             </>
@@ -1713,7 +2116,6 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
   const community=getCommunityWait(ck,now,communityPatterns);
   const usePersonal=personal?.hasEnough;
   const useCommunity=!usePersonal&&community!=null;
-  const hasReal=usePersonal||useCommunity;
   const displayWait=usePersonal?personal.avg:useCommunity?community.avg:null;
   const riskColor=displayWait==null?"var(--muted)":displayWait>18?"#ef4444":displayWait>10?"#f5a623":"#06c167";
   const d=distMap[r.id];
@@ -1722,7 +2124,6 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
   const hasError=arrivalError?.restaurantId===r.id;
   const isActive=activeWait?.restaurantId===r.id;
   const myLogs=waitLog.filter(l=>logKey(l)===ck);
-  const periods=["early morning","morning","lunch","afternoon","evening","late night"];
   const p=communityPatterns[ck];
   // Manual Arrive: enabled only within 300m of the restaurant's pinned location
   const manualDist=gps?.status==="active"&&gps.lat!=null?distMeters(gps.lat,gps.lng,r.branchLat??r.lat,r.branchLng??r.lng):null;
@@ -1897,6 +2298,8 @@ function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen,myName,rev
 // ── LOGBOOK (date-based community activity) ───────────────────────────────────
 function Logbook({communityLogs,contribCounts,onBack,myName,revealNames}) {
   const [offset,setOffset]=useState(0); // 0 = today, 1 = yesterday, ...
+  const [shown,setShown]=useState(20);  // paginate: render 20 at a time (prevents render crashes)
+  useEffect(()=>{setShown(20);},[offset]);   // reset paging when the day changes
   const day=new Date(); day.setDate(day.getDate()-offset);
   const dayStr=day.toISOString().slice(0,10);
   const isToday=offset===0;
@@ -1905,6 +2308,7 @@ function Logbook({communityLogs,contribCounts,onBack,myName,revealNames}) {
   const items=communityLogs
     .filter(l=>(l.ts||"").slice(0,10)===dayStr)
     .sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+  const visible=items.slice(0,shown);
 
   return(
     <div style={{padding:"20px 16px 100px"}}>
@@ -1927,7 +2331,7 @@ function Logbook({communityLogs,contribCounts,onBack,myName,revealNames}) {
         <div style={{fontSize:11,...M,color:"var(--faint)",textAlign:"center",padding:"40px 0"}}>No activity logged on this day.</div>
       ):(
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {items.map((l,i)=>{
+          {visible.map((l,i)=>{
             const bg=badgeFor(contribCounts?.[l.username]||0);
             const c=l.waitMins>15?"#ef4444":l.waitMins>8?"#f5a623":"#06c167";
             return(
@@ -1943,20 +2347,56 @@ function Logbook({communityLogs,contribCounts,onBack,myName,revealNames}) {
               </div>
             );
           })}
+          {items.length>shown&&(
+            <button onClick={()=>setShown(s=>s+20)} style={{marginTop:6,background:"var(--card)",border:"1px solid var(--border2)",borderRadius:10,padding:"12px",cursor:"pointer",...B,fontSize:12,letterSpacing:1,color:"#00b8a9"}}>{"LOAD MORE ("+(items.length-shown)+" left)"}</button>
+          )}
         </div>
       )}
     </div>
   );
 }
 
+// Shift clock in/out — counts up while on shift, shows today's total. startedAt persists in
+// localStorage so the timer keeps running across a refresh.
+function fmtHM(mins){ const m=Math.max(0,Math.floor(mins)); return Math.floor(m/60)+"h "+String(m%60).padStart(2,"0")+"m"; }
+function ShiftTimer({activeShift,completedToday,onStart,onEnd}){
+  const [,tick]=useState(0);
+  useEffect(()=>{ if(!activeShift)return; const id=setInterval(()=>tick(x=>x+1),1000); return ()=>clearInterval(id); },[!!activeShift]);
+  if(activeShift){
+    const elapsed=(Date.now()-new Date(activeShift.startedAt).getTime())/60000;
+    return(
+      <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-teal))",border:"1px solid #06c16744",borderRadius:14,padding:"14px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 8px #06c167",animation:"criticalPulse 1.5s ease-in-out infinite",display:"block"}}/>
+            <span style={{fontSize:9,...B,color:"#06c167",letterSpacing:2}}>ON SHIFT</span>
+          </div>
+          <div style={{...B,fontSize:24,color:"var(--ink)",letterSpacing:1,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{fmtHM(elapsed)}</div>
+          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{"Today: "+fmtHM(completedToday+elapsed)+" total"}</div>
+        </div>
+        <button onClick={onEnd} style={{flexShrink:0,background:"#ef4444",border:"none",borderRadius:10,...B,fontSize:13,letterSpacing:1,color:"#fff",padding:"12px 16px",cursor:"pointer"}}>END SHIFT</button>
+      </div>
+    );
+  }
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+      <button onClick={onStart} style={{flex:1,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:15,letterSpacing:1,color:"#fff",padding:"14px",cursor:"pointer"}}>▶ START SHIFT</button>
+      {completedToday>0&&<div style={{flexShrink:0,textAlign:"right"}}><div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:1}}>TODAY</div><div style={{...B,fontSize:16,color:"var(--ink)"}}>{fmtHM(completedToday)}</div></div>}
+    </div>
+  );
+}
+
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrder,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,revealNames,driverCount,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrders,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,revealNames,driverCount,activeShift,shiftCompletedToday,onStartShift,onEndShift,queueAlerts,queueAlertsSent,onQueueAlert,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onDelivered,onCancelWait}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
   const [searchResults,setSearchResults]=useState([]);
   const [searching,setSearching]=useState(false);
+  const [delivering,setDelivering]=useState(false);   // multi-order: showing "which order are you delivering?" selection
   const searchTimer=useRef(null);
+  // Leave delivering mode automatically once every order has been delivered.
+  useEffect(()=>{ if(!activeOrders||activeOrders.length===0) setDelivering(false); },[activeOrders?.length]);
   const per=timePeriod(now.getHours());
   const meta=communityPatterns._meta;
 
@@ -1991,9 +2431,15 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
     clearTimeout(searchTimer.current);
     if(!q.trim()){setSearchResults([]);return;}
     setSearching(true);
+    const term=q.trim().toLowerCase();
+    const local=()=>restaurants.filter(r=>(r.name||"").toLowerCase().includes(term));
     searchTimer.current=setTimeout(async()=>{
       const results=await searchRestaurants(q,gps.lat,gps.lng);
-      setSearchResults(results);
+      // Fallback: if Google returns nothing (offline / API quota exhausted), still
+      // filter the already-loaded restaurant list locally so search keeps working.
+      const list=results.length?results:local();
+      // Show food places / restaurants first, then nearest by GPS.
+      setSearchResults(rankResults(list,gps));
       setSearching(false);
     },400);
   }
@@ -2026,7 +2472,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
         )}
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {displayList.map(r=>{
-            const d=distMap[r.id];
+            const d=distMap[r.id]??r.dist;   // search results carry their own distance (ranked nearest-first)
             const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
             const personal=getPersonalWait(r.id,now,waitLog);
             const community=getCommunityWait(r.id,now,communityPatterns);
@@ -2067,6 +2513,8 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
         </div>
       </div>
 
+      <ShiftTimer activeShift={activeShift} completedToday={shiftCompletedToday} onStart={onStartShift} onEnd={onEndShift}/>
+
       {meta?.totalLogs>0&&(
         <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-green))",border:"1px solid #06c16722",borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -2096,21 +2544,49 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
           </div>
           <div style={{fontSize:9,color:"var(--muted2)",textAlign:"center",marginTop:10,letterSpacing:1}}>{t("w_tapHint")}</div>
         </div>
-      ):(
-        <>
-          {pendingOrder&&(
-            <div style={{background:"var(--card)",border:"1px solid #f5a62366",borderRadius:12,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:20}}>🛵</span>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:2}}>PENDING — DELIVERING</div>
-                <div style={{...B,fontSize:15,color:"var(--ink)"}}>{fmtGBP(pendingOrder.payout)}<span style={{...M,fontWeight:400,fontSize:11,color:"var(--muted)"}}>{" · counts at your next ARRIVED"}</span></div>
+      ):delivering&&activeOrders.length>0?(
+        /* PROCEED TO DELIVER (2+ orders): pick which order is being handed over, mark delivered, loop */
+        <div style={{background:"linear-gradient(135deg,var(--tint-teal),var(--tint-green))",border:"2px solid #06c167",borderRadius:16,padding:"18px",marginBottom:16}}>
+          <div style={{fontSize:9,color:"#06c167",letterSpacing:2,marginBottom:12}}>WHICH ORDER ARE YOU DELIVERING?</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+            {activeOrders.map(o=>(
+              <button key={o.id} onClick={()=>onDelivered(o.id)} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",cursor:"pointer",textAlign:"left",width:"100%"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{...B,fontSize:15,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.restaurantName||"Order"}</div>
+                  <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{fmtGBP(o.payout)+(o.platform?" · "+o.platform:"")}</div>
+                </div>
+                <span style={{...B,fontSize:12,color:"#06c167",letterSpacing:1,flexShrink:0}}>{t("w_delivered")}</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={()=>setDelivering(false)} style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px",cursor:"pointer",...B,fontSize:13,color:"var(--muted2)"}}>‹ BACK</button>
+        </div>
+      ):activeOrders.length>0?(
+        /* OUT FOR DELIVERY — one order keeps the simple DELIVERED button; 2+ adds PROCEED TO DELIVER */
+        <div style={{background:"linear-gradient(135deg,var(--tint-amber),var(--tint-coral))",border:"1px solid #f5a62366",borderRadius:16,padding:"16px",marginBottom:12}}>
+          <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:10}}>{activeOrders.length>1?activeOrders.length+" ORDERS OUT FOR DELIVERY":"OUT FOR DELIVERY"}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+            {activeOrders.map(o=>(
+              <div key={o.id} style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:18}}>🛵</span>
+                <div style={{flex:1,minWidth:0,...B,fontSize:14,color:"var(--ink)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(o.restaurantName||"Order")}<span style={{...M,fontWeight:400,fontSize:11,color:"var(--muted)"}}>{o.platform?" · "+o.platform:""}</span></div>
+                <span style={{...B,fontSize:14,color:"#06c167",flexShrink:0}}>{fmtGBP(o.payout)}</span>
               </div>
-            </div>
+            ))}
+          </div>
+          {activeOrders.length===1?(
+            <button onClick={()=>onDelivered(activeOrders[0].id)} style={{width:"100%",minHeight:60,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:20,letterSpacing:2,color:"#fff",cursor:"pointer",boxShadow:"0 0 20px #06c16733",marginBottom:10}}>{t("w_delivered")}</button>
+          ):(
+            <button onClick={()=>setDelivering(true)} style={{width:"100%",minHeight:60,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:18,letterSpacing:1,color:"#fff",cursor:"pointer",boxShadow:"0 0 20px #06c16733",marginBottom:10}}>PROCEED TO DELIVER</button>
           )}
-          <button onClick={()=>setPicking(true)} style={{width:"100%",minHeight:80,background:"#ff5a2d",border:"none",borderRadius:18,...B,fontWeight:700,fontSize:24,letterSpacing:1,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:16,boxShadow:"0 8px 20px #ff5a2d40"}}>
-            {t("w_arrived")}
-          </button>
-        </>
+          <button onClick={()=>setPicking(true)} style={{width:"100%",minHeight:48,background:"var(--card)",border:"1px solid #00b8a9",borderRadius:12,...B,fontSize:14,letterSpacing:1,color:"#00b8a9",cursor:"pointer"}}>+ ADD DELIVERY</button>
+          <div style={{fontSize:9,color:"var(--muted2)",textAlign:"center",marginTop:9,letterSpacing:1}}>EARNINGS COUNT WHEN YOU MARK DELIVERED</div>
+        </div>
+      ):(
+        /* No active wait and nothing out for delivery — the normal ARRIVED entry */
+        <button onClick={()=>setPicking(true)} style={{width:"100%",minHeight:80,background:"#ff5a2d",border:"none",borderRadius:18,...B,fontWeight:700,fontSize:24,letterSpacing:1,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:16,boxShadow:"0 8px 20px #ff5a2d40"}}>
+          {t("w_arrived")}
+        </button>
       )}
 
       {!premium&&<AdBanner premium={premium}/>}
@@ -2132,6 +2608,11 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
           const repFresh=rep&&(now.getTime()-new Date(rep.ts).getTime()<REPORTED_COUNT_TTL_MS);
           const reportedWaiting=repFresh?rep.count:null;
           const reportedAgo=repFresh?Math.max(0,Math.round((now.getTime()-new Date(rep.ts).getTime())/60000)):null;
+          const qa=queueAlerts?.[ck];
+          const qaFresh=qa&&(now.getTime()-new Date(qa.ts).getTime()<QUEUE_ALERT_TTL_MS);
+          const qaAgo=qaFresh?Math.max(0,Math.round((now.getTime()-new Date(qa.ts).getTime())/60000)):null;
+          const qaSent=queueAlertsSent?.[ck];
+          const qaCooldown=qaSent&&(now.getTime()-qaSent<QUEUE_ALERT_COOLDOWN_MS);
           const riskColor=realAvg==null?"var(--muted)":realAvg>18?"#ef4444":realAvg>10?"#f5a623":"#06c167";
           const riskLabel=realAvg==null?null:realAvg>18?"HIGH RISK":realAvg>10?"MODERATE":"LOW RISK";
           const isActive=activeWait?.restaurantId===r.id;
@@ -2157,6 +2638,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
                       ? <span style={{color:"#06c167",fontWeight:700}}>🟢 {waitingNow} waiting now</span>
                       : <span style={{color:"var(--muted)"}}>{closed?t("w_closedNow"):t("w_noOne")}</span>}
                     {reportedWaiting!=null&&<span style={{color:"#ff5a2d",fontWeight:700}}>👥 {reportedWaiting} reported{reportedAgo!=null?" · "+reportedAgo+"m ago":""}</span>}
+                    {qaFresh&&<span style={{color:"#fff",background:"#ef4444",fontWeight:700,borderRadius:5,padding:"2px 7px",letterSpacing:0.3}}>⚠ LONG QUEUE{qaAgo!=null?" · "+qaAgo+"m ago":""}</span>}
                   </div>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
@@ -2221,8 +2703,11 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
                   <span style={{fontSize:9,background:"var(--border)",color:"var(--muted2)",border:"1px solid var(--border)",borderRadius:5,padding:"3px 8px"}}>{t("w_noData")}</span>
                 )}
                 {myLogs.length>0&&<span style={{fontSize:9,color:"var(--muted2)"}}>{myLogs.length+" visit"+(myLogs.length!==1?"s":"")}</span>}
-                {!isActive&&<button onClick={e=>{e.stopPropagation();onArrived(r);}} disabled={isChecking} style={{marginLeft:"auto",background:isChecking?"var(--tint-coral)":hasError?"var(--tint-red)":"#00b8a9",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":t("w_arrivedShort")}</button>}
-                {isActive&&<span style={{marginLeft:"auto",fontSize:10,...B,color:"#00b8a9",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>{t("w_timingNow")}</span>}
+                <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
+                  {!closed&&<button onClick={e=>{e.stopPropagation();onQueueAlert(r);}} disabled={qaCooldown} title="Warn nearby drivers of a long queue" style={{background:qaCooldown?"var(--border)":"var(--tint-red)",border:"1px solid "+(qaCooldown?"var(--faint2)":"#ef444466"),borderRadius:7,...B,fontSize:9,letterSpacing:0.3,color:qaCooldown?"var(--muted2)":"#ef4444",cursor:qaCooldown?"default":"pointer",padding:"6px 9px",minHeight:32}}>{qaCooldown?"ALERTED ✓":"⚠ QUEUE ALERT"}</button>}
+                  {!isActive&&<button onClick={e=>{e.stopPropagation();onArrived(r);}} disabled={isChecking} style={{background:isChecking?"var(--tint-coral)":hasError?"var(--tint-red)":"#00b8a9",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":t("w_arrivedShort")}</button>}
+                  {isActive&&<span style={{fontSize:10,...B,color:"#00b8a9",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>{t("w_timingNow")}</span>}
+                </div>
               </div>
             </div>
             </Fragment>
@@ -2252,317 +2737,9 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,pendingOrde
   );
 }
 
-// Downscale + JPEG-compress an image before upload (keeps chat fast & cheap)
-function compressImage(file,maxDim=1280,quality=0.7){
-  return new Promise(resolve=>{
-    const img=new Image();
-    const url=URL.createObjectURL(file);
-    img.onload=()=>{
-      URL.revokeObjectURL(url);
-      let {width,height}=img;
-      if(width>=height&&width>maxDim){height=Math.round(height*maxDim/width);width=maxDim;}
-      else if(height>width&&height>maxDim){width=Math.round(width*maxDim/height);height=maxDim;}
-      const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;
-      canvas.getContext("2d").drawImage(img,0,0,width,height);
-      canvas.toBlob(b=>resolve(b||file),"image/jpeg",quality);
-    };
-    img.onerror=()=>{URL.revokeObjectURL(url);resolve(file);};
-    img.src=url;
-  });
-}
-
-// Voice message: play/pause button + progress + duration
-function VoiceMessage({url,duration,isMe}){
-  const audioRef=useRef(null);
-  const [playing,setPlaying]=useState(false);
-  const [elapsed,setElapsed]=useState(0);
-  useEffect(()=>{
-    const a=audioRef.current;if(!a)return;
-    const onPlay=()=>setPlaying(true),onPause=()=>setPlaying(false),onEnd=()=>{setPlaying(false);setElapsed(0);},onTime=()=>setElapsed(Math.floor(a.currentTime));
-    a.addEventListener("play",onPlay);a.addEventListener("pause",onPause);a.addEventListener("ended",onEnd);a.addEventListener("timeupdate",onTime);
-    return ()=>{a.removeEventListener("play",onPlay);a.removeEventListener("pause",onPause);a.removeEventListener("ended",onEnd);a.removeEventListener("timeupdate",onTime);};
-  },[]);
-  const total=duration||0;
-  const fmt=s=>Math.floor(s/60)+":"+String(Math.max(0,s)%60).padStart(2,"0");
-  const toggle=()=>{const a=audioRef.current;if(!a)return;playing?a.pause():a.play();};
-  return(
-    <div style={{display:"flex",alignItems:"center",gap:10,minWidth:150}}>
-      <audio ref={audioRef} src={url} preload="metadata"/>
-      <button onClick={toggle} style={{width:34,height:34,borderRadius:"50%",border:"none",background:isMe?"rgba(0,0,0,0.18)":"#00b8a9",color:isMe?"#000":"#fff",cursor:"pointer",fontSize:13,flexShrink:0}}>{playing?"⏸":"▶"}</button>
-      <div style={{flex:1}}>
-        <div style={{height:4,background:isMe?"rgba(0,0,0,0.2)":"var(--border2)",borderRadius:2,overflow:"hidden"}}>
-          <div style={{height:4,width:(total?Math.min(100,elapsed/total*100):0)+"%",background:isMe?"#000":"#00b8a9"}}/>
-        </div>
-      </div>
-      <span style={{fontSize:11,...M,color:isMe?"#000":"var(--ink)",flexShrink:0}}>{fmt(elapsed||total)}</span>
-    </div>
-  );
-}
-
-// ── CHAT SCREEN (Firestore real-time) ─────────────────────────────────────────
-function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
-  const room="braintree";   // single community room (all historic chat merged here)
-  const [messages,setMessages]=useState([]);
-  const [input,setInput]=useState("");
-  const [ready,setReady]=useState(false);
-  const [sendError,setSendError]=useState(false);
-  const [uploading,setUploading]=useState(false);
-  const [recording,setRecording]=useState(false);
-  const bottomRef=useRef(null);
-  const inputRef=useRef(null);
-  const fileRef=useRef(null);
-  const recorderRef=useRef(null);
-  const chunksRef=useRef([]);
-  const recStartRef=useRef(0);
-  const maxTimerRef=useRef(null);
-
-  // Live listener — re-subscribes whenever the room (area) changes. No area → no chat.
-  useEffect(()=>{
-    setReady(false);setMessages([]);
-    if(!room)return;
-    const q=query(collection(db,"chats",room,"messages"),orderBy("ts","asc"),limitToLast(100));
-    const unsub=onSnapshot(q,snap=>{
-      setMessages(snap.docs.map(d=>({id:d.id,...d.data()})));
-      setReady(true);
-    },err=>{console.error("chat listen error:",err);setReady(true);});
-    return unsub;
-  },[room]);
-
-  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages.length]);
-
-  async function postMessage(extra){
-    try{
-      await addDoc(collection(db,"chats",room,"messages"),{
-        user:user.name,color:user.color,initial:user.initial,
-        ts:new Date().toISOString(),...extra,
-      });
-    }catch(e){console.error("chat send error:",e);setSendError(true);}
-  }
-
-  async function send(){
-    const text=input.trim();
-    if(!text)return;
-    setInput("");setSendError(false);
-    await postMessage({text});
-    inputRef.current?.focus();
-  }
-
-  // Upload a file to Storage, then post a message with its URL
-  async function uploadMedia(blob,kind,ext,extra={}){
-    setUploading(true);setSendError(false);
-    try{
-      const path=`chats/${room}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const r=storageRef(storage,path);
-      const timeout=new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),20000));
-      await Promise.race([uploadBytes(r,blob),timeout]);
-      const url=await getDownloadURL(r);
-      await postMessage({type:kind,url,...extra});
-    }catch(e){console.error("upload error:",e);setSendError(true);}
-    setUploading(false);
-  }
-
-  async function onPickImage(e){
-    const f=e.target.files?.[0];
-    if(f){ const blob=await compressImage(f); uploadMedia(blob,"image","jpg"); }
-    e.target.value="";
-  }
-
-  // Hold-to-record voice (max 60s, uploads on release)
-  async function startRecording(){
-    if(recording)return;
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-      const rec=new MediaRecorder(stream);
-      chunksRef.current=[];recStartRef.current=Date.now();
-      rec.ondataavailable=ev=>{ if(ev.data.size>0)chunksRef.current.push(ev.data); };
-      rec.onstop=()=>{
-        stream.getTracks().forEach(t=>t.stop());
-        clearTimeout(maxTimerRef.current);
-        const dur=Math.round((Date.now()-recStartRef.current)/1000);
-        const blob=new Blob(chunksRef.current,{type:rec.mimeType||"audio/webm"});
-        setRecording(false);
-        if(blob.size>0&&dur>=1)uploadMedia(blob,"voice","webm",{duration:dur});
-      };
-      recorderRef.current=rec;
-      rec.start();
-      setRecording(true);
-      maxTimerRef.current=setTimeout(()=>{ if(recorderRef.current?.state==="recording")recorderRef.current.stop(); },60000); // 60s cap
-    }catch(e){console.error("mic error:",e);alert("Microphone access needed for voice messages.");}
-  }
-  function stopRecording(){ if(recorderRef.current?.state==="recording")recorderRef.current.stop(); }
-
-  // Long-press any message → action menu (react, and delete if it's your own)
-  const [actionMsg,setActionMsg]=useState(null);
-  const pressTimer=useRef(null);
-  function startPress(m){ pressTimer.current=setTimeout(()=>setActionMsg(m),500); }
-  function endPress(){ clearTimeout(pressTimer.current); }
-
-  async function toggleReaction(m,emoji){
-    const reactions={...(m.reactions||{})};
-    const set=new Set(reactions[emoji]||[]);
-    if(set.has(user.name))set.delete(user.name); else set.add(user.name);  // tap again to remove
-    if(set.size)reactions[emoji]=[...set]; else delete reactions[emoji];
-    try{ await updateDoc(doc(db,"chats",room,"messages",m.id),{reactions}); }catch(e){console.error("reaction error:",e);}
-  }
-
-  async function deleteMsg(m){
-    if(m.user!==user.name)return;                       // own messages only
-    if(!window.confirm("Delete this message?"))return;
-    try{
-      await deleteDoc(doc(db,"chats",room,"messages",m.id));
-      if(m.url){ try{ await deleteObject(storageRef(storage,m.url)); }catch(e){} }
-    }catch(e){console.error("delete msg error:",e);}
-  }
-
-  function onKey(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}
-  function fmt(ts){try{return new Date(ts).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});}catch(e){return "";}}
-
-  return(
-    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-      <div style={{padding:"10px 16px",borderBottom:"1px solid var(--border3)",background:"var(--card)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div>
-          <div style={{...B,fontSize:24,color:"#00b8a9",letterSpacing:2}}>DRIVER CHAT</div>
-            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:1,marginTop:1}}>{(area||"GENERAL").toUpperCase()} ROOM</div>
-          <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
-            <div style={{width:6,height:6,borderRadius:"50%",background:ready?"#06c167":"#f5a623",boxShadow:"0 0 6px "+(ready?"#06c167":"#f5a623"),animation:ready?"criticalPulse 2.5s ease-in-out infinite":"none"}}/>
-            <span style={{fontSize:9,color:"var(--muted2)",letterSpacing:1}}>{ready?"LIVE · FIREBASE":"CONNECTING..."}</span>
-          </div>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:34,height:34,borderRadius:"50%",background:user.color,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px "+user.color+"55"}}>
-            <span style={{...B,fontSize:16,color:"#000"}}>{user.initial}</span>
-          </div>
-          <button onClick={onLogout} style={{background:"none",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",color:"var(--muted2)",cursor:"pointer",fontSize:9,...B,letterSpacing:1}}>OUT</button>
-        </div>
-      </div>
-
-      <div style={{flex:1,overflowY:"auto",padding:"10px 14px 6px",display:"flex",flexDirection:"column",gap:2}}>
-        {/* Pinned welcome — shown to every driver */}
-        <div style={{alignSelf:"center",maxWidth:"92%",background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:14,padding:"12px 16px",margin:"4px 0 10px",textAlign:"center"}}>
-          <div style={{...B,fontSize:15,color:"#00b8a9",letterSpacing:1,marginBottom:4}}>👋 WELCOME{user?.name?(", "+user.name.toUpperCase()):""}!</div>
-          <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}>
-            This is the {(area||"driver").toString().replace(/_/g," ")} chat. Share live wait times, photos &amp; voice notes, and help each other out. Be kind, keep it useful. 🚗💨
-          </div>
-        </div>
-        {ready&&messages.length===0&&(
-          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,paddingBottom:40}}>
-            <div style={{fontSize:38,opacity:0.2}}>💬</div>
-            <div style={{...B,fontSize:18,color:"var(--border2)",letterSpacing:2}}>NO MESSAGES YET</div>
-            <div style={{fontSize:10,color:"var(--border)"}}>BE THE FIRST TO SAY SOMETHING</div>
-          </div>
-        )}
-        {!ready&&(
-          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={{...B,fontSize:14,color:"#f5a623",letterSpacing:2,animation:"criticalPulse 1.2s ease-in-out infinite"}}>CONNECTING...</div>
-          </div>
-        )}
-        {messages.map((m,i)=>{
-          const prev=messages[i-1];
-          const isFirst=!prev||prev.user!==m.user||(new Date(m.ts)-new Date(prev.ts))>120000;
-          const isMe=m.user===user.name;
-          return(
-            <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",marginTop:isFirst?12:2}}>
-              {isFirst&&(
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,...(isMe?{marginRight:4}:{marginLeft:40})}}>
-                  {!isMe&&<span style={{fontSize:10,color:m.color,...M,fontWeight:700}}>{m.user}{(()=>{const bg=badgeFor(contribCounts?.[m.user]||0);return bg?<span title={bg.label} style={{marginLeft:3}}>{bg.emoji}</span>:null;})()}</span>}
-                  <span style={{fontSize:9,color:"var(--faint2)"}}>{fmt(m.ts)}</span>
-                  {isMe&&<span style={{fontSize:10,color:m.color,...M,fontWeight:700}}>You</span>}
-                </div>
-              )}
-              <div style={{display:"flex",width:"100%",alignItems:"flex-end",gap:8,justifyContent:isMe?"flex-end":"flex-start"}}>
-                {!isMe&&(
-                  <div style={{width:28,height:28,borderRadius:"50%",background:isFirst?m.color:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginBottom:2}}>
-                    {isFirst&&<span style={{...B,fontSize:13,color:"#000"}}>{m.initial}</span>}
-                  </div>
-                )}
-                <div onPointerDown={()=>startPress(m)} onPointerUp={endPress} onPointerLeave={endPress} onPointerCancel={endPress}
-                  onContextMenu={e=>{e.preventDefault();setActionMsg(m);}}
-                  style={{maxWidth:"76%",background:isMe?"#00b8a9":"var(--border3)",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:m.type==="image"?"4px":"10px 14px",border:isMe?"none":"1px solid var(--border)",boxShadow:isMe?"0 2px 16px #00b8a928":"none",overflow:"hidden",cursor:"pointer",userSelect:"none"}}>
-                  {m.type==="image"?(
-                    <img src={m.url} alt="" onClick={()=>window.open(m.url,"_blank")} style={{maxWidth:"100%",maxHeight:240,borderRadius:14,display:"block",cursor:"pointer"}}/>
-                  ):(m.type==="voice"||m.type==="audio")?(
-                    <VoiceMessage url={m.url} duration={m.duration} isMe={isMe}/>
-                  ):(
-                    <span style={{fontSize:14,...M,color:isMe?"#000":"var(--ink)",lineHeight:1.55,whiteSpace:"pre-wrap",overflowWrap:"anywhere",wordBreak:"normal"}}>{m.text}</span>
-                  )}
-                </div>
-              </div>
-              {m.reactions&&Object.keys(m.reactions).length>0&&(
-                <div style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap",...(isMe?{justifyContent:"flex-end",marginRight:4}:{marginLeft:40})}}>
-                  {Object.entries(m.reactions).filter(([,u])=>u.length>0).map(([emoji,u])=>{
-                    const mine=u.includes(user.name);
-                    return(
-                      <button key={emoji} onClick={()=>toggleReaction(m,emoji)}
-                        style={{display:"flex",alignItems:"center",gap:3,background:mine?"#00b8a922":"var(--border3)",border:"1px solid "+(mine?"#00b8a9":"var(--border)"),borderRadius:12,padding:"1px 7px",cursor:"pointer"}}>
-                        <span style={{fontSize:12}}>{emoji}</span>
-                        <span style={{fontSize:10,...M,fontWeight:700,color:mine?"#00b8a9":"var(--muted)"}}>{u.length}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        <div ref={bottomRef}/>
-      </div>
-
-      {/* Long-press action menu: react + delete (own) */}
-      {actionMsg&&(
-        <div onClick={()=>setActionMsg(null)} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 16px 90px"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:18,padding:"14px",boxShadow:"0 10px 36px rgba(0,0,0,0.35)",width:"100%",maxWidth:380}}>
-            <div style={{display:"flex",justifyContent:"space-around",alignItems:"center"}}>
-              {REACTIONS.map(em=>{
-                const mine=(actionMsg.reactions?.[em]||[]).includes(user.name);
-                return(
-                  <button key={em} onClick={()=>{toggleReaction(actionMsg,em);setActionMsg(null);}}
-                    style={{background:mine?"#00b8a922":"none",border:mine?"1px solid #00b8a9":"none",borderRadius:"50%",width:46,height:46,fontSize:26,cursor:"pointer",transition:"transform 0.1s"}}>{em}</button>
-                );
-              })}
-            </div>
-            {actionMsg.user===user.name&&(
-              <button onClick={()=>{const m=actionMsg;setActionMsg(null);deleteMsg(m);}}
-                style={{width:"100%",marginTop:12,background:"var(--tint-red)",border:"1px solid #ef444444",borderRadius:12,padding:"11px",...B,fontWeight:700,fontSize:15,letterSpacing:1,color:"#ef4444",cursor:"pointer"}}>🗑  DELETE MESSAGE</button>
-            )}
-          </div>
-        </div>
-      )}
-      {sendError&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>Couldn't send — check connection</div>}
-      {uploading&&<div style={{padding:"8px 16px",background:"var(--tint-teal)",borderTop:"1px solid #00b8a933",fontSize:11,...M,color:"#00b8a9",textAlign:"center"}}>Uploading…</div>}
-      {recording&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>● Recording… release the mic to send (max 60s)</div>}
-      <input ref={fileRef} type="file" accept="image/*" onChange={onPickImage} style={{display:"none"}}/>
-      <div style={{padding:"10px 10px 14px",borderTop:"1px solid var(--border3)",background:"var(--card)",flexShrink:0,display:"flex",gap:8,alignItems:"center"}}>
-        {/* photo */}
-        <button onClick={()=>fileRef.current?.click()} disabled={uploading||recording}
-          style={{width:42,height:42,borderRadius:"50%",background:"var(--border3)",border:"1px solid var(--border2)",cursor:"pointer",flexShrink:0,fontSize:18,color:"var(--muted)"}}>📷</button>
-        {/* voice — hold to record */}
-        <button
-          onPointerDown={e=>{e.preventDefault();startRecording();}}
-          onPointerUp={stopRecording}
-          onPointerLeave={()=>{if(recording)stopRecording();}}
-          onContextMenu={e=>e.preventDefault()}
-          disabled={uploading}
-          style={{width:42,height:42,borderRadius:"50%",background:recording?"#ef4444":"var(--border3)",border:"1px solid "+(recording?"#ef4444":"var(--border2)"),cursor:"pointer",flexShrink:0,fontSize:18,color:recording?"#fff":"var(--muted)",touchAction:"none",userSelect:"none"}}>{recording?"●":"🎤"}</button>
-        <div style={{flex:1,background:"var(--border3)",border:"1px solid var(--border2)",borderRadius:24,padding:"11px 16px",display:"flex",alignItems:"center"}}>
-          <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKey}
-            placeholder="Message…"
-            maxLength={500}
-            style={{flex:1,background:"none",border:"none",color:"var(--ink)",fontSize:14,...M,outline:"none"}}
-            onFocus={e=>{e.target.parentElement.style.borderColor="#00b8a9";}}
-            onBlur={e=>{e.target.parentElement.style.borderColor="var(--border2)";}}
-          />
-        </div>
-        <button onClick={send} disabled={!input.trim()}
-          style={{width:46,height:46,borderRadius:"50%",background:input.trim()?"#00b8a9":"var(--border)",border:"none",cursor:input.trim()?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18,boxShadow:input.trim()?"0 0 20px #00b8a950":"none",transition:"all 0.15s",color:input.trim()?"#fff":"var(--faint)"}}>
-          ↑
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ── CHECK SCREEN ─────────────────────────────────────────────────────────────
-function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gps,activeCounts,reportedCounts}) {
+function CheckScreen({restaurants,communityPatterns,waitLog,now,gps,activeCounts,reportedCounts}) {
   const [query,setQuery]=useState("");
   const [results,setResults]=useState([]);
   const [searching,setSearching]=useState(false);
@@ -2574,22 +2751,18 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
     clearTimeout(searchTimer.current);
     if(!q.trim()){setResults([]);return;}
     setSearching(true);
+    const term=q.trim().toLowerCase();
     searchTimer.current=setTimeout(async()=>{
-      const places=await searchRestaurants(q,gps.lat,gps.lng);
-      const augmented=places.map(p=>{
-        const dist=gps.status==="active"&&gps.lat!=null?distMeters(gps.lat,gps.lng,p.branchLat,p.branchLng):null;
-        return{...p,dist};
-      });
-      augmented.sort((a,b)=>{ if(a.dist!=null&&b.dist!=null)return a.dist-b.dist; if(a.dist!=null)return -1; if(b.dist!=null)return 1; return 0; });
-      setResults(augmented);
+      let places=await searchRestaurants(q,gps.lat,gps.lng);
+      // Fallback: if Google returns nothing (offline / API quota exhausted), still
+      // filter the already-loaded restaurant list locally so search keeps working.
+      if(!places.length)places=restaurants.filter(r=>(r.name||"").toLowerCase().includes(term));
+      // Show food places / restaurants first, then nearest by GPS.
+      setResults(rankResults(places,gps));
       setSearching(false);
     },400);
   }
 
-  function logsLastHour(restId){
-    const cutoff=Date.now()-60*60*1000;
-    return communityLogs.filter(l=>logKey(l)===restId&&new Date(l.ts).getTime()>cutoff);
-  }
   const distOf=r=>{ const lat=r.branchLat??r.lat,lng=r.branchLng??r.lng; return gps.status==="active"&&gps.lat!=null&&lat!=null?distMeters(gps.lat,gps.lng,lat,lng):(r.dist??null); };
 
   // Distances for the detail view
@@ -2628,7 +2801,6 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
         {list.map((r,i)=>{
           const lid=cardKey(r);
           const community=getCommunityWait(lid,now,communityPatterns);
-          const recentLogs=logsLastHour(lid);
           const waitingNow=activeCounts?.[lid]||0;
           const rep=reportedCounts?.[lid];
           const repFresh=rep&&(now.getTime()-new Date(rep.ts).getTime()<REPORTED_COUNT_TTL_MS);
@@ -2758,6 +2930,7 @@ function BottomNav({screen,onNav,activeWait,unreadChat}) {
   const tabs=[
     {id:"waits",icon:"⏱",label:t("nav_waits"),dot:activeWait,  dotColor:"#00b8a9"},
     {id:"check",icon:"🔍",label:t("nav_check"),dot:false,       dotColor:"#2b8fff"},
+    {id:"stats",icon:"📊",label:t("nav_stats"),dot:false,       dotColor:"#f5a623"},
     {id:"chat", icon:"💬",label:t("nav_chat"), dot:unreadChat,  dotColor:"#06c167"},
   ];
   return(
@@ -2776,14 +2949,33 @@ function BottomNav({screen,onNav,activeWait,unreadChat}) {
 }
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
+// First-login prompt explaining notifications are for wait reminders only.
+function NotifPrompt({onAllow,onSkip}){
+  return(
+    <div onClick={onSkip} style={{position:"fixed",inset:0,zIndex:650,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 22px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:18,padding:"22px",boxShadow:"0 12px 40px rgba(0,0,0,0.4)",width:"100%",maxWidth:380,textAlign:"center"}}>
+        <div style={{fontSize:40,marginBottom:8}}>🔔</div>
+        <div style={{...B,fontSize:18,color:"#00b8a9",letterSpacing:1,marginBottom:8}}>WAIT TIME REMINDERS</div>
+        <div style={{fontSize:13,...M,color:"var(--muted)",lineHeight:1.6,marginBottom:20}}>Allow notifications so we can remind you to tap GOT IT while you wait — even if your phone is locked or you&apos;re in another app like Uber Eats. We only send wait-time reminders. Nothing else.</div>
+        <button onClick={onAllow} style={{width:"100%",background:"#06c167",border:"none",borderRadius:12,padding:"14px",cursor:"pointer",...B,fontSize:15,color:"#fff",letterSpacing:1,marginBottom:10}}>ALLOW NOTIFICATIONS</button>
+        <button onClick={onSkip} style={{width:"100%",background:"none",border:"none",cursor:"pointer",...B,fontSize:13,color:"var(--muted2)",letterSpacing:1}}>NOT NOW</button>
+      </div>
+    </div>
+  );
+}
+
+const TAB_ORDER=["waits","check","stats","chat"];   // swipe order: left = next, right = previous
+
 export default function App() {
   const [user,setUser]          =useState(()=>store.get("delivr_user")||null);
   const [pendingVerify,setPendingVerify]=useState(null);
   const [screen,setScreen]=useState(()=>store.get("delivr_tab")||"waits");  // restore last tab on refresh
+  const [navDir,setNavDir]=useState(0);   // -1/+1 direction of the last tab change (drives the slide animation)
+  const swipeRef=useRef(null);            // touch-start position for swipe detection
+  const [showNotifPrompt,setShowNotifPrompt]=useState(false);   // first-login notification ask
   const [showProfile,setShowProfile]=useState(false);
   const [showUpgrade,setShowUpgrade]=useState(false);
   const [showStats,setShowStats]=useState(false);
-  const [showEarnings,setShowEarnings]=useState(false);
   const [showLogbook,setShowLogbook]=useState(false);
   const [reminder,setReminder]=useState(null);   // in-app "still waiting?" notification text
   const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
@@ -2811,14 +3003,33 @@ export default function App() {
   },[lang]);
   function chooseLang(code){ setLang(code); store.set("delivr_lang",code); }
   const [now,setNow]      =useState(new Date());
-  const [restaurants,setRestaurants]=useState(CURATED);
+  const [restaurants,setRestaurants]=useState(()=>store.get("delivr_restaurants")||CURATED);  // cached list shows instantly; refreshed on next nearby fetch
   const [waitLog,setWaitLog]=useState(()=>store.get("delivr_waitlog")||[]);
   const [activeWait,setActiveWait]=useState(()=>store.get("delivr_activewait")||null);
   const [session,setSession]=useState(()=>store.get("delivr_session")||null);   // earnings session (anchored to first ARRIVED)
-  const [pendingOrder,setPendingOrder]=useState(()=>store.get("delivr_pendingorder")||null); // picked-up order awaiting banking at next ARRIVED
+  // Orders picked up but not yet DELIVERED (supports multi-delivery / stacked orders). Migrates
+  // a legacy single pending order. Earnings bank per-order when the driver marks it delivered.
+  const [activeOrders,setActiveOrders]=useState(()=>{
+    const arr=store.get("delivr_activeorders");
+    if(arr)return arr;
+    const old=store.get("delivr_pendingorder");
+    return old?[{...old,id:old.id||genId()}]:[];
+  });
+  const saveOrders=arr=>{ setActiveOrders(arr); store.set("delivr_activeorders",arr); };
+  // Shift timer — clock in/out. activeShift survives refresh (localStorage); completed time today
+  // is accumulated locally and each shift is also saved to Firestore (users/{uid}/shifts).
+  const [activeShift,setActiveShift]=useState(()=>store.get("delivr_shift")||null);   // {startedAt} | null
+  const [shiftToday,setShiftToday]=useState(()=>{
+    const s=store.get("delivr_shifttoday");
+    return (s&&s.date===new Date().toDateString())?s:{date:new Date().toDateString(),mins:0};
+  });
   const [earningsLog,setEarningsLog]=useState([]);                               // this driver's own logged orders
   const [earningsPopup,setEarningsPopup]=useState(null);                         // {restaurantName} shown after a successful ARRIVED
-  const [communityPatterns,setCommunityPatterns]=useState({});
+  const [tipPrompt,setTipPrompt]=useState(null);                                 // {order} shown after a delivery is marked DELIVERED
+  const [communityPatterns,setCommunityPatterns]=useState(()=>{   // cached averages (<30min) show instantly; live listener refreshes in the background
+    const c=store.get("delivr_patterns");
+    return (c&&c.ts&&Date.now()-c.ts<30*60*1000&&c.data)?c.data:{};
+  });
   const [communityLogs,setCommunityLogs]=useState([]);
   const [unreadChat,setUnreadChat]=useState(false);
   const [checkingId,setCheckingId]=useState(null);
@@ -2829,11 +3040,22 @@ export default function App() {
   const [activeCounts,setActiveCounts]=useState({});  // restaurantId → # drivers waiting now
   const [activeWaitsList,setActiveWaitsList]=useState([]); // live active waits for the feed
   const [reportedCounts,setReportedCounts]=useState({});   // chain key → driver-reported {count,ts} (20-min TTL applied on render)
+  const [queueAlerts,setQueueAlerts]=useState({});         // chain key → {ts,username} long-queue alert (area-specific, 20-min TTL)
+  const [queueAlertsSent,setQueueAlertsSent]=useState(()=>store.get("delivr_qalerts_sent")||{});  // chain key → last-sent ms (10-min cooldown)
   const [driverCount,setDriverCount]=useState(0);          // live roster size
   const [signupCount,setSignupCount]=useState(0);          // true total sign-ups (backend)
   const lastFetchRef=useRef({lat:null,lng:null});
   const bankingRef=useRef(false);   // guards the idle auto-bank effect against re-entry
+  const dayRef=useRef(startOfDayMs(new Date()));   // tracks the current calendar day for the midnight reset
   const gps=useGPS();
+
+  // Which listeners a screen actually needs. The presence/location/count listeners only feed
+  // the WAITS, CHECK (and owner APP STATS) views — they stay disconnected on STATS/CHAT so we
+  // hold no live Firestore subscriptions the visible screen can't use. The personal earnings
+  // listener attaches only while the STATS tab is open. The community waitLogs listener stays
+  // global because patterns + contributor badges are read on nearly every screen.
+  const liveTabActive = screen==="waits"||screen==="check"||showStats;
+  const earningsActive = screen==="stats";
 
   // Restaurants with crowd-sourced pinned locations applied (overrides Google coords)
   const resolvedRestaurants=useMemo(()=>restaurants.map(r=>{
@@ -2867,39 +3089,46 @@ export default function App() {
     return unsub;
   },[]);
 
-  // Live Firestore listener for community patterns — updates instantly when any driver logs
+  // Live Firestore listener for community patterns — updates instantly when any driver logs.
+  // Capped at the 500 most-recent logs so memory stays bounded as the app scales.
   useEffect(()=>{
-    const unsub=onSnapshot(collection(db,"waitLogs"),snap=>{
+    const q=query(collection(db,"waitLogs"),orderBy("ts","desc"),limit(500));
+    const unsub=onSnapshot(q,snap=>{
       const logs=snap.docs.map(d=>d.data());
-      setCommunityPatterns(computePatterns(logs));
+      const patterns=computePatterns(logs);
+      setCommunityPatterns(patterns);
       setCommunityLogs(logs);
+      store.set("delivr_patterns",{ts:Date.now(),data:patterns});   // cache averages for instant load next time
     },()=>{});
     return unsub;
   },[]);
 
   // Live listener for THIS driver's own earnings — personal only, never anyone else's.
-  // Waits for Firebase Auth to finish restoring (auth.currentUser is null on first mount,
-  // so reading it synchronously on a refresh would miss the session and never re-attach).
+  // Only attached while the STATS tab is open; disconnects on navigate-away. Waits for Firebase
+  // Auth to finish restoring (auth.currentUser is null on first mount, so reading it
+  // synchronously on a refresh would miss the session and never re-attach).
   useEffect(()=>{
+    if(!earningsActive)return;
     let unsubSnap=null;
     const unsubAuth=onAuthStateChanged(auth,fbUser=>{
       if(unsubSnap){unsubSnap();unsubSnap=null;}
       if(!fbUser){setEarningsLog([]);return;}
       unsubSnap=onSnapshot(collection(db,"users",fbUser.uid,"earnings"),snap=>{
-        setEarningsLog(snap.docs.map(d=>d.data()));
+        setEarningsLog(snap.docs.map(d=>({...d.data(),id:d.id})));   // id = Firestore doc id, for edit/delete
       },()=>{});
     });
     return ()=>{ if(unsubSnap)unsubSnap(); unsubAuth(); };
-  },[]);
+  },[earningsActive]);
 
-  // Live listener for crowd-sourced pinned restaurant locations
+  // Live listener for crowd-sourced pinned restaurant locations (WAITS/CHECK only)
   useEffect(()=>{
+    if(!liveTabActive)return;
     const unsub=onSnapshot(collection(db,"restaurantLocations"),snap=>{
       const m={};snap.docs.forEach(d=>{m[d.id]=d.data();});
       setPinnedLocations(m);
     },()=>{});
     return unsub;
-  },[]);
+  },[liveTabActive]);
 
   // Live driver count — register self into the public "drivers" collection, then listen to its size
   useEffect(()=>{
@@ -2907,20 +3136,22 @@ export default function App() {
     try{ setDoc(doc(db,"drivers",auth.currentUser.uid),{joinedAt:new Date().toISOString()},{merge:true}); }catch(e){}
   },[user]);
   useEffect(()=>{
+    if(!liveTabActive)return;
     const unsub=onSnapshot(collection(db,"drivers"),snap=>setDriverCount(snap.size),()=>{});
     return unsub;
-  },[]);
-  // True total sign-ups from the backend (Firebase Admin) — refreshed periodically
+  },[liveTabActive]);
+  // True total sign-ups from the backend (Firebase Admin) — refreshed periodically while on a live tab
   useEffect(()=>{
-    if(!user)return;
+    if(!user||!liveTabActive)return;
     const load=()=>fetch(`${API_URL}/stats/drivers`).then(r=>r.json()).then(d=>{if(d.count)setSignupCount(d.count);}).catch(()=>{});
     load();
     const id=setInterval(load,120000);
     return ()=>clearInterval(id);
-  },[user]);
+  },[user,liveTabActive]);
 
-  // Live listener for who's waiting right now (real-time presence)
+  // Live listener for who's waiting right now (real-time presence; WAITS/CHECK only)
   useEffect(()=>{
+    if(!liveTabActive)return;
     const unsub=onSnapshot(collection(db,"activeWaits"),snap=>{
       const cutoff=Date.now()-60*60*1000; // ignore stale (>60min) entries
       const counts={};const list=[];
@@ -2936,51 +3167,100 @@ export default function App() {
       setActiveWaitsList(list);
     },()=>{});
     return unsub;
-  },[]);
+  },[liveTabActive]);
 
-  // Live listener for driver-reported queue counts (latest per restaurant; expired on render)
+  // Live listener for driver-reported queue counts (latest per restaurant; WAITS/CHECK only)
   useEffect(()=>{
+    if(!liveTabActive)return;
     const unsub=onSnapshot(collection(db,"restaurantCounts"),snap=>{
       const m={};snap.docs.forEach(d=>{const c=d.data();m[d.id]={count:c.count,ts:c.ts};});
       setReportedCounts(m);
     },()=>{});
     return unsub;
-  },[]);
+  },[liveTabActive]);
+
+  // Live listener for area-specific long-queue alerts (only drivers in the same area see them)
+  useEffect(()=>{
+    if(!liveTabActive)return;
+    const area=user?.area||"general";
+    const unsub=onSnapshot(query(collection(db,"queueAlerts"),where("area","==",area)),snap=>{
+      const m={};snap.docs.forEach(d=>{const a=d.data();if(a.key)m[a.key]={ts:a.ts,username:a.username};});
+      setQueueAlerts(m);
+    },()=>{});
+    return unsub;
+  },[liveTabActive,user?.area]);
 
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),15000);return ()=>clearInterval(id);},[]);
 
-  // Auto-bank a still-pending order once the shift goes idle (~6h with no next ARRIVED),
-  // so the last order of a shift is never lost. Uses an estimated delivery leg. Runs on the
-  // 15s `now` tick, so it also catches a pending order left over from a previous session.
+  // MIDNIGHT HARD RESET — when the calendar day rolls over, the earnings session starts fresh
+  // (sessionStart = midnight, earnings = 0), so previous-day session time/earnings never count
+  // toward today's £/hour or live clock. The active wait / out-for-delivery orders are untouched.
   useEffect(()=>{
-    if(!pendingOrder||bankingRef.current)return;
-    if(now.getTime()-new Date(pendingOrder.pickedUpAt).getTime()<=SESSION_GAP_MS)return;
-    bankingRef.current=true;
-    const sess=session||{sessionId:genId(),sessionStart:pendingOrder.arrivedAt,totalEarnings:0,lastActivity:pendingOrder.pickedUpAt};
-    const updated=bankOrder(pendingOrder,sess,(pendingOrder.waitMins||0)+DEFAULT_DELIVERY_MINS);
-    setSession(updated);store.set("delivr_session",updated);
-    setPendingOrder(null);store.del("delivr_pendingorder");
-    bankingRef.current=false;
-  },[pendingOrder,now]);
+    const today=startOfDayMs(now);
+    if(today===dayRef.current)return;
+    dayRef.current=today;
+    if(session){
+      const fresh={sessionId:genId(),sessionStart:new Date(today).toISOString(),totalEarnings:0,lastActivity:new Date().toISOString()};
+      setSession(fresh);store.set("delivr_session",fresh);
+    }
+  },[now]);
 
-  // Reminders at 20 & 40 min into an open wait (in-app + browser notification if allowed).
-  // Notifications only — never auto-closes or auto-logs the wait.
+  // Safety net: auto-bank any orders left undelivered once the shift goes idle (~6h), so the
+  // last orders of a shift are never lost if the driver forgot to mark them delivered. Uses an
+  // estimated delivery leg. Runs on the 15s `now` tick; also catches orders left from a prior session.
+  useEffect(()=>{
+    if(!activeOrders.length||bankingRef.current)return;
+    const newest=Math.max(...activeOrders.map(o=>new Date(o.pickedUpAt).getTime()));
+    if(now.getTime()-newest<=SESSION_GAP_MS)return;
+    bankingRef.current=true;
+    let sess=session||{sessionId:genId(),sessionStart:activeOrders[0].arrivedAt,totalEarnings:0,lastActivity:activeOrders[0].pickedUpAt};
+    for(const o of activeOrders) sess=bankOrder(o,sess,(o.waitMins||0)+DEFAULT_DELIVERY_MINS);
+    setSession(sess);store.set("delivr_session",sess);
+    saveOrders([]);store.del("delivr_pendingorder");
+    bankingRef.current=false;
+  },[activeOrders,now]);
+
+  // Wait reminders at 5 / 10 / 30 min into an open wait — in-app banner (shown on every tab via
+  // the toast below) + a local browser notification if allowed. The 60-min auto-removal is handled
+  // separately so it also fires after the app was reopened.
   useEffect(()=>{
     if(!activeWait){setReminder(null);return;}
     const start=new Date(activeWait.startedAt).getTime();
     const name=activeWait.restaurantName||"the restaurant";
-    const fire=()=>{
-      const msg=`Still waiting at ${name}? Tap when you have your food.`;
-      setReminder(msg);
-      try{ if(window.Notification&&Notification.permission==="granted")new Notification("DELIVR",{body:msg}); }catch(e){}
-    };
+    const schedule=[
+      [5,  `Still waiting at ${name}? Tap GOT IT when you have your food.`],
+      [10, `You have been waiting at ${name} for 10 minutes — tap GOT IT when ready.`],
+      [30, `Still at ${name}? Tap GOT IT or your session will be removed.`],
+    ];
     const timers=[];
-    [20,40].forEach(min=>{
+    schedule.forEach(([min,msg])=>{
       const delay=start+min*60000-Date.now();
-      if(delay>0)timers.push(setTimeout(fire,delay));
+      if(delay>0)timers.push(setTimeout(()=>{
+        setReminder(msg);
+        try{ if(window.Notification&&Notification.permission==="granted")new Notification("DELIVR",{body:msg}); }catch(e){}
+      },delay));
     });
     return ()=>timers.forEach(clearTimeout);
   },[activeWait?.startedAt]);
+
+  // 60-min UNPICKED REMOVAL — if ARRIVED was pressed but GOT IT never was, after 60 min the wait
+  // session is removed completely: no waitLog is written (so it never counts toward stats or
+  // community averages) and the live presence doc is deleted. Runs on the 15s tick so it also
+  // catches a stale wait left from before the app was reopened.
+  const removedWaitRef=useRef(false);
+  useEffect(()=>{
+    if(!activeWait){removedWaitRef.current=false;return;}
+    if(removedWaitRef.current)return;
+    const ageMs=now.getTime()-new Date(activeWait.startedAt).getTime();
+    if(ageMs<60*60000)return;
+    removedWaitRef.current=true;
+    const name=activeWait.restaurantName||"the restaurant";
+    const msg=`Your wait at ${name} was not completed and has been removed. No data was logged.`;
+    setReminder(msg);
+    try{ if(window.Notification&&Notification.permission==="granted")new Notification("DELIVR",{body:msg}); }catch(e){}
+    setActiveWait(null);store.set("delivr_activewait",null);
+    try{ deleteDoc(doc(db,"activeWaits",auth.currentUser.uid)); }catch(e){}
+  },[now,activeWait]);
 
   // After returning from Stripe Checkout, verify payment and flip premium on
   useEffect(()=>{
@@ -3002,18 +3282,104 @@ export default function App() {
 
   useEffect(()=>{
     if(gps.status!=="active"||gps.lat==null)return;
-    const last=lastFetchRef.current;
-    const far=last.lat==null||distMeters(last.lat,last.lng,gps.lat,gps.lng)>500;
-    if(!far)return;
-    lastFetchRef.current={lat:gps.lat,lng:gps.lng};
-    // Curated chains first (pinned to their nearest branch, with real opening hours), then other nearby places.
+    // Persisted last-fetch position + time (survives reloads). Restaurant locations are cached in
+    // localStorage and considered valid for 24h. We hit the API ONLY when there's no cache yet,
+    // OR the cache is older than 24h, OR the driver has moved >2km from where it was built.
+    // Within those bounds: ZERO API calls.
+    const last=lastFetchRef.current.lat!=null?lastFetchRef.current:(store.get("delivr_lastfetch")||{lat:null,lng:null,ts:0});
+    const haveCache=!!store.get("delivr_restaurants");
+    const ageMs=last.lat!=null?Date.now()-(last.ts||0):Infinity;
+    const movedMeters=last.lat!=null?distMeters(last.lat,last.lng,gps.lat,gps.lng):Infinity;
+    const needFetch=!haveCache||ageMs>=24*60*60*1000||movedMeters>2000;
+    if(!needFetch)return;   // valid cache (<24h) and driver within 2km → no API call at all
+    const pos={lat:gps.lat,lng:gps.lng,ts:Date.now()};
+    lastFetchRef.current=pos; store.set("delivr_lastfetch",pos);
+    // Curated chains first (cached branch locations, 24h), then other nearby places — all Mapbox.
+    // If the API is unavailable it returns nothing and we keep the cached/hardcoded list.
     fetchNearbyRestaurants(gps.lat,gps.lng).then(async places=>{
       const list=await buildRestaurantList(places,gps.lat,gps.lng);
-      if(list.length)setRestaurants(list);
+      if(list.length){ setRestaurants(list); store.set("delivr_restaurants",list); }   // persist for instant load next session
     }).catch(()=>{});
   },[gps.status,gps.lat,gps.lng]);
 
-  function handleNav(s){if(s==="chat")setUnreadChat(false);setScreen(s);store.set("delivr_tab",s);}
+  function handleNav(s){
+    const from=TAB_ORDER.indexOf(screen),to=TAB_ORDER.indexOf(s);
+    if(from>=0&&to>=0&&to!==from)setNavDir(to>from?1:-1);   // for the slide animation
+    if(s==="chat")setUnreadChat(false);
+    setScreen(s);store.set("delivr_tab",s);
+  }
+  // Swipe left/right anywhere on the tab content to move between WAITS → CHECK → STATS → CHAT.
+  // Only horizontal swipes act (vertical scrolling is untouched); overlays disable it.
+  function onTabTouchStart(e){const t=e.touches[0];swipeRef.current={x:t.clientX,y:t.clientY,t:Date.now()};}
+  function onTabTouchEnd(e){
+    const st=swipeRef.current;swipeRef.current=null;
+    if(!st||showProfile||showUpgrade||showStats||showLogbook)return;
+    const t=e.changedTouches[0],dx=t.clientX-st.x,dy=t.clientY-st.y;
+    if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.7&&Date.now()-st.t<700){
+      const i=TAB_ORDER.indexOf(screen);if(i<0)return;
+      if(dx<0&&i<TAB_ORDER.length-1)handleNav(TAB_ORDER[i+1]);
+      else if(dx>0&&i>0)handleNav(TAB_ORDER[i-1]);
+    }
+  }
+
+  function startShift(){
+    if(activeShift)return;
+    const s={startedAt:new Date().toISOString()};
+    setActiveShift(s);store.set("delivr_shift",s);
+  }
+  function endShift(){
+    if(!activeShift)return;
+    const startMs=new Date(activeShift.startedAt).getTime();
+    const nowMs=Date.now();
+    const fullMins=Math.round((nowMs-startMs)/60000);
+    const today=new Date().toDateString();
+    const todayMins=(nowMs-Math.max(startMs,startOfDayMs(new Date())))/60000;   // only today's portion if it spanned midnight
+    setShiftToday(prev=>{
+      const base=(prev&&prev.date===today)?prev.mins:0;
+      const next={date:today,mins:base+todayMins};
+      store.set("delivr_shifttoday",next);
+      return next;
+    });
+    const uid=auth.currentUser?.uid;
+    if(uid)addDoc(collection(db,"users",uid,"shifts"),{startedAt:activeShift.startedAt,endedAt:new Date(nowMs).toISOString(),mins:fullMins,ts:new Date(nowMs).toISOString()}).catch(()=>{});
+    setActiveShift(null);store.del("delivr_shift");
+  }
+  // Today's shift minutes (completed today + the running shift's today-portion) for the displays.
+  const shiftCompletedToday=(shiftToday.date===new Date().toDateString())?shiftToday.mins:0;
+  const shiftMinsToday=shiftCompletedToday+(activeShift?(now.getTime()-Math.max(new Date(activeShift.startedAt).getTime(),startOfDayMs(now)))/60000:0);
+
+  // Send a long-queue alert for a restaurant to everyone in the same area (one per restaurant per
+  // 10 min). Keyed area_chain so the latest overwrites; a 20-min TTL is applied on read.
+  function sendQueueAlert(restaurant){
+    const key=cardKey(restaurant);
+    const nowMs=Date.now();
+    if(queueAlertsSent[key]&&nowMs-queueAlertsSent[key]<QUEUE_ALERT_COOLDOWN_MS)return;   // cooldown
+    const area=user?.area||"general";
+    try{
+      setDoc(doc(db,"queueAlerts",area+"_"+key),{
+        key, area, restaurantId:restaurant.id, restaurantName:restaurant.name||"",
+        username:user?.name||"anon", ts:new Date(nowMs).toISOString(),
+      });
+    }catch(e){}
+    const sent={...queueAlertsSent,[key]:nowMs};
+    setQueueAlertsSent(sent);store.set("delivr_qalerts_sent",sent);
+  }
+
+  // Push notifications: on an already-granted device, register/refresh the FCM token; on first
+  // login (permission still default) show the explained opt-in prompt (wait reminders only).
+  useEffect(()=>{
+    if(!user||typeof Notification==="undefined")return;
+    if(Notification.permission==="granted"){
+      const unsub=onAuthStateChanged(auth,fb=>{ if(fb)setupPush(fb.uid); });
+      return unsub;
+    }
+    if(Notification.permission==="default"&&!store.get("delivr_notif_asked"))setShowNotifPrompt(true);
+  },[user]);
+  function allowNotifs(){
+    store.set("delivr_notif_asked",true);setShowNotifPrompt(false);
+    if(typeof Notification!=="undefined")Notification.requestPermission().then(p=>{ if(p==="granted")setupPush(auth.currentUser?.uid); }).catch(()=>{});
+  }
+  function skipNotifs(){ store.set("delivr_notif_asked",true);setShowNotifPrompt(false); }
 
   function handleLogin(userData){
     setUser(userData);store.set("delivr_user",userData);
@@ -3081,7 +3447,7 @@ export default function App() {
         lastFetchRef.current={lat:null,lng:null}; // force refetch
         fetchNearbyRestaurants(coords.lat,coords.lng).then(async places=>{
           const list=await buildRestaurantList(places,coords.lat,coords.lng);
-          if(list.length)setRestaurants(list);
+          if(list.length){ setRestaurants(list); store.set("delivr_restaurants",list); }
         }).catch(()=>{});
       }
     }
@@ -3117,25 +3483,18 @@ export default function App() {
     }
     const a={restaurantId,restaurantName:restaurant.name,startedAt:new Date().toISOString()};
     setActiveWait(a);store.set("delivr_activewait",a);
-    // Earnings session: anchored to the very first ARRIVED of the shift. This ARRIVED also
-    // BANKS the previous picked-up order — its earning window (its ARRIVED → this ARRIVED)
-    // is now complete, so the £ counts against the full wait+drive+deliver time, not just
-    // the seconds spent at the counter.
+    // Earnings session: anchored to the very first ARRIVED of the shift. Orders no longer bank
+    // here — each banks when the driver taps DELIVERED — so ARRIVED just keeps the session alive.
     const arrivedMs=new Date(a.startedAt).getTime();
     const continuing=session&&(arrivedMs-new Date(session.lastActivity||session.sessionStart).getTime()<=SESSION_GAP_MS);
     let sess;
     if(continuing){
       sess={...session,lastActivity:a.startedAt};
-      if(pendingOrder){
-        const cycleMins=(arrivedMs-new Date(pendingOrder.arrivedAt).getTime())/60000;
-        sess=bankOrder(pendingOrder,sess,cycleMins);
-        setPendingOrder(null);store.del("delivr_pendingorder");
-      }
     }else{
-      // Long idle gap → new shift. Auto-bank any leftover order from the old shift with an
-      // estimated delivery leg (its real next-ARRIVED never came), then start fresh.
-      if(pendingOrder&&session)bankOrder(pendingOrder,session,(pendingOrder.waitMins||0)+DEFAULT_DELIVERY_MINS);
-      setPendingOrder(null);store.del("delivr_pendingorder");
+      // Long idle gap → new shift. Safety-bank any orders left undelivered from the old shift
+      // (estimated leg), then start fresh.
+      if(activeOrders.length&&session){ let s=session; for(const o of activeOrders) s=bankOrder(o,s,(o.waitMins||0)+DEFAULT_DELIVERY_MINS); }
+      if(activeOrders.length){ saveOrders([]); store.del("delivr_pendingorder"); }
       sess={sessionId:genId(),sessionStart:a.startedAt,totalEarnings:0,lastActivity:a.startedAt};
     }
     setSession(sess);store.set("delivr_session",sess);
@@ -3178,14 +3537,22 @@ export default function App() {
   // writes are fire-and-forget so the UI never blocks on the network.
   function bankOrder(order,sess,cycleMins){
     const pickedUp=new Date(order.pickedUpAt);
-    const updated={...sess,totalEarnings:(sess.totalEarnings||0)+order.payout,lastActivity:new Date().toISOString()};
+    const tip=Number(order.tip)||0;
+    const finalCycle=Math.round(Math.max(order.waitMins||0,cycleMins)*10)/10;
+    // When this order was DELIVERED (ARRIVED + its full cycle). Used to measure the session's
+    // real working time (first ARRIVED → last DELIVERED) for an accurate £/hour.
+    const deliveredAt=order.arrivedAt?new Date(new Date(order.arrivedAt).getTime()+finalCycle*60000).toISOString():(order.pickedUpAt||new Date().toISOString());
+    const updated={...sess,totalEarnings:(sess.totalEarnings||0)+order.payout+tip,lastActivity:new Date().toISOString()};
     const earnEntry={
       platform:       order.platform,
       payout:         order.payout,
+      tip,            // cash tip, kept separate from base pay; total = payout + tip
       restaurantId:   order.restaurantId,
       restaurantName: order.restaurantName||"",
       waitMins:       order.waitMins,
-      cycleMins:      Math.round(Math.max(order.waitMins||0,cycleMins)*10)/10,
+      cycleMins:      finalCycle,
+      arrivedAt:      order.arrivedAt||null,
+      deliveredAt,
       sessionId:      updated.sessionId,
       sessionStart:   updated.sessionStart,
       ts:             order.pickedUpAt,
@@ -3273,22 +3640,41 @@ export default function App() {
     try{
       await addDoc(collection(db,"waitLogs"),{...entry,username:user?.name||"anon"});
     }catch(e){}
-    // If a payout was logged, HOLD it as pending — it doesn't count yet because the order
-    // still has to be driven & delivered. It banks at the next ARRIVED (window complete) or
-    // auto-banks when the shift goes idle. Until then it's shown as "£X pending".
-    if(activeWait.payout!=null&&activeWait.platform){
-      const po={
-        platform:       activeWait.platform,
-        payout:         activeWait.payout,
-        restaurantId:   activeWait.restaurantId,
-        restaurantName: activeWait.restaurantName||"",
-        waitMins,
-        arrivedAt:      activeWait.startedAt,
-        pickedUpAt:     ts.toISOString(),
-      };
-      setPendingOrder(po);store.set("delivr_pendingorder",po);
-      if(session){const s={...session,lastActivity:ts.toISOString()};setSession(s);store.set("delivr_session",s);}
-    }
+    // ALWAYS add this order to the out-for-delivery list — even if the earnings popup was skipped
+    // — so the DELIVERED / ADD DELIVERY buttons always appear and the delivery flow never breaks.
+    // A skipped order is a £0 entry (no platform) that the driver can edit later in STATS.
+    const po={
+      id:             genId(),
+      platform:       activeWait.platform||null,
+      payout:         activeWait.payout!=null?activeWait.payout:0,
+      restaurantId:   activeWait.restaurantId,
+      restaurantName: activeWait.restaurantName||"",
+      waitMins,
+      arrivedAt:      activeWait.startedAt,
+      pickedUpAt:     ts.toISOString(),
+    };
+    saveOrders([...activeOrders,po]);
+    if(session){const s={...session,lastActivity:ts.toISOString()};setSession(s);store.set("delivr_session",s);}
+  }
+
+  // DELIVERED — open the optional cash-tip prompt for this order. Banking happens on confirm.
+  function handleDelivered(orderId){
+    const order=activeOrders.find(o=>o.id===orderId)||activeOrders[0];
+    if(!order)return;
+    setTipPrompt({order});
+  }
+  // Confirm the delivery (with optional tip). The order's earnings count toward £/hour only now,
+  // banked against its full ARRIVED→DELIVERED window, then dropped from the out-for-delivery list.
+  function confirmDelivered(tip){
+    const order=tipPrompt?.order;
+    setTipPrompt(null);
+    if(!order)return;
+    const win=(Date.now()-new Date(order.arrivedAt).getTime())/60000;
+    const cycleMins=win<MIN_CYCLE_GAP_MINS?(order.waitMins||0)+DEFAULT_DELIVERY_MINS:win;
+    const sess=session||{sessionId:genId(),sessionStart:order.arrivedAt,totalEarnings:0,lastActivity:order.pickedUpAt};
+    const updated=bankOrder({...order,tip:Number(tip)||0},sess,cycleMins);
+    setSession(updated);store.set("delivr_session",updated);
+    saveOrders(activeOrders.filter(o=>o.id!==order.id));
   }
 
   function handleCancelWait(){
@@ -3320,6 +3706,8 @@ export default function App() {
     input{outline:none}
     @keyframes criticalPulse{0%,100%{opacity:1}50%{opacity:0.4}}
     @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes slideFromR{from{opacity:0.4;transform:translateX(26px)}to{opacity:1;transform:translateX(0)}}
+    @keyframes slideFromL{from{opacity:0.4;transform:translateX(-26px)}to{opacity:1;transform:translateX(0)}}
   `;
 
   if(!user){
@@ -3359,7 +3747,7 @@ export default function App() {
       <style>{CSS}</style>
       <div style={ROOT}>
         {/* Profile avatar button — fixed top right */}
-        {!showProfile&&!showUpgrade&&!showStats&&!showEarnings&&!showLogbook&&(
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&(
           <button onClick={()=>setShowProfile(true)}
             style={{position:"fixed",top:14,right:14,zIndex:300,width:38,height:38,borderRadius:"50%",background:user.color,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px "+user.color+"55"}}>
             <span style={{...B,fontSize:17,color:"#000"}}>{user.initial}</span>
@@ -3367,17 +3755,17 @@ export default function App() {
         )}
 
         {/* Persistent wait banner — visible on every tab while a wait is open */}
-        {activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showEarnings&&!showLogbook&&(
+        {activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&(
           <PersistentWaitBanner restaurantName={activeWait.restaurantName||"Restaurant"} startedAt={activeWait.startedAt} onPickedUp={handlePickedUp}/>
         )}
 
-        <div style={{height:"calc(100vh - 56px"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showEarnings&&!showLogbook?" - 56px":"")+")",overflowY:"auto"}}>
+        <div onTouchStart={onTabTouchStart} onTouchEnd={onTabTouchEnd} style={{height:"calc(100vh - 56px"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook?" - 56px":"")+")",overflowY:"auto",overflowX:"hidden"}}>
+          <Suspense fallback={<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",...B,color:"#f5a623",letterSpacing:2,fontSize:14}}>LOADING…</div>}>
+          <div key={screen} style={{animation:navDir>0?"slideFromR 0.22s ease":navDir<0?"slideFromL 0.22s ease":"none"}}>
           {showLogbook?(
             <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)} myName={user.name} revealNames={hasAdminPerks(user)}/>
           ):showStats&&isOwner(user)?(
             <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} contribCounts={contribCounts} onBack={()=>setShowStats(false)}/>
-          ):showEarnings?(
-            <EarningsStatsScreen earningsLog={earningsLog} pendingOrder={pendingOrder} onBack={()=>setShowEarnings(false)}/>
           ):showUpgrade?(
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
           ):showProfile?(
@@ -3385,17 +3773,20 @@ export default function App() {
               lang={lang||"en"} onSetLang={chooseLang}
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
               onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}
-              onEarnings={()=>{setShowProfile(false);setShowEarnings(true);}}
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
-            <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait} session={session} pendingOrder={pendingOrder}
-              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} reportedCounts={reportedCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} revealNames={hasAdminPerks(user)} driverCount={Math.max(driverCount,signupCount)} onOpenLogbook={()=>setShowLogbook(true)}
-              onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onCancelWait={handleCancelWait}/>
+            <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait} session={session} activeOrders={activeOrders}
+              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} reportedCounts={reportedCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} revealNames={hasAdminPerks(user)} driverCount={Math.max(driverCount,signupCount)} activeShift={activeShift} shiftCompletedToday={shiftCompletedToday} onStartShift={startShift} onEndShift={endShift} queueAlerts={queueAlerts} queueAlertsSent={queueAlertsSent} onQueueAlert={sendQueueAlert} onOpenLogbook={()=>setShowLogbook(true)}
+              onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onDelivered={handleDelivered} onCancelWait={handleCancelWait}/>
           ):screen==="check"?(
-            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts}/>
+            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts}/>
+          ):screen==="stats"?(
+            <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftMins={shiftMinsToday}/>
           ):(
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)}/>
           )}
+          </div>
+          </Suspense>
         </div>
         {/* 20/40-min reminder toast */}
         {reminder&&(
@@ -3410,7 +3801,13 @@ export default function App() {
         {earningsPopup&&(
           <EarningsPopup restaurantName={earningsPopup.restaurantName} onSave={handleSaveEarnings} onSkip={()=>setEarningsPopup(null)}/>
         )}
-        {!showProfile&&!showUpgrade&&!showStats&&!showEarnings&&!showLogbook&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
+        {/* Optional cash-tip prompt — shown right after a delivery is marked DELIVERED */}
+        {tipPrompt&&(
+          <TipPopup restaurantName={tipPrompt.order?.restaurantName} onConfirm={confirmDelivered}/>
+        )}
+        {/* First-login notification opt-in (wait reminders only) */}
+        {showNotifPrompt&&<NotifPrompt onAllow={allowNotifs} onSkip={skipNotifs}/>}
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
       </div>
     </div>
   );

@@ -20,7 +20,9 @@ const BREVO_KEY  = (process.env.BREVO_KEY  || '').trim();
 const BREVO_FROM = (process.env.BREVO_FROM || 'mohamedrebah1995@gmail.com').trim();
 
 // Firebase Admin — needed to reset an account's password server-side (for Brevo reset flow)
+// and to send wait-reminder push notifications (FCM) from the scheduler below.
 let adminAuth = null;
+let adminReady = false;
 try {
   const sa = (process.env.FIREBASE_SERVICE_ACCOUNT || '').trim();
   if (sa) {
@@ -28,13 +30,72 @@ try {
     if (cred.private_key) cred.private_key = cred.private_key.replace(/\\n/g, '\n');
     admin.initializeApp({ credential: admin.credential.cert(cred) });
     adminAuth = admin.auth();
+    adminReady = true;
     console.log('Firebase Admin initialised');
   } else {
-    console.warn('FIREBASE_SERVICE_ACCOUNT not set — password reset disabled until added');
+    console.warn('FIREBASE_SERVICE_ACCOUNT not set — password reset + push disabled until added');
   }
 } catch (e) {
   console.error('Firebase Admin init failed:', e.message);
 }
+
+// ── Wait-reminder push notifications (FCM) ────────────────────────────────────
+// Polls the live activeWaits presence collection; for any open wait (ARRIVED pressed, GOT IT
+// not) it pushes reminders at 5 / 10 / 30 min, and at 60 min sends a final notice and removes
+// the unpicked wait entirely (so it is never logged or counted). Each driver's FCM token lives
+// in users/{uid}.fcmToken. Runs only when Firebase Admin is configured.
+const REMINDER_MARKS = [
+  [5,  n => `Still waiting at ${n}? Tap GOT IT when you have your food.`],
+  [10, n => `You have been waiting at ${n} for 10 minutes — tap GOT IT when ready.`],
+  [30, n => `Still at ${n}? Tap GOT IT or your session will be removed.`],
+];
+const waitNotifyState = new Map();   // uid -> { startedAt, sent:Set<number> }
+
+async function sendWaitPush(fs, uid, title, body) {
+  try {
+    const snap = await fs.collection('users').doc(uid).get();
+    const token = snap.exists ? snap.data().fcmToken : null;
+    if (!token) return;
+    await admin.messaging().send({
+      token,
+      data: { title, body },   // data-only so our service worker controls display (no duplicates)
+      webpush: { fcmOptions: { link: 'https://drivers-eyes.web.app' } },
+    });
+  } catch (e) {
+    if (e && (e.code === 'messaging/registration-token-not-registered' || e.code === 'messaging/invalid-registration-token')) {
+      try { await fs.collection('users').doc(uid).update({ fcmToken: admin.firestore.FieldValue.delete() }); } catch (_) {}
+    }
+  }
+}
+
+async function tickWaitReminders() {
+  if (!adminReady) return;
+  const fs = admin.firestore();
+  try {
+    const snap = await fs.collection('activeWaits').get();
+    const seen = new Set();
+    for (const doc of snap.docs) {
+      const w = doc.data(); const uid = doc.id;
+      if (!w || !w.startedAt) continue;
+      seen.add(uid);
+      const name = w.restaurantName || 'the restaurant';
+      const ageMin = (Date.now() - new Date(w.startedAt).getTime()) / 60000;
+      let st = waitNotifyState.get(uid);
+      if (!st || st.startedAt !== w.startedAt) { st = { startedAt: w.startedAt, sent: new Set() }; waitNotifyState.set(uid, st); }
+      for (const [m, msg] of REMINDER_MARKS) {
+        if (ageMin >= m && !st.sent.has(m)) { st.sent.add(m); await sendWaitPush(fs, uid, 'DELIVR — Wait reminder', msg(name)); }
+      }
+      if (ageMin >= 60 && !st.sent.has(60)) {
+        st.sent.add(60);
+        await sendWaitPush(fs, uid, 'DELIVR', `Your wait at ${name} was not completed and has been removed. No data was logged.`);
+        try { await fs.collection('activeWaits').doc(uid).delete(); } catch (_) {}
+        waitNotifyState.delete(uid);
+      }
+    }
+    for (const uid of [...waitNotifyState.keys()]) if (!seen.has(uid)) waitNotifyState.delete(uid);   // GOT IT pressed → wait gone
+  } catch (e) { /* transient Firestore error — retry next tick */ }
+}
+setInterval(tickWaitReminders, 30000);
 
 // Shared Brevo sender (used by sign-up verification AND password reset)
 async function sendBrevoEmail(to, subject, htmlContent) {
