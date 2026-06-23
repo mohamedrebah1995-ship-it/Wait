@@ -54,7 +54,7 @@ function VoiceMessage({url,duration,isMe}){
 }
 
 // ── CHAT SCREEN (Firestore real-time) ─────────────────────────────────────────
-function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
+function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
   const room="braintree";   // single community room (all historic chat merged here)
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
@@ -161,7 +161,7 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
   }
 
   async function deleteMsg(m){
-    if(m.user!==user.name)return;                       // own messages only
+    if(m.user!==user.name&&!isAdmin)return;             // own messages — or admins can remove any
     if(!window.confirm("Delete this message?"))return;
     try{
       await deleteDoc(doc(db,"chats",room,"messages",m.id));
@@ -275,7 +275,7 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
                 );
               })}
             </div>
-            {actionMsg.user===user.name&&(
+            {(actionMsg.user===user.name||isAdmin)&&(
               <button onClick={()=>{const m=actionMsg;setActionMsg(null);deleteMsg(m);}}
                 style={{width:"100%",marginTop:12,background:"var(--tint-red)",border:"1px solid #ef444444",borderRadius:12,padding:"11px",...B,fontWeight:700,fontSize:15,letterSpacing:1,color:"#ef4444",cursor:"pointer"}}>🗑  DELETE MESSAGE</button>
             )}
@@ -286,7 +286,7 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile}) {
       {uploading&&<div style={{padding:"8px 16px",background:"var(--tint-teal)",borderTop:"1px solid #00b8a933",fontSize:11,...M,color:"#00b8a9",textAlign:"center"}}>Uploading…</div>}
       {recording&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>● Recording… release the mic to send (max 60s)</div>}
       <input ref={fileRef} type="file" accept="image/*" onChange={onPickImage} style={{display:"none"}}/>
-      <div style={{padding:"10px 10px 14px",borderTop:"1px solid var(--border3)",background:"var(--card)",flexShrink:0,display:"flex",gap:8,alignItems:"center"}}>
+      <div style={{padding:"10px 10px 74px",borderTop:"1px solid var(--border3)",background:"var(--card)",flexShrink:0,display:"flex",gap:8,alignItems:"center"}}>
         {/* photo */}
         <button onClick={()=>fileRef.current?.click()} disabled={uploading||recording}
           style={{width:42,height:42,borderRadius:"50%",background:"var(--border3)",border:"1px solid var(--border2)",cursor:"pointer",flexShrink:0,fontSize:18,color:"var(--muted)"}}>📷</button>

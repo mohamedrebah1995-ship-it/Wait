@@ -114,6 +114,7 @@ function codeEmailHtml(title, code, note) {
 // .trim() guards against trailing newlines/spaces accidentally pasted into env vars
 const STRIPE_SECRET = (process.env.STRIPE_SECRET || '').trim();
 const STRIPE_PRICE  = (process.env.STRIPE_PRICE  || '').trim();   // price_... for £4.99/mo
+const STRIPE_WEBHOOK_SECRET = (process.env.STRIPE_WEBHOOK_SECRET || '').trim();   // whsec_... for the webhook
 const APP_URL       = (process.env.APP_URL       || 'https://drivers-eyes.web.app').trim();
 const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
 
@@ -203,7 +204,8 @@ function sanitize(s) { return (s || '').trim().replace(/[<>"]/g, ''); }
 // ── Express ───────────────────────────────────────────────────────────────────
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Stripe webhooks need the raw body for signature verification, so skip JSON parsing there.
+app.use((req, res, next) => req.originalUrl === '/stripe/webhook' ? next() : express.json()(req, res, next));
 
 // Auth
 app.post('/auth/register', async (req, res) => {
@@ -360,13 +362,15 @@ app.get('/debug/chatrooms', async (_req, res) => {
 // Create a Checkout Session and return its URL
 app.post('/stripe/create-checkout-session', async (req, res) => {
   if (!stripe || !STRIPE_PRICE) return res.status(500).json({ error: 'Payments not configured' });
-  const { email } = req.body || {};
+  const { email, uid } = req.body || {};
   try {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: STRIPE_PRICE, quantity: 1 }],
       customer_email: email || undefined,
-      client_reference_id: email || undefined,
+      client_reference_id: uid || email || undefined,
+      metadata: uid ? { uid } : undefined,
+      subscription_data: uid ? { metadata: { uid } } : undefined,   // so subscription.* events carry the uid
       success_url: `${APP_URL}/?stripe=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${APP_URL}/?stripe=cancel`,
       allow_promotion_codes: true,
@@ -405,6 +409,61 @@ app.post('/stripe/cancel', async (req, res) => {
     console.error('Stripe cancel error:', e.message);
     res.status(500).json({ error: 'Could not cancel subscription' });
   }
+});
+
+// ── Stripe webhook ───────────────────────────────────────────────────────────
+// Keeps premium in sync with Stripe so it auto-revokes when a subscription is
+// cancelled, expires or goes unpaid (and re-grants while active). Firestore is the
+// source of truth the app reads premium from.
+async function setUserPremium(uid, premium, subscriptionId) {
+  if (!adminReady || !uid) return;
+  try {
+    await admin.firestore().collection('users').doc(uid).set(
+      { premium, subscriptionId: premium ? (subscriptionId || null) : null },
+      { merge: true }
+    );
+    console.log(`Premium ${premium ? 'granted' : 'revoked'} for ${uid}`);
+  } catch (e) { console.error('setUserPremium failed:', e.message); }
+}
+// Find the Firebase uid for a subscription: prefer its metadata, else the stored subscriptionId.
+async function uidFromSubscription(sub) {
+  if (sub.metadata && sub.metadata.uid) return sub.metadata.uid;
+  if (!adminReady) return null;
+  try {
+    const snap = await admin.firestore().collection('users').where('subscriptionId', '==', sub.id).limit(1).get();
+    if (!snap.empty) return snap.docs[0].id;
+  } catch (e) { console.error('uidFromSubscription failed:', e.message); }
+  return null;
+}
+
+app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe || !STRIPE_WEBHOOK_SECRET) return res.status(500).end();
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], STRIPE_WEBHOOK_SECRET);
+  } catch (e) {
+    console.error('Stripe webhook signature failed:', e.message);
+    return res.status(400).send(`Webhook Error: ${e.message}`);
+  }
+  try {
+    const obj = event.data.object;
+    if (event.type === 'checkout.session.completed') {
+      const uid = obj.client_reference_id || (obj.metadata && obj.metadata.uid);
+      if (uid && (obj.payment_status === 'paid' || obj.status === 'complete')) {
+        await setUserPremium(uid, true, obj.subscription || null);
+      }
+    } else if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
+      const uid = await uidFromSubscription(obj);
+      const active = obj.status === 'active' || obj.status === 'trialing';
+      await setUserPremium(uid, active, obj.id);
+    } else if (event.type === 'customer.subscription.deleted') {
+      const uid = await uidFromSubscription(obj);
+      await setUserPremium(uid, false, null);
+    }
+  } catch (e) {
+    console.error('Stripe webhook handler error:', e.message);
+  }
+  res.json({ received: true });
 });
 
 // Wait log submission

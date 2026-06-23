@@ -135,6 +135,9 @@ function computeContributions(logs){
 const AVATAR_COLORS = ["#00b8a9","#06c167","#ff5a2d","#2b8fff","#f5a623","#a855f7","#ef4444","#ec4899"];
 export const B = { fontFamily:"'Poppins',sans-serif" };
 export const M = { fontFamily:"'Nunito',sans-serif" };
+// New drivers must log 3 waits before the shared live data unlocks. Until then it's blurred.
+const UNLOCK_AFTER = 3;
+const LOCKED = { filter:"blur(6px)", pointerEvents:"none", userSelect:"none", WebkitUserSelect:"none" };
 const ROOT = { ...M, background:"var(--bg)", color:"var(--ink)", minHeight:"100vh", maxWidth:430, margin:"0 auto", userSelect:"none" };
 
 // ── Languages / i18n ──────────────────────────────────────────────────────────
@@ -284,6 +287,282 @@ let _lang="en";                                   // current language (set by Ap
 const tr = (lang,key) => (T[lang]&&T[lang][key])||T.en[key]||key;
 const t  = key => (T[_lang]&&T[_lang][key])||T.en[key]||key;
 
+// ── HELP / GUIDE CONTENT (per language) ───────────────────────────────────────
+// FAQ, install guides and a one-page manual. HelpScreen falls back to English for
+// any language not listed here.
+const HELP = {
+  en:{
+    title:"Help & guide", faqTitle:"Frequently asked questions",
+    faq:[
+      {q:"What is WAITS and how does it work?",a:"WAITS is a community app for delivery drivers. Drivers log how long they wait at restaurants, so everyone can see the real wait times before driving over and skip the long queues."},
+      {q:"Is this app safe to use with my delivery account?",a:"Yes. WAITS is completely separate from Uber Eats, Deliveroo, Just Eat and the rest. It never connects to your delivery accounts, reads your messages or changes your GPS — it only uses your location to find nearby restaurants."},
+      {q:"How do I log a wait time?",a:"When you reach a restaurant, tap Arrived. The timer starts on its own. The moment you have the food, tap Got it — that saves your real wait time."},
+      {q:"Why should I press Got it when I get my food?",a:"Got it stops the timer and records the exact wait. It keeps your own stats accurate and shares the real time with other drivers. Without it, the wait can't be saved."},
+      {q:"What does the community data mean?",a:"Community data is the average wait built from every driver's logs. The more people log, the more accurate it gets for everyone."},
+      {q:"How is my £/hour calculated?",a:"It's your earnings divided by your working time — measured from the first Arrived of a shift to your last delivery. Add each order's pay and tips to keep it accurate."},
+      {q:"Can other drivers see my name?",a:"No. Other drivers only see anonymous activity. Your name stays private and is never shown publicly."},
+      {q:"How do I remove ads?",a:"Upgrade to Premium from your profile. Premium removes every ad and helps support the app."},
+      {q:"Is my data private?",a:"Yes. Your earnings and personal stats stay private to you. Only anonymous wait times are shared to build the community averages."},
+      {q:"How do I reset my password?",a:"On the login screen tap 'Forgot password', enter your email, and use the code we send to set a new one."},
+    ],
+    installTitle:"Install the app",
+    iphone:{title:"iPhone (Safari)",steps:["Open this page in Safari.","Tap the Share button (a square with an arrow pointing up).","Scroll down and tap 'Add to Home Screen'.","Tap 'Add' in the top corner."]},
+    android:{title:"Android (Chrome)",steps:["Open this page in Chrome.","Tap the three-dots menu in the top right.","Tap 'Add to Home screen'.","Tap 'Add'."]},
+    manualTitle:"Quick guide",
+    manual:[
+      {t:"Using WAITS",d:"The WAITS tab lists nearby restaurants with their live and typical wait times. Places you or the community have logged appear at the top."},
+      {t:"Logging a wait",d:"Tap Arrived when you reach a restaurant to start the timer, then tap Got it when you receive the order to save the wait."},
+      {t:"The shift timer",d:"Tap Start to begin a shift, or it starts automatically on your first Arrived. It counts your working hours for the day and powers your £/hour."},
+      {t:"Reading community data",d:"Each card shows YOUR average and the COMMUNITY average. Green means a short wait, amber moderate, red a long queue."},
+      {t:"Using chat",d:"The Chat tab is your local driver community. Share tips, photos and voice notes with drivers in your area."},
+      {t:"Reading your stats",d:"The Stats tab shows your earnings, £/hour and hours worked for today, this week and all time."},
+    ],
+  },
+  pl:{
+    title:"Pomoc i przewodnik", faqTitle:"Najczęściej zadawane pytania",
+    faq:[
+      {q:"Czym jest WAITS i jak działa?",a:"WAITS to aplikacja społecznościowa dla kierowców dostaw. Kierowcy zapisują, jak długo czekają w restauracjach, dzięki czemu każdy widzi rzeczywiste czasy oczekiwania, zanim tam pojedzie, i omija długie kolejki."},
+      {q:"Czy aplikacja jest bezpieczna dla mojego konta dostawczego?",a:"Tak. WAITS jest całkowicie niezależna od Uber Eats, Deliveroo, Just Eat i innych. Nigdy nie łączy się z Twoimi kontami, nie czyta wiadomości ani nie zmienia GPS — wykorzystuje lokalizację tylko po to, by znaleźć pobliskie restauracje."},
+      {q:"Jak zapisać czas oczekiwania?",a:"Po dotarciu do restauracji dotknij Dotarłem. Licznik ruszy automatycznie. Gdy odbierzesz jedzenie, dotknij Mam — to zapisze Twój rzeczywisty czas oczekiwania."},
+      {q:"Dlaczego mam dotknąć Mam, gdy odbiorę jedzenie?",a:"Mam zatrzymuje licznik i zapisuje dokładny czas oczekiwania. Dzięki temu Twoje statystyki są prawdziwe, a inni kierowcy widzą realny czas. Bez tego oczekiwanie nie zostanie zapisane."},
+      {q:"Co oznaczają dane społeczności?",a:"Dane społeczności to średni czas oczekiwania zebrany z wpisów wszystkich kierowców. Im więcej osób zapisuje, tym dokładniejsze stają się dla wszystkich."},
+      {q:"Jak liczone jest moje £/godz.?",a:"To Twój zarobek podzielony przez czas pracy — liczony od pierwszego Dotarłem na zmianie do ostatniej dostawy. Dodawaj kwotę i napiwki z każdego zamówienia, by wynik był dokładny."},
+      {q:"Czy inni kierowcy widzą moje imię?",a:"Nie. Inni kierowcy widzą tylko anonimową aktywność. Twoje imię pozostaje prywatne i nigdy nie jest pokazywane publicznie."},
+      {q:"Jak usunąć reklamy?",a:"Przejdź na Premium w swoim profilu. Premium usuwa wszystkie reklamy i wspiera rozwój aplikacji."},
+      {q:"Czy moje dane są prywatne?",a:"Tak. Twoje zarobki i osobiste statystyki pozostają prywatne. Udostępniane są wyłącznie anonimowe czasy oczekiwania, które tworzą średnie społeczności."},
+      {q:"Jak zresetować hasło?",a:"Na ekranie logowania dotknij 'Nie pamiętam hasła', podaj swój e-mail i użyj kodu, który wyślemy, aby ustawić nowe."},
+    ],
+    installTitle:"Zainstaluj aplikację",
+    iphone:{title:"iPhone (Safari)",steps:["Otwórz tę stronę w Safari.","Dotknij przycisku Udostępnij (kwadrat ze strzałką w górę).","Przewiń w dół i dotknij 'Do ekranu początkowego'.","Dotknij 'Dodaj' w rogu."]},
+    android:{title:"Android (Chrome)",steps:["Otwórz tę stronę w Chrome.","Dotknij menu z trzema kropkami w prawym górnym rogu.","Dotknij 'Dodaj do ekranu głównego'.","Dotknij 'Dodaj'."]},
+    manualTitle:"Krótki przewodnik",
+    manual:[
+      {t:"Korzystanie z WAITS",d:"Zakładka WAITS pokazuje pobliskie restauracje z bieżącym i typowym czasem oczekiwania. Miejsca zapisane przez Ciebie lub społeczność są na górze."},
+      {t:"Zapisywanie oczekiwania",d:"Dotknij Dotarłem po dojechaniu do restauracji, aby uruchomić licznik, a potem Mam po odebraniu zamówienia, aby zapisać czas."},
+      {t:"Licznik zmiany",d:"Dotknij Start, aby rozpocząć zmianę, lub ruszy on sam przy pierwszym Dotarłem. Liczy Twoje godziny pracy w ciągu dnia i zasila £/godz."},
+      {t:"Odczyt danych społeczności",d:"Każda karta pokazuje TWOJĄ średnią i średnią SPOŁECZNOŚCI. Zielony to krótkie oczekiwanie, pomarańczowy umiarkowane, czerwony długa kolejka."},
+      {t:"Korzystanie z czatu",d:"Zakładka Czat to Twoja lokalna społeczność kierowców. Dziel się wskazówkami, zdjęciami i wiadomościami głosowymi z kierowcami w okolicy."},
+      {t:"Odczyt statystyk",d:"Zakładka Statystyki pokazuje Twoje zarobki, £/godz. i przepracowane godziny — dziś, w tym tygodniu i od początku."},
+    ],
+  },
+  ar:{
+    title:"المساعدة والدليل", faqTitle:"الأسئلة الشائعة",
+    faq:[
+      {q:"ما هو تطبيق WAITS وكيف يعمل؟",a:"WAITS تطبيق مجتمعي لسائقي التوصيل. يسجّل السائقون مدة انتظارهم في المطاعم، فيرى الجميع أوقات الانتظار الحقيقية قبل التوجّه إليها ويتجنّبون الطوابير الطويلة."},
+      {q:"هل التطبيق آمن مع حساب التوصيل الخاص بي؟",a:"نعم. WAITS منفصل تمامًا عن Uber Eats وDeliveroo وJust Eat وغيرها. لا يتصل أبدًا بحسابات التوصيل، ولا يقرأ رسائلك، ولا يغيّر موقعك — يستخدم موقعك فقط للعثور على المطاعم القريبة."},
+      {q:"كيف أسجّل وقت الانتظار؟",a:"عند وصولك إلى المطعم اضغط وصلت، فيبدأ المؤقّت تلقائيًا. وفور استلامك الطلب اضغط استلمت — وبذلك يُحفظ وقت انتظارك الحقيقي."},
+      {q:"لماذا أضغط استلمت عند استلام الطعام؟",a:"زر استلمت يوقف المؤقّت ويسجّل مدة الانتظار بدقة. هذا يبقي إحصاءاتك صحيحة ويشارك الوقت الحقيقي مع بقية السائقين. وبدونه لا يُحفظ الانتظار."},
+      {q:"ماذا تعني بيانات المجتمع؟",a:"بيانات المجتمع هي متوسط الانتظار المبني على تسجيلات جميع السائقين. كلما سجّل عدد أكبر، أصبحت أدق للجميع."},
+      {q:"كيف يُحسب معدّل الجنيه/الساعة؟",a:"هو أرباحك مقسومة على وقت عملك — من أول ضغطة وصلت في المناوبة حتى آخر توصيلة. أضِف قيمة كل طلب والإكراميات ليبقى الحساب دقيقًا."},
+      {q:"هل يستطيع السائقون الآخرون رؤية اسمي؟",a:"لا. يرى السائقون الآخرون نشاطًا مجهول الهوية فقط. يبقى اسمك خاصًا ولا يُعرض علنًا أبدًا."},
+      {q:"كيف أزيل الإعلانات؟",a:"قم بالترقية إلى Premium من ملفك الشخصي. يزيل Premium كل الإعلانات ويدعم التطبيق."},
+      {q:"هل بياناتي خاصة؟",a:"نعم. تبقى أرباحك وإحصاءاتك الشخصية خاصة بك. تُشارَك فقط أوقات الانتظار المجهولة لبناء متوسطات المجتمع."},
+      {q:"كيف أعيد تعيين كلمة المرور؟",a:"في شاشة تسجيل الدخول اضغط 'نسيت كلمة المرور'، أدخل بريدك الإلكتروني، واستخدم الرمز الذي نرسله لتعيين كلمة مرور جديدة."},
+    ],
+    installTitle:"تثبيت التطبيق",
+    iphone:{title:"آيفون (Safari)",steps:["افتح هذه الصفحة في Safari.","اضغط زر المشاركة (مربّع بداخله سهم متّجه للأعلى).","مرّر للأسفل واضغط 'إضافة إلى الشاشة الرئيسية'.","اضغط 'إضافة' في الأعلى."]},
+    android:{title:"أندرويد (Chrome)",steps:["افتح هذه الصفحة في Chrome.","اضغط قائمة النقاط الثلاث في الأعلى.","اضغط 'إضافة إلى الشاشة الرئيسية'.","اضغط 'إضافة'."]},
+    manualTitle:"دليل سريع",
+    manual:[
+      {t:"استخدام WAITS",d:"تعرض علامة WAITS المطاعم القريبة مع أوقات الانتظار الحالية والمعتادة. تظهر الأماكن التي سجّلتها أنت أو المجتمع في الأعلى."},
+      {t:"تسجيل الانتظار",d:"اضغط وصلت عند وصولك إلى المطعم لبدء المؤقّت، ثم اضغط استلمت عند استلام الطلب لحفظ مدة الانتظار."},
+      {t:"مؤقّت المناوبة",d:"اضغط ابدأ لبدء المناوبة، أو يبدأ تلقائيًا عند أول ضغطة وصلت. يحسب ساعات عملك خلال اليوم ويغذّي معدّل الجنيه/الساعة."},
+      {t:"قراءة بيانات المجتمع",d:"تعرض كل بطاقة متوسطك أنت ومتوسط المجتمع. الأخضر انتظار قصير، البرتقالي متوسط، الأحمر طابور طويل."},
+      {t:"استخدام الدردشة",d:"علامة الدردشة هي مجتمع السائقين المحلي. شارك النصائح والصور والرسائل الصوتية مع السائقين في منطقتك."},
+      {t:"قراءة إحصاءاتك",d:"تعرض علامة الإحصاءات أرباحك ومعدّل الجنيه/الساعة وساعات عملك لليوم والأسبوع ومنذ البداية."},
+    ],
+  },
+  hi:{
+    title:"मदद और गाइड", faqTitle:"अक्सर पूछे जाने वाले सवाल",
+    faq:[
+      {q:"WAITS क्या है और यह कैसे काम करता है?",a:"WAITS डिलीवरी ड्राइवरों के लिए एक कम्युनिटी ऐप है। ड्राइवर रेस्टोरेंट में अपना इंतज़ार दर्ज करते हैं, ताकि वहाँ जाने से पहले हर कोई असली इंतज़ार का समय देख सके और लंबी कतारों से बच सके।"},
+      {q:"क्या यह ऐप मेरे डिलीवरी अकाउंट के साथ सुरक्षित है?",a:"हाँ। WAITS, Uber Eats, Deliveroo, Just Eat आदि से पूरी तरह अलग है। यह कभी आपके डिलीवरी अकाउंट से नहीं जुड़ता, आपके मैसेज नहीं पढ़ता और आपका GPS नहीं बदलता — यह सिर्फ़ पास के रेस्टोरेंट ढूँढने के लिए आपकी लोकेशन इस्तेमाल करता है।"},
+      {q:"मैं इंतज़ार का समय कैसे दर्ज करूँ?",a:"रेस्टोरेंट पहुँचते ही पहुँचे पर टैप करें। टाइमर अपने आप शुरू हो जाएगा। जैसे ही खाना मिले, मिल गया पर टैप करें — इससे आपका असली इंतज़ार सेव हो जाता है।"},
+      {q:"खाना मिलने पर मिल गया क्यों दबाऊँ?",a:"मिल गया टाइमर रोककर सटीक इंतज़ार दर्ज करता है। इससे आपके आँकड़े सही रहते हैं और असली समय दूसरे ड्राइवरों के साथ साझा होता है। इसके बिना इंतज़ार सेव नहीं होगा।"},
+      {q:"कम्युनिटी डेटा का क्या मतलब है?",a:"कम्युनिटी डेटा सभी ड्राइवरों के दर्ज किए गए समय से बना औसत इंतज़ार है। जितने ज़्यादा लोग दर्ज करेंगे, यह सबके लिए उतना ही सटीक होगा।"},
+      {q:"मेरा £/घंटा कैसे निकाला जाता है?",a:"यह आपकी कमाई को आपके काम के समय से भाग देकर निकलता है — शिफ्ट के पहले पहुँचे से आख़िरी डिलीवरी तक। हर ऑर्डर की कमाई और टिप जोड़ें ताकि यह सटीक रहे।"},
+      {q:"क्या दूसरे ड्राइवर मेरा नाम देख सकते हैं?",a:"नहीं। दूसरे ड्राइवर सिर्फ़ गुमनाम गतिविधि देखते हैं। आपका नाम निजी रहता है और कभी सार्वजनिक नहीं दिखाया जाता।"},
+      {q:"मैं विज्ञापन कैसे हटाऊँ?",a:"अपने प्रोफ़ाइल से Premium लें। Premium सभी विज्ञापन हटा देता है और ऐप को सहारा देता है।"},
+      {q:"क्या मेरा डेटा निजी है?",a:"हाँ। आपकी कमाई और निजी आँकड़े सिर्फ़ आपके पास रहते हैं। सिर्फ़ गुमनाम इंतज़ार समय साझा होते हैं जिनसे कम्युनिटी औसत बनता है।"},
+      {q:"मैं अपना पासवर्ड कैसे रीसेट करूँ?",a:"लॉगिन स्क्रीन पर 'पासवर्ड भूल गए' टैप करें, अपना ईमेल डालें, और हमारे भेजे कोड से नया पासवर्ड सेट करें।"},
+    ],
+    installTitle:"ऐप इंस्टॉल करें",
+    iphone:{title:"आईफ़ोन (Safari)",steps:["इस पेज को Safari में खोलें।","शेयर बटन (ऊपर तीर वाला वर्ग) पर टैप करें।","नीचे स्क्रॉल करके 'Add to Home Screen' पर टैप करें।","ऊपर कोने में 'Add' पर टैप करें।"]},
+    android:{title:"एंड्रॉइड (Chrome)",steps:["इस पेज को Chrome में खोलें।","ऊपर दाईं ओर तीन-बिंदु मेन्यू पर टैप करें।","'Add to Home screen' पर टैप करें।","'Add' पर टैप करें।"]},
+    manualTitle:"त्वरित गाइड",
+    manual:[
+      {t:"WAITS का उपयोग",d:"WAITS टैब पास के रेस्टोरेंट उनके लाइव और सामान्य इंतज़ार समय के साथ दिखाता है। आपके या कम्युनिटी के दर्ज किए स्थान सबसे ऊपर आते हैं।"},
+      {t:"इंतज़ार दर्ज करना",d:"रेस्टोरेंट पहुँचने पर टाइमर शुरू करने के लिए पहुँचे पर टैप करें, फिर ऑर्डर मिलने पर इंतज़ार सेव करने के लिए मिल गया पर टैप करें।"},
+      {t:"शिफ्ट टाइमर",d:"शिफ्ट शुरू करने के लिए स्टार्ट पर टैप करें, या यह पहले पहुँचे पर अपने आप शुरू हो जाता है। यह दिन भर के काम के घंटे गिनता है और £/घंटा चलाता है।"},
+      {t:"कम्युनिटी डेटा पढ़ना",d:"हर कार्ड आपका औसत और कम्युनिटी औसत दिखाता है। हरा मतलब छोटा इंतज़ार, पीला मध्यम, लाल लंबी कतार।"},
+      {t:"चैट का उपयोग",d:"चैट टैब आपकी स्थानीय ड्राइवर कम्युनिटी है। अपने इलाके के ड्राइवरों के साथ टिप्स, फ़ोटो और वॉइस नोट साझा करें।"},
+      {t:"अपने आँकड़े पढ़ना",d:"स्टैट्स टैब आज, इस हफ़्ते और अब तक की आपकी कमाई, £/घंटा और काम के घंटे दिखाता है।"},
+    ],
+  },
+  ur:{
+    title:"مدد اور گائیڈ", faqTitle:"اکثر پوچھے جانے والے سوالات",
+    faq:[
+      {q:"WAITS کیا ہے اور یہ کیسے کام کرتا ہے؟",a:"WAITS ڈیلیوری ڈرائیوروں کے لیے ایک کمیونٹی ایپ ہے۔ ڈرائیور ریستوران میں اپنا انتظار درج کرتے ہیں، تاکہ وہاں جانے سے پہلے ہر کوئی اصل انتظار کا وقت دیکھ سکے اور لمبی قطاروں سے بچ سکے۔"},
+      {q:"کیا یہ ایپ میرے ڈیلیوری اکاؤنٹ کے ساتھ محفوظ ہے؟",a:"جی ہاں۔ WAITS، Uber Eats، Deliveroo، Just Eat وغیرہ سے مکمل طور پر الگ ہے۔ یہ کبھی آپ کے ڈیلیوری اکاؤنٹس سے منسلک نہیں ہوتا، آپ کے پیغامات نہیں پڑھتا اور آپ کا GPS نہیں بدلتا — یہ صرف قریبی ریستوران ڈھونڈنے کے لیے آپ کی لوکیشن استعمال کرتا ہے۔"},
+      {q:"میں انتظار کا وقت کیسے درج کروں؟",a:"ریستوران پہنچتے ہی پہنچے پر ٹیپ کریں۔ ٹائمر خودبخود شروع ہو جائے گا۔ جیسے ہی کھانا ملے، مل گیا پر ٹیپ کریں — اس سے آپ کا اصل انتظار محفوظ ہو جاتا ہے۔"},
+      {q:"کھانا ملنے پر مل گیا کیوں دبائیں؟",a:"مل گیا ٹائمر روک کر درست انتظار درج کرتا ہے۔ اس سے آپ کے اعداد و شمار درست رہتے ہیں اور اصل وقت دوسرے ڈرائیوروں کے ساتھ شیئر ہوتا ہے۔ اس کے بغیر انتظار محفوظ نہیں ہوگا۔"},
+      {q:"کمیونٹی ڈیٹا کا کیا مطلب ہے؟",a:"کمیونٹی ڈیٹا تمام ڈرائیوروں کے درج کردہ اوقات سے بنا اوسط انتظار ہے۔ جتنے زیادہ لوگ درج کریں گے، یہ سب کے لیے اتنا ہی درست ہوگا۔"},
+      {q:"میرا £/گھنٹہ کیسے نکالا جاتا ہے؟",a:"یہ آپ کی کمائی کو آپ کے کام کے وقت پر تقسیم کر کے نکلتا ہے — شفٹ کے پہلے پہنچے سے آخری ڈیلیوری تک۔ ہر آرڈر کی کمائی اور ٹپ شامل کریں تاکہ یہ درست رہے۔"},
+      {q:"کیا دوسرے ڈرائیور میرا نام دیکھ سکتے ہیں؟",a:"نہیں۔ دوسرے ڈرائیور صرف گمنام سرگرمی دیکھتے ہیں۔ آپ کا نام نجی رہتا ہے اور کبھی عوامی طور پر نہیں دکھایا جاتا۔"},
+      {q:"میں اشتہارات کیسے ہٹاؤں؟",a:"اپنے پروفائل سے Premium لیں۔ Premium تمام اشتہارات ہٹا دیتا ہے اور ایپ کی مدد کرتا ہے۔"},
+      {q:"کیا میرا ڈیٹا نجی ہے؟",a:"جی ہاں۔ آپ کی کمائی اور ذاتی اعداد و شمار صرف آپ کے پاس رہتے ہیں۔ صرف گمنام انتظار کے اوقات شیئر ہوتے ہیں جن سے کمیونٹی اوسط بنتا ہے۔"},
+      {q:"میں اپنا پاس ورڈ کیسے ری سیٹ کروں؟",a:"لاگ اِن اسکرین پر 'پاس ورڈ بھول گئے' پر ٹیپ کریں، اپنا ای میل درج کریں، اور ہمارے بھیجے کوڈ سے نیا پاس ورڈ سیٹ کریں۔"},
+    ],
+    installTitle:"ایپ انسٹال کریں",
+    iphone:{title:"آئی فون (Safari)",steps:["اس صفحے کو Safari میں کھولیں۔","شیئر بٹن (اوپر تیر والا مربع) پر ٹیپ کریں۔","نیچے اسکرول کر کے 'Add to Home Screen' پر ٹیپ کریں۔","اوپر کونے میں 'Add' پر ٹیپ کریں۔"]},
+    android:{title:"اینڈرائیڈ (Chrome)",steps:["اس صفحے کو Chrome میں کھولیں۔","اوپر دائیں طرف تین نقطوں والے مینو پر ٹیپ کریں۔","'Add to Home screen' پر ٹیپ کریں۔","'Add' پر ٹیپ کریں۔"]},
+    manualTitle:"فوری گائیڈ",
+    manual:[
+      {t:"WAITS کا استعمال",d:"WAITS ٹیب قریبی ریستوران ان کے لائیو اور عام انتظار کے اوقات کے ساتھ دکھاتا ہے۔ آپ کے یا کمیونٹی کے درج کردہ مقامات سب سے اوپر آتے ہیں۔"},
+      {t:"انتظار درج کرنا",d:"ریستوران پہنچنے پر ٹائمر شروع کرنے کے لیے پہنچے پر ٹیپ کریں، پھر آرڈر ملنے پر انتظار محفوظ کرنے کے لیے مل گیا پر ٹیپ کریں۔"},
+      {t:"شفٹ ٹائمر",d:"شفٹ شروع کرنے کے لیے اسٹارٹ پر ٹیپ کریں، یا یہ پہلے پہنچے پر خودبخود شروع ہو جاتا ہے۔ یہ دن بھر کے کام کے گھنٹے گنتا ہے اور £/گھنٹہ چلاتا ہے۔"},
+      {t:"کمیونٹی ڈیٹا پڑھنا",d:"ہر کارڈ آپ کا اوسط اور کمیونٹی اوسط دکھاتا ہے۔ سبز مطلب مختصر انتظار، نارنجی درمیانہ، سرخ لمبی قطار۔"},
+      {t:"چیٹ کا استعمال",d:"چیٹ ٹیب آپ کی مقامی ڈرائیور کمیونٹی ہے۔ اپنے علاقے کے ڈرائیوروں کے ساتھ تجاویز، تصاویر اور وائس نوٹس شیئر کریں۔"},
+      {t:"اپنے اعداد و شمار پڑھنا",d:"اسٹیٹس ٹیب آج، اس ہفتے اور اب تک کی آپ کی کمائی، £/گھنٹہ اور کام کے گھنٹے دکھاتا ہے۔"},
+    ],
+  },
+  pt:{
+    title:"Ajuda e guia", faqTitle:"Perguntas frequentes",
+    faq:[
+      {q:"O que é o WAITS e como funciona?",a:"O WAITS é um app comunitário para motoristas de entrega. Os motoristas registram quanto tempo esperam nos restaurantes, para que todos vejam os tempos de espera reais antes de ir até lá e evitem as filas longas."},
+      {q:"Este app é seguro com a minha conta de entregas?",a:"Sim. O WAITS é totalmente separado do Uber Eats, Deliveroo, Just Eat e dos outros. Ele nunca se conecta às suas contas de entrega, não lê suas mensagens nem altera seu GPS — usa sua localização apenas para encontrar restaurantes próximos."},
+      {q:"Como registro um tempo de espera?",a:"Ao chegar ao restaurante, toque em Cheguei. O cronômetro começa sozinho. Assim que estiver com a comida, toque em Peguei — isso salva o seu tempo de espera real."},
+      {q:"Por que devo tocar em Peguei quando recebo a comida?",a:"O Peguei para o cronômetro e registra a espera exata. Mantém suas estatísticas corretas e compartilha o tempo real com os outros motoristas. Sem isso, a espera não é salva."},
+      {q:"O que significam os dados da comunidade?",a:"Os dados da comunidade são a espera média criada a partir dos registros de todos os motoristas. Quanto mais gente registra, mais precisos ficam para todos."},
+      {q:"Como é calculado o meu £/hora?",a:"São seus ganhos divididos pelo seu tempo de trabalho — medido do primeiro Cheguei do turno até a última entrega. Adicione o valor e as gorjetas de cada pedido para manter tudo certo."},
+      {q:"Outros motoristas conseguem ver o meu nome?",a:"Não. Os outros motoristas só veem atividade anônima. Seu nome fica privado e nunca é mostrado publicamente."},
+      {q:"Como removo os anúncios?",a:"Mude para o Premium no seu perfil. O Premium remove todos os anúncios e ajuda a manter o app."},
+      {q:"Meus dados são privados?",a:"Sim. Seus ganhos e estatísticas pessoais ficam só com você. Apenas os tempos de espera anônimos são compartilhados para criar as médias da comunidade."},
+      {q:"Como redefino minha senha?",a:"Na tela de login, toque em 'Esqueceu a senha?', informe seu e-mail e use o código que enviamos para criar uma nova."},
+    ],
+    installTitle:"Instalar o app",
+    iphone:{title:"iPhone (Safari)",steps:["Abra esta página no Safari.","Toque no botão Compartilhar (um quadrado com uma seta para cima).","Role para baixo e toque em 'Adicionar à Tela de Início'.","Toque em 'Adicionar' no canto superior."]},
+    android:{title:"Android (Chrome)",steps:["Abra esta página no Chrome.","Toque no menu de três pontinhos no canto superior direito.","Toque em 'Adicionar à tela inicial'.","Toque em 'Adicionar'."]},
+    manualTitle:"Guia rápido",
+    manual:[
+      {t:"Usar o WAITS",d:"A aba WAITS lista os restaurantes próximos com os tempos de espera atuais e habituais. Os lugares que você ou a comunidade registraram aparecem no topo."},
+      {t:"Registrar uma espera",d:"Toque em Cheguei ao chegar ao restaurante para iniciar o cronômetro e, depois, em Peguei ao receber o pedido para salvar a espera."},
+      {t:"O cronômetro de turno",d:"Toque em Iniciar para começar um turno, ou ele começa sozinho no seu primeiro Cheguei. Conta as horas trabalhadas no dia e alimenta o seu £/hora."},
+      {t:"Ler os dados da comunidade",d:"Cada cartão mostra a SUA média e a média da COMUNIDADE. Verde é espera curta, laranja moderada, vermelho fila longa."},
+      {t:"Usar o chat",d:"A aba Chat é a sua comunidade local de motoristas. Compartilhe dicas, fotos e mensagens de voz com os motoristas da sua região."},
+      {t:"Ler suas estatísticas",d:"A aba Estatísticas mostra seus ganhos, £/hora e horas trabalhadas de hoje, da semana e de sempre."},
+    ],
+  },
+  zh:{
+    title:"帮助与指南", faqTitle:"常见问题",
+    faq:[
+      {q:"WAITS 是什么，如何运作？",a:"WAITS 是一款面向外卖骑手的社区应用。骑手记录在餐厅等待的时长，这样大家在前往之前就能看到真实的等待时间，避开长队。"},
+      {q:"使用这款应用会影响我的外卖账号安全吗？",a:"不会。WAITS 与 Uber Eats、Deliveroo、Just Eat 等完全独立。它绝不连接你的外卖账号、不读取你的消息、也不更改你的 GPS——只用你的位置来查找附近的餐厅。"},
+      {q:"如何记录等待时间？",a:"到达餐厅后点击“已到达”，计时会自动开始。一拿到餐就点击“已取餐”——这样就保存了你真实的等待时间。"},
+      {q:"拿到餐后为什么要点“已取餐”？",a:"“已取餐”会停止计时并记录准确的等待时长。它让你的数据保持准确，并把真实时间分享给其他骑手。不点的话，等待时间无法保存。"},
+      {q:"社区数据是什么意思？",a:"社区数据是根据所有骑手的记录计算出的平均等待时间。记录的人越多，对大家就越准确。"},
+      {q:"我的每小时收入是怎么算的？",a:"它是你的收入除以工作时间——从一个班次的第一次“已到达”算到最后一次送达。记得填写每单的收入和小费，结果才准确。"},
+      {q:"其他骑手能看到我的名字吗？",a:"不能。其他骑手只能看到匿名活动。你的名字保持私密，绝不会公开显示。"},
+      {q:"如何去除广告？",a:"在个人资料中升级到 Premium。Premium 会去除所有广告，并支持这款应用。"},
+      {q:"我的数据是私密的吗？",a:"是的。你的收入和个人数据只属于你。只有匿名的等待时间会被分享，用来生成社区平均值。"},
+      {q:"如何重置密码？",a:"在登录界面点击“忘记密码”，输入你的邮箱，然后用我们发送的验证码设置新密码。"},
+    ],
+    installTitle:"安装应用",
+    iphone:{title:"iPhone（Safari）",steps:["在 Safari 中打开此页面。","点击分享按钮（带向上箭头的方框）。","向下滑动并点击“添加到主屏幕”。","点击右上角的“添加”。"]},
+    android:{title:"安卓（Chrome）",steps:["在 Chrome 中打开此页面。","点击右上角的三点菜单。","点击“添加到主屏幕”。","点击“添加”。"]},
+    manualTitle:"快速指南",
+    manual:[
+      {t:"使用 WAITS",d:"WAITS 标签显示附近餐厅及其实时和通常的等待时间。你或社区记录过的地点会排在最前面。"},
+      {t:"记录等待",d:"到达餐厅时点击“已到达”开始计时，收到订单后点击“已取餐”保存等待时间。"},
+      {t:"班次计时器",d:"点击“开始”开启一个班次，或在第一次“已到达”时自动开始。它统计你当天的工作时长，并计算每小时收入。"},
+      {t:"读懂社区数据",d:"每张卡片显示“你的”平均值和“社区”平均值。绿色表示等待短，橙色中等，红色表示排长队。"},
+      {t:"使用聊天",d:"聊天标签是你本地的骑手社区。与你所在区域的骑手分享技巧、照片和语音消息。"},
+      {t:"查看你的统计",d:"统计标签显示你今天、本周及全部时间的收入、每小时收入和工作时长。"},
+    ],
+  },
+  ro:{
+    title:"Ajutor și ghid", faqTitle:"Întrebări frecvente",
+    faq:[
+      {q:"Ce este WAITS și cum funcționează?",a:"WAITS este o aplicație de comunitate pentru șoferii de livrări. Șoferii înregistrează cât așteaptă la restaurante, astfel încât toți să vadă timpii reali de așteptare înainte de a merge acolo și să evite cozile lungi."},
+      {q:"Este aplicația sigură pentru contul meu de livrări?",a:"Da. WAITS este complet separată de Uber Eats, Deliveroo, Just Eat și celelalte. Nu se conectează niciodată la conturile tale de livrări, nu îți citește mesajele și nu îți modifică GPS-ul — folosește locația doar pentru a găsi restaurante din apropiere."},
+      {q:"Cum înregistrez un timp de așteptare?",a:"Când ajungi la restaurant, apasă Ajuns. Cronometrul pornește singur. În clipa în care ai mâncarea, apasă Am preluat — astfel se salvează timpul tău real de așteptare."},
+      {q:"De ce să apăs Am preluat când primesc mâncarea?",a:"Am preluat oprește cronometrul și înregistrează exact așteptarea. Îți păstrează statisticile corecte și împarte timpul real cu ceilalți șoferi. Fără el, așteptarea nu se salvează."},
+      {q:"Ce înseamnă datele comunității?",a:"Datele comunității reprezintă așteptarea medie construită din înregistrările tuturor șoferilor. Cu cât înregistrează mai mulți, cu atât devin mai exacte pentru toți."},
+      {q:"Cum se calculează £/oră?",a:"Sunt câștigurile tale împărțite la timpul lucrat — măsurat de la primul Ajuns din tură până la ultima livrare. Adaugă suma și bacșișurile fiecărei comenzi ca să rămână exact."},
+      {q:"Pot ceilalți șoferi să-mi vadă numele?",a:"Nu. Ceilalți șoferi văd doar activitate anonimă. Numele tău rămâne privat și nu este afișat public niciodată."},
+      {q:"Cum elimin reclamele?",a:"Treci la Premium din profilul tău. Premium elimină toate reclamele și sprijină aplicația."},
+      {q:"Datele mele sunt private?",a:"Da. Câștigurile și statisticile tale personale rămân private. Se împart doar timpii de așteptare anonimi, care formează mediile comunității."},
+      {q:"Cum îmi resetez parola?",a:"Pe ecranul de conectare apasă 'Am uitat parola', introdu adresa de e-mail și folosește codul trimis pentru a seta una nouă."},
+    ],
+    installTitle:"Instalează aplicația",
+    iphone:{title:"iPhone (Safari)",steps:["Deschide această pagină în Safari.","Apasă butonul Partajare (un pătrat cu o săgeată în sus).","Derulează în jos și apasă 'Adaugă la ecranul principal'.","Apasă 'Adaugă' în colțul de sus."]},
+    android:{title:"Android (Chrome)",steps:["Deschide această pagină în Chrome.","Apasă meniul cu trei puncte din dreapta sus.","Apasă 'Adaugă la ecranul principal'.","Apasă 'Adaugă'."]},
+    manualTitle:"Ghid rapid",
+    manual:[
+      {t:"Folosirea WAITS",d:"Fila WAITS afișează restaurantele din apropiere cu timpii de așteptare actuali și obișnuiți. Locurile înregistrate de tine sau de comunitate apar primele."},
+      {t:"Înregistrarea unei așteptări",d:"Apasă Ajuns când ajungi la restaurant ca să pornești cronometrul, apoi Am preluat când primești comanda ca să salvezi așteptarea."},
+      {t:"Cronometrul de tură",d:"Apasă Start ca să începi o tură sau pornește singur la primul Ajuns. Numără orele lucrate în ziua respectivă și alimentează £/oră."},
+      {t:"Citirea datelor comunității",d:"Fiecare card arată media TA și media COMUNITĂȚII. Verde înseamnă așteptare scurtă, portocaliu moderată, roșu coadă lungă."},
+      {t:"Folosirea chatului",d:"Fila Chat este comunitatea ta locală de șoferi. Împarte sfaturi, poze și mesaje vocale cu șoferii din zona ta."},
+      {t:"Citirea statisticilor",d:"Fila Statistici arată câștigurile, £/oră și orele lucrate pentru azi, săptămâna aceasta și dintotdeauna."},
+    ],
+  },
+  es:{
+    title:"Ayuda y guía", faqTitle:"Preguntas frecuentes",
+    faq:[
+      {q:"¿Qué es WAITS y cómo funciona?",a:"WAITS es una app comunitaria para repartidores. Los repartidores registran cuánto esperan en los restaurantes, para que todos vean los tiempos de espera reales antes de ir y se ahorren las colas largas."},
+      {q:"¿Es seguro usar esta app con mi cuenta de reparto?",a:"Sí. WAITS es totalmente independiente de Uber Eats, Deliveroo, Just Eat y demás. Nunca se conecta a tus cuentas de reparto, no lee tus mensajes ni cambia tu GPS — solo usa tu ubicación para encontrar restaurantes cercanos."},
+      {q:"¿Cómo registro un tiempo de espera?",a:"Al llegar al restaurante, toca Llegué. El cronómetro empieza solo. En cuanto tengas la comida, toca Ya lo tengo — así se guarda tu tiempo de espera real."},
+      {q:"¿Por qué debo tocar Ya lo tengo al recoger la comida?",a:"Ya lo tengo detiene el cronómetro y registra la espera exacta. Mantiene tus estadísticas correctas y comparte el tiempo real con los demás repartidores. Sin ello, la espera no se guarda."},
+      {q:"¿Qué significan los datos de la comunidad?",a:"Los datos de la comunidad son la espera media creada con los registros de todos los repartidores. Cuanta más gente registre, más precisos son para todos."},
+      {q:"¿Cómo se calcula mi €/hora?",a:"Son tus ingresos divididos entre tu tiempo de trabajo — medido desde el primer Llegué del turno hasta tu última entrega. Añade el importe y las propinas de cada pedido para que sea exacto."},
+      {q:"¿Pueden otros repartidores ver mi nombre?",a:"No. Los demás repartidores solo ven actividad anónima. Tu nombre es privado y nunca se muestra públicamente."},
+      {q:"¿Cómo quito los anuncios?",a:"Pásate a Premium desde tu perfil. Premium quita todos los anuncios y ayuda a mantener la app."},
+      {q:"¿Mis datos son privados?",a:"Sí. Tus ingresos y estadísticas personales son solo tuyos. Solo se comparten los tiempos de espera anónimos para crear las medias de la comunidad."},
+      {q:"¿Cómo restablezco mi contraseña?",a:"En la pantalla de inicio de sesión toca '¿Olvidaste la contraseña?', introduce tu correo y usa el código que te enviamos para crear una nueva."},
+    ],
+    installTitle:"Instalar la app",
+    iphone:{title:"iPhone (Safari)",steps:["Abre esta página en Safari.","Toca el botón Compartir (un cuadrado con una flecha hacia arriba).","Desliza hacia abajo y toca 'Añadir a pantalla de inicio'.","Toca 'Añadir' en la esquina superior."]},
+    android:{title:"Android (Chrome)",steps:["Abre esta página en Chrome.","Toca el menú de tres puntos arriba a la derecha.","Toca 'Añadir a pantalla de inicio'.","Toca 'Añadir'."]},
+    manualTitle:"Guía rápida",
+    manual:[
+      {t:"Usar WAITS",d:"La pestaña WAITS muestra los restaurantes cercanos con sus tiempos de espera en vivo y habituales. Los sitios que tú o la comunidad habéis registrado aparecen arriba."},
+      {t:"Registrar una espera",d:"Toca Llegué al llegar al restaurante para iniciar el cronómetro, y luego Ya lo tengo al recibir el pedido para guardar la espera."},
+      {t:"El cronómetro de turno",d:"Toca Empezar para iniciar un turno, o se inicia solo en tu primer Llegué. Cuenta tus horas de trabajo del día y alimenta tu €/hora."},
+      {t:"Leer los datos de la comunidad",d:"Cada tarjeta muestra TU media y la media de la COMUNIDAD. Verde es espera corta, ámbar moderada, rojo cola larga."},
+      {t:"Usar el chat",d:"La pestaña Chat es tu comunidad local de repartidores. Comparte consejos, fotos y notas de voz con los repartidores de tu zona."},
+      {t:"Leer tus estadísticas",d:"La pestaña Estadísticas muestra tus ingresos, €/hora y horas trabajadas de hoy, de la semana y de siempre."},
+    ],
+  },
+  ru:{
+    title:"Помощь и руководство", faqTitle:"Частые вопросы",
+    faq:[
+      {q:"Что такое WAITS и как это работает?",a:"WAITS — это приложение-сообщество для курьеров. Курьеры отмечают, сколько они ждут в ресторанах, чтобы каждый видел реальное время ожидания до поездки и не стоял в длинных очередях."},
+      {q:"Безопасно ли пользоваться приложением с моим аккаунтом доставки?",a:"Да. WAITS полностью отделён от Uber Eats, Deliveroo, Just Eat и других. Он никогда не подключается к вашим аккаунтам доставки, не читает сообщения и не меняет GPS — он использует геолокацию только для поиска ближайших ресторанов."},
+      {q:"Как отметить время ожидания?",a:"Когда приедете в ресторан, нажмите Прибыл. Таймер запустится сам. Как только получите еду, нажмите Забрал — так сохранится ваше реальное время ожидания."},
+      {q:"Зачем нажимать Забрал, когда я получил еду?",a:"Кнопка Забрал останавливает таймер и записывает точное ожидание. Это сохраняет вашу статистику верной и передаёт реальное время другим курьерам. Без неё ожидание не сохранится."},
+      {q:"Что означают данные сообщества?",a:"Данные сообщества — это среднее время ожидания, собранное из отметок всех курьеров. Чем больше людей отмечает, тем точнее оно для всех."},
+      {q:"Как рассчитывается мой £/час?",a:"Это ваш заработок, делённый на рабочее время — от первого Прибыл в смене до последней доставки. Добавляйте оплату и чаевые по каждому заказу, чтобы расчёт был точным."},
+      {q:"Видят ли другие курьеры моё имя?",a:"Нет. Другие курьеры видят только анонимную активность. Ваше имя остаётся приватным и никогда не показывается публично."},
+      {q:"Как убрать рекламу?",a:"Перейдите на Premium в своём профиле. Premium убирает всю рекламу и поддерживает приложение."},
+      {q:"Мои данные приватны?",a:"Да. Ваш заработок и личная статистика остаются только у вас. Передаётся лишь анонимное время ожидания для расчёта средних значений сообщества."},
+      {q:"Как сбросить пароль?",a:"На экране входа нажмите 'Забыли пароль', введите свою почту и используйте присланный код, чтобы задать новый."},
+    ],
+    installTitle:"Установить приложение",
+    iphone:{title:"iPhone (Safari)",steps:["Откройте эту страницу в Safari.","Нажмите кнопку «Поделиться» (квадрат со стрелкой вверх).","Прокрутите вниз и нажмите «На экран Домой».","Нажмите «Добавить» в углу."]},
+    android:{title:"Android (Chrome)",steps:["Откройте эту страницу в Chrome.","Нажмите меню из трёх точек справа вверху.","Нажмите «Добавить на главный экран».","Нажмите «Добавить»."]},
+    manualTitle:"Краткое руководство",
+    manual:[
+      {t:"Как пользоваться WAITS",d:"Вкладка WAITS показывает ближайшие рестораны с текущим и обычным временем ожидания. Места, отмеченные вами или сообществом, идут вверху."},
+      {t:"Как отметить ожидание",d:"Нажмите Прибыл по приезде в ресторан, чтобы запустить таймер, затем Забрал при получении заказа, чтобы сохранить ожидание."},
+      {t:"Таймер смены",d:"Нажмите Старт, чтобы начать смену, или он запустится сам при первом Прибыл. Он считает ваши рабочие часы за день и питает показатель £/час."},
+      {t:"Чтение данных сообщества",d:"Каждая карточка показывает ВАШЕ среднее и среднее по СООБЩЕСТВУ. Зелёный — короткое ожидание, оранжевый — среднее, красный — длинная очередь."},
+      {t:"Как пользоваться чатом",d:"Вкладка «Чат» — это ваше местное сообщество курьеров. Делитесь советами, фото и голосовыми сообщениями с курьерами в вашем районе."},
+      {t:"Чтение вашей статистики",d:"Вкладка «Статистика» показывает заработок, £/час и отработанные часы за сегодня, неделю и всё время."},
+    ],
+  },
+};
+
 const store = {
   get:  k     => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):null; } catch(e) { return null; } },
   set:  (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch(e) {} },
@@ -381,6 +660,8 @@ function computePatterns(logs) {
 // ARRIVED, so it drops every second the driver waits. All data is personal (stored
 // under users/{uid}/earnings) and never mixed with other drivers.
 const PLATFORMS = ["Uber Eats", "Just Eat", "Deliveroo"];
+// Brand colours so platform buttons are instantly recognisable (Uber green, Just Eat orange, Deliveroo teal).
+const PLATFORM_COLORS = { "Uber Eats": "#06C167", "Just Eat": "#FF8000", "Deliveroo": "#00CCBC" };
 const SESSION_GAP_MS = 60 * 60 * 1000;   // >1h with no ARRIVED → the driver stopped working; next ARRIVED begins a fresh session
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 function parsePayout(v) {
@@ -413,7 +694,7 @@ function fmtRate(r) { return r == null ? "—" : "£" + (Math.round(r * 10) / 10
 // so the rates reflect what the driver actually earns per working hour.
 // periodStartMs clamps each session's start to the start of the view (e.g. midnight for TODAY),
 // so a session that began before the period can't drag pre-period time into its £/hour.
-function computeEarningsStats(entries, periodStartMs = 0) {
+function computeEarningsStats(entries, periodStartMs = 0, shiftMinsOverride = null) {
   if (!entries || !entries.length) return null;
   const orders = entries.filter(e => !e.bulk);   // per-delivery entries (drive £/hour + order stats)
   const enriched = [];
@@ -464,8 +745,15 @@ function computeEarningsStats(entries, periodStartMs = 0) {
     const span = (g.start != null && g.end != null && g.end > g.start) ? (g.end - g.start) / 3600000 : null;
     sessionHours += (span != null && span > 0) ? span : g.solo;
   }
-  const workHours = sessionHours > 0 ? sessionHours : totalHours;
-  totalHours = workHours;   // "TIME" card + headline rate both reflect real working time
+  let workHours = sessionHours > 0 ? sessionHours : totalHours;
+  // Two independent measures of working time: (1) sessionHours, reconstructed from the orders
+  // themselves (each session's first ARRIVED → last DELIVERED, clamped to the day) and (2) the
+  // clocked SHIFT minutes (START on ARRIVED → STOP / 1-hour auto-stop). Take the LONGER of the two
+  // so neither can undercount: e.g. a whole session the shift-clock dropped (shift not cleanly
+  // started/stopped, or an overnight gap) is still counted, and clocked time the driver logged
+  // beyond their orders still counts too. Every active segment in the day adds up.
+  if (shiftMinsOverride != null && shiftMinsOverride > 0) workHours = Math.max(workHours, shiftMinsOverride / 60);
+  totalHours = workHours;   // "TIME" card + headline rate both reflect working time
   const overallRate = totalHours > 0 ? orderEarnings / totalHours : null;   // bulk lump sums excluded from £/hour
 
   const plat = {};
@@ -763,6 +1051,35 @@ function predictWait(restId,dow,hour,patterns) {
 
 function hourLabel(h){ const ampm=h<12?"am":"pm"; const hr=h%12===0?12:h%12; return hr+ampm; }
 
+// Improved wait-time prediction — weighted historical model over the driver's own logs:
+//   (1) filter to this restaurant + today's day-of-week + the current time period
+//   (2) recent logs (within the last 7 days) count double
+//   (3) same day-of-week is enforced by the filter above, so only same-weekday logs feed the estimate
+//       (the strongest possible "weight same day more than other days")
+//   (4) an active long-queue alert adds 30% to the estimate
+//   (6) fewer than 3 logs for that exact context → fall back to the general community average
+// Returns {minutes,count,context,source} for the UI (5) to render, or null when there's nothing to show.
+function smartPredictWait(restId, now, waitLog, communityPatterns, queueActive) {
+  const dow = now.getDay();
+  const per = timePeriod(now.getHours());
+  const ctx = (waitLog||[]).filter(l => logKey(l)===restId && l.dow===dow && l.period===per);   // (1)
+  if (ctx.length < 3) {                                                                          // (6)
+    const comm = getCommunityWait(restId, now, communityPatterns);
+    if (!comm) return null;
+    const minutes = Math.round(comm.avg * (queueActive ? 1.3 : 1));                              // (4)
+    return { minutes, count: comm.count, context: "community average", source: "community" };
+  }
+  const WEEK_MS = 7*24*3600*1000;
+  let wSum = 0, wAvg = 0;
+  for (const l of ctx) {
+    const w = (Date.now()-new Date(l.ts).getTime() <= WEEK_MS) ? 2 : 1;                          // (2)
+    wSum += w; wAvg += w*l.waitMins;
+  }
+  const base = wSum>0 ? wAvg/wSum : ctx.reduce((s,l)=>s+l.waitMins,0)/ctx.length;
+  const minutes = Math.round(base * (queueActive ? 1.3 : 1));                                    // (4)
+  return { minutes, count: ctx.length, context: dayLabel(dow)+" "+per, source: "personal" };     // (5)
+}
+
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 function LiveTimer({startedAt}) {
   const [elapsed,setElapsed]=useState(0);
@@ -836,11 +1153,9 @@ function EarningsLive({session,pendingPayout,pendingPlatform}) {
 function EarningsPopup({restaurantName,onSave,onSkip}) {
   const [platform,setPlatform]=useState(null);
   const [amount,setAmount]=useState("");
-  const [drivers,setDrivers]=useState("");
   const amt=parsePayout(amount);
-  const cnt=parseCount(drivers);
   const earningsReady=amt!=null&&!!platform;
-  const canSave=earningsReady||cnt!=null;
+  const canSave=earningsReady;
   return(
     <div onClick={onSkip} style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:18,padding:"20px",boxShadow:"0 12px 40px rgba(0,0,0,0.4)",width:"100%",maxWidth:380}}>
@@ -851,9 +1166,10 @@ function EarningsPopup({restaurantName,onSave,onSkip}) {
         <div style={{display:"flex",gap:8,marginBottom:18}}>
           {PLATFORMS.map(p=>{
             const active=platform===p;
+            const col=PLATFORM_COLORS[p]||"#00b8a9";
             return(
               <button key={p} onClick={()=>setPlatform(p)}
-                style={{flex:1,background:active?"#00b8a9":"var(--border3)",border:"1px solid "+(active?"#00b8a9":"var(--border)"),borderRadius:10,padding:"12px 6px",cursor:"pointer",...B,fontSize:12,letterSpacing:0.5,color:active?"#000":"var(--ink)"}}>
+                style={{flex:1,background:active?col:col+"22",border:"2px solid "+col,borderRadius:12,padding:"16px 6px",cursor:"pointer",...B,fontSize:13,letterSpacing:0.3,color:active?"#fff":col,boxShadow:active?"0 4px 16px "+col+"66":"none",transition:"all .12s"}}>
                 {p}
               </button>
             );
@@ -868,19 +1184,38 @@ function EarningsPopup({restaurantName,onSave,onSkip}) {
             onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
         </div>
 
-        <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:8}}>DRIVERS WAITING HERE NOW?</div>
-        <div style={{position:"relative",marginBottom:6}}>
-          <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",fontSize:18}}>👥</span>
-          <input value={drivers} onChange={e=>setDrivers(e.target.value)} inputMode="numeric" placeholder="e.g. 4"
-            style={{width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px 14px 44px",color:"var(--ink)",fontSize:20,...B,outline:"none",boxSizing:"border-box"}}
-            onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
-        </div>
-        <div style={{fontSize:9,...M,color:"var(--faint)",marginBottom:18}}>Shared live with nearby drivers · expires in 20 min</div>
-
         <div style={{display:"flex",gap:10}}>
           <button onClick={onSkip} style={{flex:1,minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:15,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>SKIP</button>
-          <button onClick={()=>canSave&&onSave({platform:earningsReady?platform:null,payout:earningsReady?amt:null,count:cnt})} disabled={!canSave}
+          <button onClick={()=>canSave&&onSave({platform,payout:amt})} disabled={!canSave}
             style={{flex:1.4,minHeight:52,background:canSave?"#06c167":"var(--border)",border:"none",borderRadius:12,...B,fontSize:16,letterSpacing:2,color:canSave?"#000":"var(--faint)",cursor:canSave?"pointer":"default"}}>SAVE</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Report how many drivers are waiting at a restaurant — opened from the restaurant card (next to
+// the queue), shared live with nearby drivers (20-min TTL on read). Replaces the old field that
+// used to live inside the ARRIVED popup.
+function CountPopup({restaurantName,onConfirm,onCancel}) {
+  const [drivers,setDrivers]=useState("");
+  const cnt=parseCount(drivers);
+  return(
+    <div onClick={onCancel} style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:18,padding:"20px",boxShadow:"0 12px 40px rgba(0,0,0,0.4)",width:"100%",maxWidth:380}}>
+        <div style={{...B,fontSize:18,color:"#ff5a2d",letterSpacing:1,marginBottom:2}}>👥 DRIVERS WAITING HERE?</div>
+        <div style={{fontSize:11,...M,color:"var(--muted)",marginBottom:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{restaurantName||"Restaurant"}</div>
+        <div style={{position:"relative",marginBottom:6}}>
+          <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",fontSize:18}}>👥</span>
+          <input value={drivers} onChange={e=>setDrivers(e.target.value)} inputMode="numeric" placeholder="e.g. 4" autoFocus
+            style={{width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px 14px 44px",color:"var(--ink)",fontSize:20,...B,outline:"none",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#ff5a2d"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
+        </div>
+        <div style={{fontSize:9,...M,color:"var(--faint)",marginBottom:18}}>Shared live with nearby drivers · expires in 20 min</div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onCancel} style={{flex:1,minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:15,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>CANCEL</button>
+          <button onClick={()=>cnt!=null&&onConfirm(cnt)} disabled={cnt==null}
+            style={{flex:1.4,minHeight:52,background:cnt!=null?"#ff5a2d":"var(--border)",border:"none",borderRadius:12,...B,fontSize:16,letterSpacing:2,color:cnt!=null?"#fff":"var(--faint)",cursor:cnt!=null?"pointer":"default"}}>REPORT</button>
         </div>
       </div>
     </div>
@@ -1062,7 +1397,7 @@ function GPSGateScreen({status,onRetry,onSkip}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,contribCount,lang,onSetLang}) {
+function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,onHelp,contribCount,lang,onSetLang}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -1130,13 +1465,13 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
     <div style={{padding:"20px 16px 120px"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
         <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
-        <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:2}}>{t("prof_title")}</div>
+        <div style={{...B,fontWeight:800,fontSize:28,color:"#00b8a9",letterSpacing:0.3}}>{t("prof_title")}</div>
       </div>
 
       {/* Avatar + info */}
       <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px"}}>
-        <div style={{width:56,height:56,borderRadius:"50%",background:user.color,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 0 20px "+user.color+"55"}}>
-          <span style={{...B,fontSize:26,color:"#000"}}>{user.initial}</span>
+        <div style={{width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,"+user.color+","+user.color+"cc)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,border:"2px solid rgba(255,255,255,0.6)",boxShadow:"0 4px 16px "+user.color+"66, inset 0 1px 0 rgba(255,255,255,0.35)"}}>
+          <span style={{...B,fontWeight:800,fontSize:24,color:"#fff"}}>{user.initial}</span>
         </div>
         <div>
           <div style={{...B,fontSize:22,color:"var(--ink)",letterSpacing:1}}>{user.name}</div>
@@ -1198,19 +1533,19 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
       {/* Edit fields */}
       <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
         <div>
-          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>{t("prof_name")}</div>
+          <div style={{fontSize:11,...M,fontWeight:700,color:"var(--muted)",letterSpacing:0.3,marginBottom:6}}>{t("prof_name")}</div>
           <input value={name} onChange={e=>setName(e.target.value)}
             style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
             onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
         </div>
         <div>
-          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>{t("prof_phone")}</div>
+          <div style={{fontSize:11,...M,fontWeight:700,color:"var(--muted)",letterSpacing:0.3,marginBottom:6}}>{t("prof_phone")}</div>
           <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+44 7700 000000" type="tel"
             style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"14px 16px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"}}
             onFocus={e=>e.target.style.borderColor="#00b8a9"} onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
         </div>
         <div>
-          <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>{t("prof_area")}</div>
+          <div style={{fontSize:11,...M,fontWeight:700,color:"var(--muted)",letterSpacing:0.3,marginBottom:6}}>{t("prof_area")}</div>
           <div style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px 14px"}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{...B,fontSize:16,color:area?"var(--ink)":"var(--faint)",letterSpacing:1}}>{area||"Not joined"}</div>
@@ -1227,13 +1562,13 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
       </div>
 
       <button onClick={save} disabled={saving}
-        style={{width:"100%",minHeight:56,background:saving?"var(--border)":saved?"#06c167":"#00b8a9",border:"none",borderRadius:12,...B,fontSize:22,letterSpacing:3,color:saving?"var(--faint)":"#000",cursor:saving?"default":"pointer",marginBottom:20,boxShadow:saving?"none":saved?"0 0 30px #06c16730":"0 0 30px #00b8a930",transition:"all 0.2s"}}>
+        style={{width:"100%",minHeight:54,background:saving?"var(--border)":saved?"#06c167":"#00b8a9",border:"none",borderRadius:14,...B,fontWeight:800,fontSize:17,letterSpacing:0.5,color:saving?"var(--faint)":"#000",cursor:saving?"default":"pointer",marginBottom:20,boxShadow:saving?"none":saved?"0 6px 18px #06c16733":"0 6px 18px #00b8a933",transition:"all 0.2s"}}>
         {saving?t("prof_saving"):saved?t("prof_saved"):t("prof_save")}
       </button>
 
       {/* Change password */}
       <button onClick={()=>{setShowPw(s=>!s);setPwMsg("");}}
-        style={{width:"100%",minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"var(--muted)",cursor:"pointer",marginBottom:showPw?0:16}}>
+        style={{width:"100%",minHeight:50,background:"none",border:"1px solid var(--border2)",borderRadius:14,...B,fontWeight:700,fontSize:15,letterSpacing:0.3,color:"var(--muted)",cursor:"pointer",marginBottom:showPw?0:16}}>
         {showPw?"↑ HIDE":t("prof_changePw")}
       </button>
       {showPw&&(
@@ -1244,8 +1579,8 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
             style={{background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:10,padding:"12px 14px",color:"var(--ink)",fontSize:14,...M,outline:"none",boxSizing:"border-box",width:"100%"}}/>
           {pwMsg&&<div style={{fontSize:11,...M,color:pwMsg.startsWith("✓")?"#06c167":"#ef4444"}}>{pwMsg}</div>}
           <button onClick={changePw} disabled={pwLoading}
-            style={{minHeight:48,background:"#00b8a9",border:"none",borderRadius:10,...B,fontSize:18,letterSpacing:2,color:"#000",cursor:"pointer"}}>
-            {pwLoading?"UPDATING...":"UPDATE PASSWORD"}
+            style={{minHeight:48,background:"#00b8a9",border:"none",borderRadius:12,...B,fontWeight:800,fontSize:15,letterSpacing:0.3,color:"#000",cursor:"pointer"}}>
+            {pwLoading?"Updating…":"Update password"}
           </button>
         </div>
       )}
@@ -1261,6 +1596,15 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
           <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
         </button>
       )}
+
+      {/* Help & guide */}
+      <button onClick={onHelp} style={{width:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+        <div>
+          <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:1}}>❓ {(HELP[lang]||HELP.en).title}</div>
+          <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:3}}>{(HELP[lang]||HELP.en).faqTitle} · {(HELP[lang]||HELP.en).manualTitle}</div>
+        </div>
+        <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
+      </button>
 
       {/* Language — tap to open full picker */}
       <button onClick={()=>setLangPicker(true)} style={{width:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
@@ -1347,8 +1691,8 @@ function SectionLabel({children}){
   return <div style={{...B,fontSize:13,color:"var(--muted2)",letterSpacing:2,margin:"22px 0 8px"}}>{children}</div>;
 }
 
-// Mon→Sun earnings bar chart for the weekly view
-function WeekChart({byDay}){
+// Mon→Sun earnings bar chart for the weekly view. Tap a day → its full stats (onPick(i)).
+function WeekChart({byDay,onPick}){
   const max=Math.max(...byDay.map(d=>d.sum),0.01);
   return(
     <div style={{display:"flex",alignItems:"flex-end",gap:6,height:120,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 12px 10px"}}>
@@ -1356,11 +1700,11 @@ function WeekChart({byDay}){
         const h=Math.max(4,Math.round((d.sum/max)*78));
         const isTop=d.sum>0&&d.sum===max;
         return(
-          <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:5,height:"100%",justifyContent:"flex-end"}}>
+          <button key={i} onClick={()=>onPick&&onPick(i)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:5,height:"100%",justifyContent:"flex-end",background:"none",border:"none",padding:0,cursor:"pointer"}}>
             <div style={{...B,fontSize:8,color:d.sum>0?"var(--muted)":"var(--faint2)"}}>{d.sum>0?"£"+Math.round(d.sum):""}</div>
             <div style={{width:"72%",height:h,borderRadius:6,background:isTop?"#06c167":d.sum>0?"#00b8a9":"var(--border2)",transition:"height .3s"}}/>
             <div style={{...B,fontSize:10,color:"var(--faint)"}}>{DOW_SHORT[d.dow]}</div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -1439,26 +1783,63 @@ function DeliveryRow({e,onTap}){
   );
 }
 
-function MyStats({earningsLog,activeOrders,now,shiftMins}){
+function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift}){
   const [view,setView]=useState("today");   // today | week | all
   const [editing,setEditing]=useState(null);   // entry being edited, or null
   const [adding,setAdding]=useState(null);      // manual add: null | {platform} (prefill)
   const [drill,setDrill]=useState(null);        // drill-down: null | "__list__" (platform filter) | platform name
+  const [dayDrill,setDayDrill]=useState(null);  // weekly "by day" drill: null | that day's start-of-day ms
+  const [weekOffset,setWeekOffset]=useState(0); // THIS WEEK tab: 0 = current week, 1 = last week, 2 = two weeks ago…
   // Re-bucket only when the calendar day rolls over (drives the midnight reset), not every tick.
   const dayKey=startOfDayMs(now||new Date());
-  const {today,week,all,entries}=useMemo(()=>{
+  const nowMs=(now||new Date()).getTime();
+  // Clocked shift minutes in a period: completed shifts (by end time) + the running shift's portion.
+  const shiftMinsFor=ms=>{
+    let m=0;
+    for(const s of (shiftsLog||[])){
+      const recorded=Number(s.mins)||0;
+      const en=new Date(s.endedAt||s.ts||0).getTime();
+      if(recorded<=0||!(en>ms)) continue;                          // ended before this period → skip
+      // Count only the portion on/after the period start, so a shift that straddles midnight
+      // (e.g. 6pm→2am) doesn't dump its pre-midnight hours into the next day's £/hour.
+      const st=s.startedAt?new Date(s.startedAt).getTime():(en-recorded*60000);   // fall back: start = end − duration
+      m+=Math.max(0,Math.min(recorded,(en-Math.max(st,ms))/60000));
+    }
+    if(activeShift){ const st=new Date(activeShift.startedAt).getTime(); m+=Math.max(0,(nowMs-Math.max(st,ms))/60000); }
+    return m;
+  };
+  // Clocked shift minutes inside a bounded window [a,b) — used for a specific past week, so later
+  // weeks' shifts don't leak in (shiftMinsFor has no upper bound, which is fine only for the latest period).
+  const shiftMinsRange=(a,b)=>{
+    let m=0;
+    for(const s of (shiftsLog||[])){
+      const recorded=Number(s.mins)||0; if(recorded<=0)continue;
+      const en=new Date(s.endedAt||s.ts||0).getTime();
+      const st=s.startedAt?new Date(s.startedAt).getTime():(en-recorded*60000);
+      m+=Math.max(0,(Math.min(en,b)-Math.max(st,a))/60000);
+    }
+    if(activeShift){ const st=new Date(activeShift.startedAt).getTime(); m+=Math.max(0,(Math.min(nowMs,b)-Math.max(st,a))/60000); }
+    return m;
+  };
+  const {today,week,all,entries,shiftMins,weekStart,weekEnd}=useMemo(()=>{
     const sod=startOfDayMs(dayKey);
-    const sow=startOfWeekMs(dayKey);
+    // Selected week (Mon→Sun), shifted back by weekOffset weeks.
+    const sowDate=new Date(startOfWeekMs(dayKey)); sowDate.setDate(sowDate.getDate()-weekOffset*7);
+    const sow=startOfDayMs(sowDate);
+    const eowDate=new Date(sow); eowDate.setDate(eowDate.getDate()+7);
+    const eow=startOfDayMs(eowDate);
     const tMs=e=>new Date(e.ts).getTime();
     const todayE=earningsLog.filter(e=>tMs(e)>=sod);
-    const weekE=earningsLog.filter(e=>tMs(e)>=sow);
+    const weekE=earningsLog.filter(e=>tMs(e)>=sow&&tMs(e)<eow);
     return {
-      today:computeEarningsStats(todayE,sod),   // clamp session time to midnight → today starts fresh
-      week: computeEarningsStats(weekE,sow),
-      all:  computeEarningsStats(earningsLog,0),
+      today:computeEarningsStats(todayE,sod,shiftMinsFor(sod)),   // clocked shift time = £/hour denominator
+      week: computeEarningsStats(weekE,sow,shiftMinsRange(sow,eow)),
+      all:  computeEarningsStats(earningsLog,0,shiftMinsFor(0)),
       entries:{today:todayE,week:weekE,all:earningsLog},
+      shiftMins:shiftMinsFor(sod),
+      weekStart:sow, weekEnd:eow,
     };
-  },[earningsLog,dayKey]);
+  },[earningsLog,dayKey,nowMs,shiftsLog,activeShift,weekOffset]);
 
   // Manual-delivery cap: max 20 per-delivery manual adds per day (bulk-platform totals don't count).
   const manualToday=entries.today.filter(e=>e.manual&&!e.bulk).length;
@@ -1521,6 +1902,90 @@ function MyStats({earningsLog,activeOrders,now,shiftMins}){
   const viewEntries=entries[view];
   const tabs=[["today","TODAY"],["week","THIS WEEK"],["all","ALL TIME"]];
 
+  // Weekly "by day" drill — tap a bar in the EARNINGS BY DAY chart to open that one day's full stats.
+  if(dayDrill!=null){
+    const dayEnd=(()=>{const d=new Date(dayDrill);d.setDate(d.getDate()+1);return startOfDayMs(d);})();
+    const dayEntries=earningsLog.filter(e=>{const t=new Date(e.ts).getTime();return t>=dayDrill&&t<dayEnd;});
+    // Clocked shift minutes that fall inside this single day (each shift clamped to the day window).
+    let dayShiftMins=0;
+    for(const sh of (shiftsLog||[])){
+      const recorded=Number(sh.mins)||0; if(recorded<=0)continue;
+      const en=new Date(sh.endedAt||sh.ts||0).getTime();
+      const st=sh.startedAt?new Date(sh.startedAt).getTime():(en-recorded*60000);
+      dayShiftMins+=Math.max(0,(Math.min(en,dayEnd)-Math.max(st,dayDrill))/60000);
+    }
+    if(activeShift){const st=new Date(activeShift.startedAt).getTime();dayShiftMins+=Math.max(0,(Math.min(nowMs,dayEnd)-Math.max(st,dayDrill))/60000);}
+    const ds=computeEarningsStats(dayEntries,dayDrill,dayShiftMins);
+    const title=new Date(dayDrill).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"}).toUpperCase();
+    return(
+      <div style={{padding:"22px 16px 100px"}}>
+        <div style={{marginBottom:16}}>
+          <button onClick={()=>setDayDrill(null)} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:14,padding:0,...B,letterSpacing:1,marginBottom:8}}>‹ BACK</button>
+          <div style={{...B,fontSize:22,color:"#00b8a9",letterSpacing:1}}>{title}</div>
+          <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:2}}>Everything you earned this day</div>
+        </div>
+        {!ds?(
+          <div style={{textAlign:"center",padding:"50px 20px"}}>
+            <div style={{fontSize:48,marginBottom:14}}>📅</div>
+            <div style={{...B,fontSize:17,color:"var(--ink)",letterSpacing:1}}>NOTHING LOGGED THIS DAY</div>
+          </div>
+        ):(
+          <>
+            <div style={{width:"100%",textAlign:"center",background:"linear-gradient(135deg,var(--tint-teal),var(--tint-green))",border:"1px solid #00b8a944",borderRadius:18,padding:"20px 18px",marginBottom:10}}>
+              <div style={{fontSize:9,...M,color:"var(--muted)",letterSpacing:2,marginBottom:4}}>EARNED THIS DAY</div>
+              <div style={{...B,fontSize:42,color:"#06c167",letterSpacing:0.5,lineHeight:1.05}}>{fmtGBP(ds.totalEarnings)}</div>
+              <div style={{fontSize:12,...M,color:"var(--muted)",marginTop:6}}>
+                {ds.overallRate==null?"—":fmtRate(ds.overallRate)}<span style={{margin:"0 6px",color:"var(--faint2)"}}>·</span>{ds.totalOrders} order{ds.totalOrders!==1?"s":""}
+              </div>
+              {ds.totalTips>0&&(
+                <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:6,paddingTop:6,borderTop:"1px solid #00b8a922"}}>
+                  {fmtGBP(ds.totalBase)} base<span style={{margin:"0 6px",color:"var(--faint2)"}}>·</span><span style={{color:"#06c167",fontWeight:700}}>{fmtGBP(ds.totalTips)} tips</span>
+                </div>
+              )}
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:4}}>
+              <StatCard val={ds.overallRate==null?"—":fmtRate(ds.overallRate)} label="AVG £/HOUR" color="#00b8a9"/>
+              <StatCard val={ds.totalOrders} label="ORDERS" color="#f5a623"/>
+              <StatCard val={ds.totalHours>0?(Math.round(ds.totalHours*10)/10)+"h":"—"} label="TIME" color="#2b8fff"/>
+            </div>
+            <SectionLabel>HIGHLIGHTS</SectionLabel>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <StatRow icon="🏆" label="BEST PLATFORM" value={ds.bestPlatTotal?ds.bestPlatTotal.platform:"—"} sub={ds.bestPlatTotal?fmtGBP(ds.bestPlatTotal.sum):""} subColor="#06c167"/>
+              <StatRow icon="💵" label="BEST ORDER" value={ds.bestOrder?ds.bestOrder.name:"—"} sub={ds.bestOrder?fmtGBP(ds.bestOrder.payout):""} subColor="#06c167"/>
+              <StatRow icon="🐌" label="WORST WAIT" value={ds.worstWait?ds.worstWait.name:"—"} sub={ds.worstWait?(Math.round(ds.worstWait.waitMins*10)/10)+"m":""} subColor="#ef4444"/>
+              <StatRow icon="🕒" label="MOST PROFITABLE TIME" value={ds.bestPeriod?titleCase(ds.bestPeriod.period):"—"} sub={ds.bestPeriod?fmtRate(ds.bestPeriod.rate):""}/>
+            </div>
+            {ds.platforms.length>0&&(
+              <>
+                <SectionLabel>BY PLATFORM</SectionLabel>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {ds.platforms.map(p=>(
+                    <div key={p.name} style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px"}}>
+                      <span style={{flex:1,minWidth:0,...B,fontSize:14,color:"var(--ink)",letterSpacing:0.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+                      <span style={{fontSize:10,...M,color:"var(--muted)"}}>{p.n>0?p.n+" order"+(p.n!==1?"s":""):"bulk"}</span>
+                      {p.rate!=null&&<span style={{...B,fontSize:13,color:"var(--muted2)"}}>{fmtRate(p.rate)}</span>}
+                      <span style={{...B,fontSize:14,color:"#06c167"}}>{fmtGBP(p.total)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {dayEntries.length>0&&(
+              <>
+                <SectionLabel>DELIVERIES</SectionLabel>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {dayEntries.slice().sort((a,b)=>new Date(b.ts)-new Date(a.ts)).map((e,i)=>(
+                    <DeliveryRow key={e.id||i} e={e} onTap={setEditing}/>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
   // Drill-down: tap total → platform list → that platform's deliveries → tap one → edit screen.
   if(drill&&s){
     const headerBack=(title,sub)=>(
@@ -1582,11 +2047,36 @@ function MyStats({earningsLog,activeOrders,now,shiftMins}){
       {/* Segmented control */}
       <div style={{display:"flex",gap:4,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:4,marginBottom:12}}>
         {tabs.map(([id,lbl])=>(
-          <button key={id} onClick={()=>setView(id)}
+          <button key={id} onClick={()=>{setView(id);setWeekOffset(0);}}
             style={{flex:1,border:"none",borderRadius:9,padding:"9px 0",cursor:"pointer",...B,fontSize:11,letterSpacing:1,
               background:view===id?"#00b8a9":"transparent",color:view===id?"#00261f":"var(--muted)"}}>{lbl}</button>
         ))}
       </div>
+
+      {/* Week navigation — step back through previous weeks (Mon→Sun) on the THIS WEEK tab */}
+      {view==="week"&&(()=>{
+        const wkS=new Date(weekStart), wkE=new Date(weekEnd-86400000);   // wkE = the Sunday (weekEnd is exclusive)
+        const sameMonth=wkS.getMonth()===wkE.getMonth();
+        const range=sameMonth
+          ? `${wkS.getDate()}–${wkE.getDate()} ${wkE.toLocaleDateString("en-GB",{month:"short"})}`
+          : `${wkS.getDate()} ${wkS.toLocaleDateString("en-GB",{month:"short"})} – ${wkE.getDate()} ${wkE.toLocaleDateString("en-GB",{month:"short"})}`;
+        const rel=weekOffset===0?"This week":weekOffset===1?"Last week":`${weekOffset} weeks ago`;
+        const hasOlder=earningsLog.some(e=>new Date(e.ts).getTime()<weekStart);
+        const navBtn=(label,onClick,enabled)=>(
+          <button onClick={()=>enabled&&onClick()} disabled={!enabled}
+            style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"8px 14px",cursor:enabled?"pointer":"default",...B,fontSize:16,color:enabled?"#00b8a9":"var(--faint2)"}}>{label}</button>
+        );
+        return(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:12}}>
+            {navBtn("‹",()=>setWeekOffset(weekOffset+1),hasOlder)}
+            <div style={{textAlign:"center",flex:1,minWidth:0}}>
+              <div style={{...B,fontSize:14,color:"var(--ink)",letterSpacing:0.5}}>{range}</div>
+              <div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:1,marginTop:1}}>{rel.toUpperCase()}</div>
+            </div>
+            {navBtn("›",()=>setWeekOffset(Math.max(0,weekOffset-1)),weekOffset>0)}
+          </div>
+        );
+      })()}
 
       {/* Manually log earnings — per delivery, or one lump total per platform. Always available. */}
       <div style={{display:"flex",gap:8,marginBottom:manualCapReached?6:16}}>
@@ -1653,7 +2143,8 @@ function MyStats({earningsLog,activeOrders,now,shiftMins}){
           {view==="week"&&(
             <>
               <SectionLabel>EARNINGS BY DAY</SectionLabel>
-              <WeekChart byDay={s.byDay}/>
+              <WeekChart byDay={s.byDay} onPick={i=>{const d=new Date(weekStart);d.setDate(d.getDate()+i);setDayDrill(startOfDayMs(d));}}/>
+              <div style={{fontSize:9,...M,color:"#00b8a9",letterSpacing:1,textAlign:"center",marginTop:6}}>TAP A DAY FOR ITS FULL STATS ›</div>
             </>
           )}
 
@@ -2110,7 +2601,7 @@ function VerifyCodeScreen({email,onVerified,onBack}) {
 }
 
 // ── RESTAURANT DETAIL ─────────────────────────────────────────────────────────
-function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingId,arrivalError,activeWait,manualVoted,onArrived,onManualArrive,onBack}) {
+function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingId,arrivalError,activeWait,manualVoted,onArrived,onManualArrive,isAdmin,queueActive,onBack}) {
   const ck=cardKey(r);
   const personal=getPersonalWait(ck,now,waitLog);
   const community=getCommunityWait(ck,now,communityPatterns);
@@ -2128,6 +2619,7 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
   // Manual Arrive: enabled only within 300m of the restaurant's pinned location
   const manualDist=gps?.status==="active"&&gps.lat!=null?distMeters(gps.lat,gps.lng,r.branchLat??r.lat,r.branchLng??r.lng):null;
   const within300=manualDist!=null&&manualDist<=300;
+  const canManual=within300||isAdmin;   // admins can vote/pin a location from any distance
   const voted=manualVoted===r.id;
 
   return(
@@ -2167,18 +2659,21 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
         </div>
       </div>
 
-      {/* Typical wait predicted for right now (this day + hour) */}
+      {/* Improved wait prediction — weighted personal history (this weekday + period), community fallback */}
       {(()=>{
-        const pred=predictWait(ck,now.getDay(),now.getHours(),communityPatterns);
+        const pred=smartPredictWait(ck,now,waitLog,communityPatterns,queueActive);
         if(!pred)return null;
-        const c=pred.avg>18?"#ef4444":pred.avg>10?"#f5a623":"#06c167";
+        const c=pred.minutes>18?"#ef4444":pred.minutes>10?"#f5a623":"#06c167";
+        const basis=pred.source==="personal"
+          ?`Based on ${pred.count} ${pred.context} visit${pred.count!==1?"s":""}`
+          :`Based on community average · ${pred.count} log${pred.count!==1?"s":""}`;
         return(
           <div style={{background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:12,padding:"14px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <div>
               <div style={{fontSize:9,color:"#00b8a9",letterSpacing:2,marginBottom:3}}>TYPICAL RIGHT NOW</div>
-              <div style={{fontSize:11,...M,color:"var(--muted)"}}>Based on {pred.context} · {pred.count} log{pred.count!==1?"s":""}</div>
+              <div style={{fontSize:11,...M,color:"var(--muted)"}}>{basis} — estimated {pred.minutes} minute{pred.minutes!==1?"s":""}{queueActive?" · +30% long queue":""}</div>
             </div>
-            <div style={{...B,fontSize:30,color:c,letterSpacing:1}}>{pred.avg}m</div>
+            <div style={{...B,fontSize:30,color:c,letterSpacing:1}}>{pred.minutes}m</div>
           </div>
         );
       })()}
@@ -2236,9 +2731,9 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
               {isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":"📍 ARRIVED HERE"}
             </button>
             {/* Manual Arrive — only active within 300m; logs a location vote to fix the pin */}
-            <button onClick={()=>{ if(within300&&!voted) onManualArrive(r); }} disabled={!within300||voted}
-              style={{width:"100%",minHeight:48,marginTop:8,background:voted?"var(--tint-green)":"none",border:"1px solid "+(voted?"#06c16766":within300?"#00b8a966":"var(--border2)"),borderRadius:12,...B,fontSize:16,letterSpacing:2,color:voted?"#06c167":within300?"#00b8a9":"var(--faint)",cursor:within300&&!voted?"pointer":"default"}}>
-              {voted?"✓ LOCATION VOTED":within300?"MANUAL ARRIVE":(manualDist!=null?"MANUAL ARRIVE · "+(manualDist<1000?Math.round(manualDist)+"m away":(manualDist/1000).toFixed(1)+"km away"):"MANUAL ARRIVE · NO GPS")}
+            <button onClick={()=>{ if(canManual&&!voted) onManualArrive(r); }} disabled={!canManual||voted}
+              style={{width:"100%",minHeight:48,marginTop:8,background:voted?"var(--tint-green)":"none",border:"1px solid "+(voted?"#06c16766":canManual?"#00b8a966":"var(--border2)"),borderRadius:12,...B,fontSize:16,letterSpacing:2,color:voted?"#06c167":canManual?"#00b8a9":"var(--faint)",cursor:canManual&&!voted?"pointer":"default"}}>
+              {voted?"✓ LOCATION VOTED":canManual?"MANUAL ARRIVE":(manualDist!=null?"MANUAL ARRIVE · "+(manualDist<1000?Math.round(manualDist)+"m away":(manualDist/1000).toFixed(1)+"km away"):"MANUAL ARRIVE · NO GPS")}
             </button>
           </>
         ):(
@@ -2264,7 +2759,7 @@ function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen,myName,rev
   const events=[
     ...activeWaitsList.map(w=>({kind:"arrived",user:w.username||"A driver",rest:w.restaurantName||"a restaurant",ts:w.startedAt})),
     ...communityLogs.map(l=>({kind:"picked",user:l.username||"A driver",rest:l.restaurantName||"a restaurant",waitMins:l.waitMins,ts:l.ts})),
-  ].sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,5);   // 5 most recent on main screen
+  ].sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,3);   // 3 most recent on main screen
 
   return(
     <div onClick={onOpen} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px",marginBottom:14,cursor:"pointer"}}>
@@ -2299,15 +2794,29 @@ function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen,myName,rev
 function Logbook({communityLogs,contribCounts,onBack,myName,revealNames}) {
   const [offset,setOffset]=useState(0); // 0 = today, 1 = yesterday, ...
   const [shown,setShown]=useState(20);  // paginate: render 20 at a time (prevents render crashes)
-  useEffect(()=>{setShown(20);},[offset]);   // reset paging when the day changes
+  const [dayLogs,setDayLogs]=useState(null);   // this day's logs fetched directly (not capped by the live 500)
   const day=new Date(); day.setDate(day.getDate()-offset);
   const dayStr=day.toISOString().slice(0,10);
+  const nextStr=new Date(day.getTime()+86400000).toISOString().slice(0,10);
   const isToday=offset===0;
   const label=isToday?"Today":offset===1?"Yesterday":day.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"});
 
-  const items=communityLogs
-    .filter(l=>(l.ts||"").slice(0,10)===dayStr)
-    .sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+  // Fetch the full day's logs straight from Firestore so the logbook isn't limited to the most
+  // recent 500 the live listener keeps in memory. Shows the cached subset instantly, then replaces.
+  useEffect(()=>{
+    setShown(20); setDayLogs(null);
+    let cancelled=false;
+    (async()=>{
+      try{
+        const snap=await getDocs(query(collection(db,"waitLogs"),where("ts",">=",dayStr),where("ts","<",nextStr),orderBy("ts","desc")));
+        if(!cancelled)setDayLogs(snap.docs.map(d=>d.data()));
+      }catch(e){ if(!cancelled)setDayLogs([]); }
+    })();
+    return ()=>{cancelled=true;};
+  },[offset]);
+
+  const fallback=communityLogs.filter(l=>(l.ts||"").slice(0,10)===dayStr).sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+  const items=dayLogs!==null?dayLogs:fallback;   // live-cached subset until the full day loads
   const visible=items.slice(0,shown);
 
   return(
@@ -2359,35 +2868,48 @@ function Logbook({communityLogs,contribCounts,onBack,myName,revealNames}) {
 // Shift clock in/out — counts up while on shift, shows today's total. startedAt persists in
 // localStorage so the timer keeps running across a refresh.
 function fmtHM(mins){ const m=Math.max(0,Math.floor(mins)); return Math.floor(m/60)+"h "+String(m%60).padStart(2,"0")+"m"; }
-function ShiftTimer({activeShift,completedToday,onStart,onEnd}){
+function ShiftTimer({activeShift,completedToday,onStart,onStop,onGoCheck}){
   const [,tick]=useState(0);
   useEffect(()=>{ if(!activeShift)return; const id=setInterval(()=>tick(x=>x+1),1000); return ()=>clearInterval(id); },[!!activeShift]);
+  // CHECK lives next to START as a matching circle (always visible, on or off shift).
+  const checkBtn=(
+    <button onClick={onGoCheck} aria-label="Check a restaurant" style={{flexShrink:0,width:108,height:108,borderRadius:"50%",background:"var(--tint-blue)",border:"2px solid #2b8fff66",boxShadow:"0 6px 18px #2b8fff33, inset 0 1px 0 #ffffff22",...B,fontWeight:800,fontSize:21,letterSpacing:2,color:"#2b8fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>CHECK</button>
+  );
   if(activeShift){
-    const elapsed=(Date.now()-new Date(activeShift.startedAt).getTime())/60000;
+    const startMs=new Date(activeShift.startedAt).getTime();
+    const elapsed=(Date.now()-startMs)/60000;                                            // this segment only
+    const todayPortion=(Date.now()-Math.max(startMs,startOfDayMs(new Date())))/60000;    // this segment within today
+    const dayTotal=completedToday+todayPortion;                                          // every segment today added up
     return(
-      <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-teal))",border:"1px solid #06c16744",borderRadius:14,padding:"14px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{width:8,height:8,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 8px #06c167",animation:"criticalPulse 1.5s ease-in-out infinite",display:"block"}}/>
-            <span style={{fontSize:9,...B,color:"#06c167",letterSpacing:2}}>ON SHIFT</span>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+        <div style={{flex:1,minWidth:0,background:"linear-gradient(135deg,var(--tint-green),var(--tint-teal))",border:"1px solid #06c16744",borderRadius:14,padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 8px #06c167",animation:"criticalPulse 1.5s ease-in-out infinite",display:"block"}}/>
+              <span style={{fontSize:9,...B,color:"#06c167",letterSpacing:2}}>ON SHIFT · TODAY</span>
+            </div>
+            <div style={{...B,fontSize:24,color:"var(--ink)",letterSpacing:1,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{fmtHM(dayTotal)}</div>
+            <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{"This shift: "+fmtHM(elapsed)}</div>
           </div>
-          <div style={{...B,fontSize:24,color:"var(--ink)",letterSpacing:1,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{fmtHM(elapsed)}</div>
-          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{"Today: "+fmtHM(completedToday+elapsed)+" total"}</div>
+          <button onClick={()=>onStop()} style={{flexShrink:0,background:"#ef4444",border:"none",borderRadius:10,...B,fontSize:13,letterSpacing:1,color:"#fff",padding:"12px 16px",cursor:"pointer"}}>STOP SHIFT</button>
         </div>
-        <button onClick={onEnd} style={{flexShrink:0,background:"#ef4444",border:"none",borderRadius:10,...B,fontSize:13,letterSpacing:1,color:"#fff",padding:"12px 16px",cursor:"pointer"}}>END SHIFT</button>
+        {checkBtn}
       </div>
     );
   }
   return(
-    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-      <button onClick={onStart} style={{flex:1,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:15,letterSpacing:1,color:"#fff",padding:"14px",cursor:"pointer"}}>▶ START SHIFT</button>
-      {completedToday>0&&<div style={{flexShrink:0,textAlign:"right"}}><div style={{fontSize:9,...M,color:"var(--muted2)",letterSpacing:1}}>TODAY</div><div style={{...B,fontSize:16,color:"var(--ink)"}}>{fmtHM(completedToday)}</div></div>}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,marginBottom:14}}>
+      <button onClick={onStart} aria-label="Start shift" style={{flexShrink:0,width:108,height:108,borderRadius:"50%",background:"var(--tint-green)",border:"2px solid #06c16766",boxShadow:"0 6px 18px #06c16733, inset 0 1px 0 #ffffff22",...B,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+        <span style={{fontWeight:800,fontSize:23,letterSpacing:2.5,color:"#06c167"}}>START</span>
+        {completedToday>0&&<span style={{fontSize:11,...M,fontWeight:700,color:"#0a8f4f",letterSpacing:1,marginTop:3}}>{fmtHM(completedToday)}</span>}
+      </button>
+      {checkBtn}
     </div>
   );
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrders,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,revealNames,driverCount,activeShift,shiftCompletedToday,onStartShift,onEndShift,queueAlerts,queueAlertsSent,onQueueAlert,onOpenLogbook,onArrived,onManualArrive,onPickedUp,onDelivered,onCancelWait}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrders,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,revealNames,driverCount,activeShift,shiftCompletedToday,onStartShift,onStopShift,queueAlerts,queueAlertsSent,onQueueAlert,onReportCount,onOpenLogbook,onGoCheck,onArrived,onManualArrive,onPickedUp,onDelivered,onCancelWait,onAddDelivery,isAdmin}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -2399,6 +2921,9 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
   useEffect(()=>{ if(!activeOrders||activeOrders.length===0) setDelivering(false); },[activeOrders?.length]);
   const per=timePeriod(now.getHours());
   const meta=communityPatterns._meta;
+  // Gate: live community data is blurred until the driver has logged UNLOCK_AFTER waits of their own.
+  const myLogCount=waitLog?.length||0;
+  const dataLocked=myLogCount<UNLOCK_AFTER;
 
   const distMap={};
   if(gps.status==="active"&&restaurants?.length){
@@ -2409,20 +2934,37 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
     });
   }
 
-  // Sort: active wait pinned top → fixed priority chains (in order) → nearest → busiest → estimate
+  // Sort: active wait pinned top → ANY LOGGED place (you OR the community) nearest-first → priority chains → nearest → busiest → estimate
   const PRIORITY=[["mcdonald"],["kfc"],["nando"],["wagamama"],["pizza express","pizzaexpress"],["zizzi"],["coco di mama","cocodimama"],["sainsbury"]];
   const prio=r=>{const n=(r.name||"").toLowerCase();const i=PRIORITY.findIndex(keys=>keys.some(k=>n.includes(k)));return i===-1?999:i;};
   const logCount=r=>communityPatterns[cardKey(r)]?.overall?.count||0;
-  const sorted=restaurants.slice().sort((a,b)=>{
+  // The driver's own visits + a place is "logged" if anyone (you OR the community) has logged it.
+  const visitCount={};for(const l of waitLog){const k=logKey(l);visitCount[k]=(visitCount[k]||0)+1;}
+  const isLogged=r=>(visitCount[cardKey(r)]||0)>0||logCount(r)>0;
+  // Surface every place anyone has logged — your logs AND the whole community's — even if not nearby now.
+  const presentKeys=new Set(restaurants.map(cardKey));
+  const extras=[];const seenExtra=new Set();
+  const addExtra=(id,name)=>{const k=chainKeyFromName(name)||id;if(presentKeys.has(k)||seenExtra.has(k))return;seenExtra.add(k);extras.push({id,name:name||"Restaurant",baseWait:0,rel:1,label:""});};
+  for(let i=waitLog.length-1;i>=0;i--)addExtra(waitLog[i].restaurantId,waitLog[i].restaurantName);
+  for(let i=(communityLogs||[]).length-1;i>=0;i--)addExtra(communityLogs[i].restaurantId,communityLogs[i].restaurantName);
+  const sorted=[...restaurants,...extras].sort((a,b)=>{
     if(activeWait?.restaurantId===a.id)return -1;
     if(activeWait?.restaurantId===b.id)return 1;
+    const la=isLogged(a),lb=isLogged(b);
+    if(la!==lb)return la?-1:1;                // any logged place (you or community) first
+    if(la&&lb){                              // among logged: nearest first, located before unknown-location
+      const da=distMap[a.id],db=distMap[b.id];
+      if(da!=null&&db!=null)return da-db;
+      if(da!=null)return -1;if(db!=null)return 1;
+      return 0;
+    }
     const pa=prio(a),pb=prio(b);
-    if(pa!==pb)return pa-pb;                  // McDonald's, KFC, Nando's... in this exact order
+    if(pa!==pb)return pa-pb;                  // non-logged: McDonald's, KFC, Nando's... in this exact order
     const da=distMap[a.id],db=distMap[b.id];
     if(da!=null&&db!=null)return da-db;       // then nearest by GPS
     if(da!=null)return -1;if(db!=null)return 1;
-    const la=logCount(a),lb=logCount(b);
-    if(la!==lb)return lb-la;                  // then busiest
+    const lc=logCount(a),ld=logCount(b);
+    if(lc!==ld)return ld-lc;                  // then busiest
     return(b.baseWait/b.rel)-(a.baseWait/a.rel);
   });
 
@@ -2447,13 +2989,22 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
   function closePicker(){setPicking(false);setSearchQuery("");setSearchResults([]);}
 
   if(selectedRestaurant){
+    const selQa=queueAlerts?.[cardKey(selectedRestaurant)];
+    const selQueueActive=!!(selQa&&now.getTime()-new Date(selQa.ts).getTime()<QUEUE_ALERT_TTL_MS);
     return <RestaurantDetail r={selectedRestaurant} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns}
       distMap={distMap} checkingId={checkingId} arrivalError={arrivalError} activeWait={activeWait} manualVoted={manualVoted}
-      onArrived={onArrived} onManualArrive={onManualArrive} onBack={()=>setSelectedRestaurant(null)}/>;
+      onArrived={onArrived} onManualArrive={onManualArrive} isAdmin={isAdmin} queueActive={selQueueActive} onBack={()=>setSelectedRestaurant(null)}/>;
   }
 
   if(picking){
-    const displayList=searchQuery.trim().length>=2?searchResults:restaurants.slice().sort((a,b)=>{const da=distMap[a.id],db=distMap[b.id];if(da!=null&&db!=null)return da-db;if(da!=null)return -1;if(db!=null)return 1;return 0;});
+    // Nearby restaurants with previously-logged ones (you OR the community) first, then nearest.
+    const displayList=searchQuery.trim().length>=2?searchResults:restaurants.slice().sort((a,b)=>{
+      const la=isLogged(a),lb=isLogged(b);
+      if(la!==lb)return la?-1:1;
+      const da=distMap[a.id],db=distMap[b.id];
+      if(da!=null&&db!=null)return da-db;
+      if(da!=null)return -1;if(db!=null)return 1;return 0;
+    });
     return(
       <div style={{padding:"20px 16px 100px"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
@@ -2502,20 +3053,15 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
 
   return(
     <div style={{padding:"20px 16px 100px"}}>
-      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
-        <div>
-          <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>{t("w_title")}</div>
-          <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>{per.toUpperCase()+" · "+dayLabel(now.getDay()).toUpperCase()}</div>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:5,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",marginTop:4}}>
-          <div style={{width:7,height:7,borderRadius:"50%",background:{pending:"var(--muted)",acquiring:"#f5a623",active:"#06c167",error:"#00b8a9",denied:"#ef4444"}[gps.status]||"var(--muted)",boxShadow:"0 0 5px "+({pending:"var(--muted)",acquiring:"#f5a623",active:"#06c167",error:"#00b8a9",denied:"#ef4444"}[gps.status]||"var(--muted)")}}/>
-          <span style={{fontSize:9,color:"var(--muted2)",letterSpacing:1}}>{gps.status==="active"?"±"+gps.accuracy+"m":gps.status.toUpperCase()}</span>
-        </div>
+      {(()=>{const hr=now.getHours();const g=hr<5?"Good night":hr<12?"Good morning":hr<17?"Good afternoon":hr<22?"Good evening":"Good night";const f=(myName||"").trim().split(/\s+/)[0];const fc=f?f.charAt(0).toUpperCase()+f.slice(1):"";return <div style={{...M,fontSize:15,fontWeight:700,color:"var(--ink)",marginBottom:10,paddingRight:48}}>{(fc?g+", "+fc:g)+" 👋"}</div>;})()}
+      <div style={{marginBottom:14,paddingRight:48}}>
+        <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>{t("w_title")}</div>
+        <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>{per.toUpperCase()+" · "+dayLabel(now.getDay()).toUpperCase()}</div>
       </div>
 
-      <ShiftTimer activeShift={activeShift} completedToday={shiftCompletedToday} onStart={onStartShift} onEnd={onEndShift}/>
+      <ShiftTimer activeShift={activeShift} completedToday={shiftCompletedToday} onStart={()=>onStartShift()} onStop={onStopShift} onGoCheck={onGoCheck}/>
 
-      {meta?.totalLogs>0&&(
+      {isAdmin&&meta?.totalLogs>0&&(
         <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-green))",border:"1px solid #06c16722",borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 8px #06c167",animation:"criticalPulse 2.5s ease-in-out infinite"}}/>
@@ -2528,7 +3074,9 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
         </div>
       )}
 
-      <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs} contribCounts={contribCounts} onOpen={onOpenLogbook} myName={myName} revealNames={revealNames}/>
+      <div style={dataLocked?LOCKED:undefined} aria-hidden={dataLocked}>
+        <LiveFeed activeWaitsList={activeWaitsList} communityLogs={communityLogs} contribCounts={contribCounts} onOpen={onOpenLogbook} myName={myName} revealNames={revealNames}/>
+      </div>
 
       {activeWait?(
         <div style={{background:"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"2px solid #00b8a9",borderRadius:16,padding:"20px",marginBottom:16,boxShadow:"0 0 40px #00b8a918"}}>
@@ -2538,10 +3086,23 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
           </div>
           <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><LiveTimer startedAt={activeWait.startedAt}/></div>
           <EarningsLive session={session} pendingPayout={activeWait.payout} pendingPlatform={activeWait.platform}/>
+          {(activeWait.extraOrders||[]).length>0&&(
+            <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"10px 12px",marginBottom:12}}>
+              <div style={{fontSize:8,color:"var(--muted2)",letterSpacing:2,marginBottom:6}}>STACKED ORDERS</div>
+              {activeWait.extraOrders.map((x,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:i<activeWait.extraOrders.length-1?5:0}}>
+                  <span style={{fontSize:15}}>🛵</span>
+                  <span style={{flex:1,minWidth:0,...M,fontSize:12,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.platform||"Order"}</span>
+                  <span style={{...B,fontSize:13,color:"#06c167"}}>{fmtGBP(x.payout)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{display:"flex",gap:10}}>
             <button onClick={onPickedUp} style={{flex:1,minHeight:72,background:"#06c167",border:"none",borderRadius:12,...B,fontSize:24,letterSpacing:2,color:"#000",cursor:"pointer",boxShadow:"0 0 20px #06c16733"}}>{t("w_pickedUp")}</button>
             <button onClick={onCancelWait} style={{minHeight:72,width:72,background:"var(--border)",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:22,color:"var(--muted2)",cursor:"pointer"}}>✕</button>
           </div>
+          <button onClick={onAddDelivery} style={{width:"100%",minHeight:46,marginTop:10,background:"var(--card)",border:"1px solid #00b8a9",borderRadius:12,...B,fontWeight:700,fontSize:14,letterSpacing:0.5,color:"#00b8a9",cursor:"pointer"}}>+ ADD A DELIVERY</button>
           <div style={{fontSize:9,color:"var(--muted2)",textAlign:"center",marginTop:10,letterSpacing:1}}>{t("w_tapHint")}</div>
         </div>
       ):delivering&&activeOrders.length>0?(
@@ -2591,7 +3152,19 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
 
       {!premium&&<AdBanner premium={premium}/>}
 
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {dataLocked&&(
+        <div style={{background:"linear-gradient(135deg,var(--tint-teal),var(--tint-blue))",border:"1px solid #00b8a944",borderRadius:14,padding:"16px",marginBottom:12,textAlign:"center"}}>
+          <div style={{fontSize:26,marginBottom:4}}>🔒</div>
+          <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:0.5,marginBottom:4}}>Unlock live community data</div>
+          <div style={{...M,fontSize:12,color:"var(--muted)",lineHeight:1.5,marginBottom:10}}>Log {UNLOCK_AFTER} waits to see real-time wait times from every driver. Tap ARRIVED above to start.</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            {[0,1,2].map(i=>(<span key={i} style={{width:26,height:6,borderRadius:3,background:i<myLogCount?"#00b8a9":"var(--border2)"}}/>))}
+            <span style={{...B,fontSize:12,color:"#00b8a9",marginLeft:6}}>{Math.min(myLogCount,UNLOCK_AFTER)}/{UNLOCK_AFTER}</span>
+          </div>
+        </div>
+      )}
+
+      <div style={{display:"flex",flexDirection:"column",gap:8,...(dataLocked?LOCKED:null)}} aria-hidden={dataLocked}>
         {sorted.map((r,idx)=>{
           const ck=cardKey(r);
           const personal=getPersonalWait(ck,now,waitLog);
@@ -2619,6 +3192,10 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
           const myLogs=waitLog.filter(l=>logKey(l)===ck);
           const d=distMap[r.id];
           const dStr=d!=null?(d<1000?Math.round(d)+"m":(d/1000).toFixed(1)+"km"):null;
+          // Queue alert is allowed only when you're physically at the restaurant — same adaptive
+          // GPS radius as the ARRIVED button. If GPS is off / too far, the button isn't shown.
+          const allow=Math.min(150,Math.max(80,(gps.accuracy||40)+30));
+          const atRestaurant=gps.status==="active"&&gps.lat!=null&&d!=null&&d<=allow;
           const isChecking=checkingId===r.id;
           const hasError=arrivalError?.restaurantId===r.id;
           const borderCol=closed?"var(--border)":isActive?"#00b8a9":hasReal?riskColor+"33":"var(--border)";
@@ -2631,6 +3208,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{...B,fontSize:19,letterSpacing:1,color:"var(--ink)"}}>
                     {r.name}
+                    {(()=>{const cTot=communityPatterns[ck]?.overall?.count||0;const parts=[myLogs.length>0?myLogs.length+" visit"+(myLogs.length!==1?"s":""):null,cTot>0?cTot+" log"+(cTot!==1?"s":""):null].filter(Boolean);return parts.length?<span style={{fontSize:10,color:"#06c167",marginLeft:8,...M,fontWeight:700}}>{parts.join(" · ")}</span>:null;})()}
                     {dStr&&<span style={{fontSize:10,color:"#00b8a9",marginLeft:8,...M,fontWeight:400}}>{dStr}</span>}
                   </div>
                   <div style={{fontSize:9,marginTop:2,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -2704,7 +3282,8 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
                 )}
                 {myLogs.length>0&&<span style={{fontSize:9,color:"var(--muted2)"}}>{myLogs.length+" visit"+(myLogs.length!==1?"s":"")}</span>}
                 <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
-                  {!closed&&<button onClick={e=>{e.stopPropagation();onQueueAlert(r);}} disabled={qaCooldown} title="Warn nearby drivers of a long queue" style={{background:qaCooldown?"var(--border)":"var(--tint-red)",border:"1px solid "+(qaCooldown?"var(--faint2)":"#ef444466"),borderRadius:7,...B,fontSize:9,letterSpacing:0.3,color:qaCooldown?"var(--muted2)":"#ef4444",cursor:qaCooldown?"default":"pointer",padding:"6px 9px",minHeight:32}}>{qaCooldown?"ALERTED ✓":"⚠ QUEUE ALERT"}</button>}
+                  {!closed&&atRestaurant&&<button onClick={e=>{e.stopPropagation();onReportCount(r);}} title="Report how many drivers are waiting here" style={{background:"var(--tint-coral)",border:"1px solid #ff5a2d66",borderRadius:7,...B,fontSize:9,letterSpacing:0.3,color:"#ff5a2d",cursor:"pointer",padding:"6px 9px",minHeight:32}}>👥 DRIVERS</button>}
+                  {!closed&&atRestaurant&&<button onClick={e=>{e.stopPropagation();onQueueAlert(r);}} disabled={qaCooldown} title="Warn nearby drivers of a long queue" style={{background:qaCooldown?"var(--border)":"var(--tint-red)",border:"1px solid "+(qaCooldown?"var(--faint2)":"#ef444466"),borderRadius:7,...B,fontSize:9,letterSpacing:0.3,color:qaCooldown?"var(--muted2)":"#ef4444",cursor:qaCooldown?"default":"pointer",padding:"6px 9px",minHeight:32}}>{qaCooldown?"ALERTED ✓":"⚠ QUEUE ALERT"}</button>}
                   {!isActive&&<button onClick={e=>{e.stopPropagation();onArrived(r);}} disabled={isChecking} style={{background:isChecking?"var(--tint-coral)":hasError?"var(--tint-red)":"#00b8a9",border:isChecking?"1px solid #00b8a944":hasError?"1px solid #ef444444":"none",borderRadius:7,...B,fontSize:hasError?11:13,letterSpacing:1,color:isChecking?"#00b8a9":hasError?"#ef4444":"#000",cursor:isChecking?"default":"pointer",padding:"6px 14px",minHeight:32}}>{isChecking?"CHECKING...":hasError?arrivalError.dist+"M AWAY":t("w_arrivedShort")}</button>}
                   {isActive&&<span style={{fontSize:10,...B,color:"#00b8a9",letterSpacing:1,animation:"criticalPulse 1.5s ease-in-out infinite"}}>{t("w_timingNow")}</span>}
                 </div>
@@ -2739,7 +3318,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
 
 
 // ── CHECK SCREEN ─────────────────────────────────────────────────────────────
-function CheckScreen({restaurants,communityPatterns,waitLog,now,gps,activeCounts,reportedCounts}) {
+function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gps,activeCounts,reportedCounts}) {
   const [query,setQuery]=useState("");
   const [results,setResults]=useState([]);
   const [searching,setSearching]=useState(false);
@@ -2765,19 +3344,47 @@ function CheckScreen({restaurants,communityPatterns,waitLog,now,gps,activeCounts
 
   const distOf=r=>{ const lat=r.branchLat??r.lat,lng=r.branchLng??r.lng; return gps.status==="active"&&gps.lat!=null&&lat!=null?distMeters(gps.lat,gps.lng,lat,lng):(r.dist??null); };
 
+  // A place is "logged" if anyone has logged it — your own logs OR the whole community's.
+  const visitCount={};for(const l of waitLog){const k=logKey(l);visitCount[k]=(visitCount[k]||0)+1;}
+  const dataLocked=(waitLog?.length||0)<UNLOCK_AFTER;   // live data blurred until 3 own logs
+  const commCount=r=>communityPatterns[cardKey(r)]?.overall?.count||0;
+  const isLogged=r=>(visitCount[cardKey(r)]||0)>0||commCount(r)>0;
+  // Surface every logged place — your logs AND the community's — even ones not nearby right now.
+  const presentKeys=new Set(restaurants.map(cardKey));
+  const extras=[];const seenExtra=new Set();
+  const addExtra=(id,name)=>{const k=chainKeyFromName(name)||id;if(presentKeys.has(k)||seenExtra.has(k))return;seenExtra.add(k);extras.push({id,name:name||"Restaurant"});};
+  for(let i=waitLog.length-1;i>=0;i--)addExtra(waitLog[i].restaurantId,waitLog[i].restaurantName);
+  for(let i=(communityLogs||[]).length-1;i>=0;i--)addExtra(communityLogs[i].restaurantId,communityLogs[i].restaurantName);
+  const knownPool=[...restaurants,...extras];
+
   // Distances for the detail view
   const distMap={};
-  [...restaurants,...results,...(selected?[selected]:[])].forEach(r=>{const d=distOf(r); if(d!=null)distMap[r.id]=d;});
+  [...knownPool,...results,...(selected?[selected]:[])].forEach(r=>{const d=distOf(r); if(d!=null)distMap[r.id]=d;});
 
   // Tapped a restaurant → full stats (detail in stats-only mode: no arrive/manual buttons)
   if(selected){
     return <RestaurantDetail r={selected} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns} distMap={distMap} onBack={()=>setSelected(null)}/>;
   }
 
-  // Default = nearby restaurants (sorted by distance). When searching, show search results.
-  const list=query.trim()
-    ? results
-    : restaurants.map(r=>({...r,dist:distOf(r)})).sort((a,b)=>{ if(a.dist!=null&&b.dist!=null)return a.dist-b.dist; if(a.dist!=null)return -1; if(b.dist!=null)return 1; return 0; });
+  // Default = every logged place first (anyone's logs), nearest-first, then the rest by distance.
+  // When searching, matches against logged places are ranked first.
+  let list;
+  if(query.trim()){
+    const term=query.trim().toLowerCase();
+    const resKeys=new Set(results.map(cardKey));
+    const loggedMatches=knownPool
+      .filter(r=>isLogged(r) && (r.name||"").toLowerCase().includes(term) && !resKeys.has(cardKey(r)))
+      .map(r=>({...r,dist:distOf(r)}));
+    const ranked=results.slice().sort((a,b)=>(isLogged(b)?1:0)-(isLogged(a)?1:0)); // logged matches first
+    list=[...loggedMatches,...ranked];
+  }else{
+    list=knownPool.map(r=>({...r,dist:distOf(r)})).sort((a,b)=>{
+      const la=isLogged(a),lb=isLogged(b);
+      if(la!==lb)return la?-1:1;                            // any logged place first
+      if(a.dist!=null&&b.dist!=null)return a.dist-b.dist;   // then nearest (located before unknown-location)
+      if(a.dist!=null)return -1;if(b.dist!=null)return 1;return 0;
+    });
+  }
 
   return(
     <div style={{padding:"20px 16px 100px"}}>
@@ -2797,7 +3404,14 @@ function CheckScreen({restaurants,communityPatterns,waitLog,now,gps,activeCounts
       {!query.trim()&&list.length===0&&(
         <div style={{fontSize:11,color:"var(--faint)",textAlign:"center",padding:"40px 0",...M}}>Waiting for your location to find nearby restaurants…</div>
       )}
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {dataLocked&&(
+        <div style={{background:"linear-gradient(135deg,var(--tint-teal),var(--tint-blue))",border:"1px solid #00b8a944",borderRadius:14,padding:"16px",marginBottom:12,textAlign:"center"}}>
+          <div style={{fontSize:26,marginBottom:4}}>🔒</div>
+          <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:0.5,marginBottom:4}}>Unlock live community data</div>
+          <div style={{...M,fontSize:12,color:"var(--muted)",lineHeight:1.5}}>Log {UNLOCK_AFTER} waits on the WAITS tab to see real wait times here. {Math.min(waitLog?.length||0,UNLOCK_AFTER)}/{UNLOCK_AFTER} done.</div>
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:10,...(dataLocked?LOCKED:null)}} aria-hidden={dataLocked}>
         {list.map((r,i)=>{
           const lid=cardKey(r);
           const community=getCommunityWait(lid,now,communityPatterns);
@@ -2813,7 +3427,7 @@ function CheckScreen({restaurants,communityPatterns,waitLog,now,gps,activeCounts
             <div key={r.id+i} onClick={()=>setSelected(r)} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",opacity:closed?0.72:1,cursor:"pointer"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1}}>{r.name}</div>
+                  <div style={{...B,fontSize:18,color:"var(--ink)",letterSpacing:1}}>{r.name}{(()=>{const v=visitCount[lid]||0;const c=communityPatterns[lid]?.overall?.count||0;const parts=[v>0?v+" visit"+(v!==1?"s":""):null,c>0?c+" log"+(c!==1?"s":""):null].filter(Boolean);return parts.length?<span style={{fontSize:10,color:"#06c167",marginLeft:8,...M,fontWeight:700}}>{parts.join(" · ")}</span>:null;})()}</div>
                   {r.address&&<div style={{fontSize:9,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}</div>}
                   <div style={{fontSize:9,marginTop:3,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     {closed
@@ -2925,25 +3539,72 @@ function StatsScreen({communityLogs,communityPatterns,activeCounts,contribCounts
   );
 }
 
+// ── HELP / GUIDE SCREEN ───────────────────────────────────────────────────────
+function HelpScreen({lang,onBack}){
+  const h=HELP[lang]||HELP.en;
+  const rtl=!!((LANGS.find(l=>l.code===lang)||{}).rtl);
+  const card={background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",marginBottom:8};
+  const sectionTitle={...B,fontSize:13,color:"var(--muted2)",letterSpacing:2,margin:"18px 0 10px"};
+  return(
+    <div dir={rtl?"rtl":"ltr"} style={{padding:"20px 16px 100px",textAlign:rtl?"right":"left"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexDirection:rtl?"row-reverse":"row"}}>
+        <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>{rtl?"›":"‹"}</button>
+        <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:1}}>{h.title}</div>
+      </div>
+
+      <div style={sectionTitle}>{h.faqTitle}</div>
+      {h.faq.map((f,i)=>(
+        <div key={"f"+i} style={card}>
+          <div style={{...B,fontWeight:700,fontSize:15,color:"var(--ink)",marginBottom:6}}>{f.q}</div>
+          <div style={{...M,fontSize:13,color:"var(--muted)",lineHeight:1.55}}>{f.a}</div>
+        </div>
+      ))}
+
+      <div style={sectionTitle}>{h.installTitle}</div>
+      {[h.iphone,h.android].map((g,i)=>(
+        <div key={"g"+i} style={card}>
+          <div style={{...B,fontWeight:700,fontSize:15,color:"#00b8a9",marginBottom:8}}>{g.title}</div>
+          {g.steps.map((s,j)=>(
+            <div key={j} style={{display:"flex",gap:8,marginBottom:6,flexDirection:rtl?"row-reverse":"row"}}>
+              <span style={{...B,fontSize:13,color:"#00b8a9",flexShrink:0}}>{j+1}.</span>
+              <span style={{...M,fontSize:13,color:"var(--muted)",lineHeight:1.5}}>{s}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      <div style={sectionTitle}>{h.manualTitle}</div>
+      {h.manual.map((m,i)=>(
+        <div key={"m"+i} style={card}>
+          <div style={{...B,fontWeight:700,fontSize:15,color:"var(--ink)",marginBottom:4}}>{m.t}</div>
+          <div style={{...M,fontSize:13,color:"var(--muted)",lineHeight:1.55}}>{m.d}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── BOTTOM NAV ────────────────────────────────────────────────────────────────
 function BottomNav({screen,onNav,activeWait,unreadChat}) {
   const tabs=[
-    {id:"waits",icon:"⏱",label:t("nav_waits"),dot:activeWait,  dotColor:"#00b8a9"},
-    {id:"check",icon:"🔍",label:t("nav_check"),dot:false,       dotColor:"#2b8fff"},
-    {id:"stats",icon:"📊",label:t("nav_stats"),dot:false,       dotColor:"#f5a623"},
-    {id:"chat", icon:"💬",label:t("nav_chat"), dot:unreadChat,  dotColor:"#06c167"},
+    {id:"waits",icon:"⏱",label:t("nav_waits"),dot:activeWait,  color:"#00b8a9"},
+    {id:"stats",icon:"📊",label:t("nav_stats"),dot:false,       color:"#f5a623"},
+    {id:"chat", icon:"💬",label:t("nav_chat"), dot:unreadChat,  color:"#06c167"},
   ];
+  // Floating circles instead of a flat bar — stay fixed (always visible), merged onto the page.
+  // pointerEvents:none on the strip + auto on the circles keeps swipes/taps in the gaps passing through.
   return(
-    <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"var(--card)",borderTop:"1px solid var(--border3)",display:"flex",zIndex:200,height:56}}>
-      {tabs.map(t=>(
-        <button key={t.id} onClick={()=>onNav(t.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"10px 0 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-          <span style={{fontSize:20,position:"relative"}}>
+    <div style={{position:"fixed",bottom:16,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,display:"flex",alignItems:"center",justifyContent:"center",gap:22,zIndex:200,pointerEvents:"none"}}>
+      {tabs.map(t=>{
+        const active=t.id===screen;
+        return(
+          <button key={t.id} onClick={()=>onNav(t.id)} aria-label={t.label} title={t.label}
+            style={{pointerEvents:"auto",position:"relative",width:46,height:46,borderRadius:"50%",background:active?t.color:"var(--card)",border:"1px solid "+(active?t.color:"var(--border2)"),boxShadow:active?"0 4px 14px "+t.color+"66":"0 3px 10px rgba(0,0,0,0.22)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,transition:"all .15s"}}>
             {t.icon}
-            {t.dot&&<span style={{position:"absolute",top:-3,right:-5,width:8,height:8,borderRadius:"50%",background:t.dotColor,boxShadow:"0 0 8px "+t.dotColor,display:"block"}}/>}
-          </span>
-          <span style={{...B,fontSize:11,letterSpacing:1,color:t.id===screen?"#00b8a9":"var(--faint)"}}>{t.label}</span>
-        </button>
-      ))}
+            {t.dot&&<span style={{position:"absolute",top:1,right:3,width:9,height:9,borderRadius:"50%",background:t.color,boxShadow:"0 0 8px "+t.color,border:"1.5px solid var(--card)",display:"block"}}/>}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -2964,7 +3625,7 @@ function NotifPrompt({onAllow,onSkip}){
   );
 }
 
-const TAB_ORDER=["waits","check","stats","chat"];   // swipe order: left = next, right = previous
+const TAB_ORDER=["waits","stats","chat"];   // swipe order: left = next, right = previous (CHECK is button-only, not swipeable)
 
 export default function App() {
   const [user,setUser]          =useState(()=>store.get("delivr_user")||null);
@@ -2977,6 +3638,7 @@ export default function App() {
   const [showUpgrade,setShowUpgrade]=useState(false);
   const [showStats,setShowStats]=useState(false);
   const [showLogbook,setShowLogbook]=useState(false);
+  const [showHelp,setShowHelp]=useState(false);
   const [reminder,setReminder]=useState(null);   // in-app "still waiting?" notification text
   const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
   const [onboarded,setOnboarded]=useState(()=>!!store.get("delivr_onboarded"));
@@ -3024,7 +3686,10 @@ export default function App() {
     return (s&&s.date===new Date().toDateString())?s:{date:new Date().toDateString(),mins:0};
   });
   const [earningsLog,setEarningsLog]=useState([]);                               // this driver's own logged orders
+  const [shiftsLog,setShiftsLog]=useState([]);                                   // this driver's completed shifts (for STATS £/hour)
   const [earningsPopup,setEarningsPopup]=useState(null);                         // {restaurantName} shown after a successful ARRIVED
+  const [addingDelivery,setAddingDelivery]=useState(false);                      // adding a 2nd (stacked) order while still waiting
+  const [countReport,setCountReport]=useState(null);                             // restaurant whose "drivers waiting" count is being reported
   const [tipPrompt,setTipPrompt]=useState(null);                                 // {order} shown after a delivery is marked DELIVERED
   const [communityPatterns,setCommunityPatterns]=useState(()=>{   // cached averages (<30min) show instantly; live listener refreshes in the background
     const c=store.get("delivr_patterns");
@@ -3077,22 +3742,47 @@ export default function App() {
       if(fbUser.displayName){
         try{ profile=JSON.parse(fbUser.displayName); }catch(e){}
       }
-      // Fallback to Firestore
-      if(!profile){
-        try{
-          const snap=await getDoc(doc(db,"users",fbUser.uid));
-          if(snap.exists()){ const p=snap.data(); profile={name:p.username,color:p.color,initial:p.initial}; }
-        }catch(e){}
-      }
+      // Firestore is authoritative for premium (Stripe webhooks update it there), so reconcile it.
+      try{
+        const snap=await getDoc(doc(db,"users",fbUser.uid));
+        if(snap.exists()){
+          const p=snap.data();
+          if(!profile){ profile={name:p.username,color:p.color,initial:p.initial}; }
+          if('premium' in p){ profile={...profile,premium:!!p.premium,subscriptionId:p.subscriptionId??profile?.subscriptionId??null}; }
+        }
+      }catch(e){}
       if(profile){ setUser(profile);store.set("delivr_user",profile); }
     });
     return unsub;
   },[]);
 
-  // Live Firestore listener for community patterns — updates instantly when any driver logs.
-  // Capped at the 500 most-recent logs so memory stays bounded as the app scales.
+  // Keep premium in sync live — Stripe webhooks write premium to the user's Firestore doc.
   useEffect(()=>{
-    const q=query(collection(db,"waitLogs"),orderBy("ts","desc"),limit(500));
+    const uid=auth.currentUser?.uid;
+    if(!uid||!user)return;
+    const unsub=onSnapshot(doc(db,"users",uid),snap=>{
+      if(!snap.exists())return;
+      const p=snap.data();
+      setUser(u=>{
+        if(!u)return u;
+        const prem=!!p.premium, sub=p.subscriptionId??null;
+        if(!!u.premium===prem && (u.subscriptionId??null)===sub)return u;
+        const n={...u,premium:prem,subscriptionId:sub};
+        store.set("delivr_user",n);
+        return n;
+      });
+    },()=>{});
+    return unsub;
+  },[!!user]);
+
+  // Live Firestore listener for community patterns — updates instantly when any driver logs.
+  // Capped at the 500 most-recent logs for normal drivers so memory stays bounded as the app
+  // scales; the admin (contact.morebah) gets the full, uncapped feed to see every log.
+  const seeAllLogs=hasAdminPerks(user);
+  useEffect(()=>{
+    const q=seeAllLogs
+      ?query(collection(db,"waitLogs"),orderBy("ts","desc"))
+      :query(collection(db,"waitLogs"),orderBy("ts","desc"),limit(500));
     const unsub=onSnapshot(q,snap=>{
       const logs=snap.docs.map(d=>d.data());
       const patterns=computePatterns(logs);
@@ -3101,7 +3791,7 @@ export default function App() {
       store.set("delivr_patterns",{ts:Date.now(),data:patterns});   // cache averages for instant load next time
     },()=>{});
     return unsub;
-  },[]);
+  },[seeAllLogs]);
 
   // Live listener for THIS driver's own earnings — personal only, never anyone else's.
   // Only attached while the STATS tab is open; disconnects on navigate-away. Waits for Firebase
@@ -3115,6 +3805,20 @@ export default function App() {
       if(!fbUser){setEarningsLog([]);return;}
       unsubSnap=onSnapshot(collection(db,"users",fbUser.uid,"earnings"),snap=>{
         setEarningsLog(snap.docs.map(d=>({...d.data(),id:d.id})));   // id = Firestore doc id, for edit/delete
+      },()=>{});
+    });
+    return ()=>{ if(unsubSnap)unsubSnap(); unsubAuth(); };
+  },[earningsActive]);
+
+  // This driver's completed shifts — drives the clocked £/hour denominator in the STATS views.
+  useEffect(()=>{
+    if(!earningsActive)return;
+    let unsubSnap=null;
+    const unsubAuth=onAuthStateChanged(auth,fbUser=>{
+      if(unsubSnap){unsubSnap();unsubSnap=null;}
+      if(!fbUser){setShiftsLog([]);return;}
+      unsubSnap=onSnapshot(collection(db,"users",fbUser.uid,"shifts"),snap=>{
+        setShiftsLog(snap.docs.map(d=>d.data()));
       },()=>{});
     });
     return ()=>{ if(unsubSnap)unsubSnap(); unsubAuth(); };
@@ -3197,10 +3901,16 @@ export default function App() {
   // toward today's £/hour or live clock. The active wait / out-for-delivery orders are untouched.
   useEffect(()=>{
     const today=startOfDayMs(now);
-    if(today===dayRef.current)return;
+    const rolled=today!==dayRef.current;
     dayRef.current=today;
-    if(session){
-      const fresh={sessionId:genId(),sessionStart:new Date(today).toISOString(),totalEarnings:0,lastActivity:new Date().toISOString()};
+    // Reset when the calendar day rolls over while running, OR when a stored session began on an
+    // earlier day — the latter covers the app being closed/asleep across midnight (the 15s tick
+    // never fired at 00:00), so on reopen the £/hour still restarts from 00:00 instead of dragging
+    // the whole pre-midnight shift into today's rate. lastActivity is preserved (not reset to now)
+    // so the >1h "new shift" gap check still tells a continuous overnight shift (counts from 00:00)
+    // apart from a resume after a long break (which then anchors to the resume time, not midnight).
+    if(session&&(rolled||new Date(session.sessionStart).getTime()<today)){
+      const fresh={sessionId:genId(),sessionStart:new Date(today).toISOString(),totalEarnings:0,lastActivity:session.lastActivity||session.sessionStart};
       setSession(fresh);store.set("delivr_session",fresh);
     }
   },[now]);
@@ -3313,7 +4023,7 @@ export default function App() {
   function onTabTouchStart(e){const t=e.touches[0];swipeRef.current={x:t.clientX,y:t.clientY,t:Date.now()};}
   function onTabTouchEnd(e){
     const st=swipeRef.current;swipeRef.current=null;
-    if(!st||showProfile||showUpgrade||showStats||showLogbook)return;
+    if(!st||showProfile||showUpgrade||showStats||showLogbook||showHelp)return;
     const t=e.changedTouches[0],dx=t.clientX-st.x,dy=t.clientY-st.y;
     if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.7&&Date.now()-st.t<700){
       const i=TAB_ORDER.indexOf(screen);if(i<0)return;
@@ -3322,18 +4032,23 @@ export default function App() {
     }
   }
 
-  function startShift(){
+  // Start a shift (auto on ARRIVED, or manual). `atIso` lets ARRIVED anchor the start to its
+  // own moment. No-op if a shift is already running.
+  function startShift(atIso){
     if(activeShift)return;
-    const s={startedAt:new Date().toISOString()};
+    const s={startedAt:(typeof atIso==="string"?atIso:new Date().toISOString()),lastDeliveredAt:null};
     setActiveShift(s);store.set("delivr_shift",s);
   }
-  function endShift(){
+  // Stop/clock-out the shift. Manual STOP → endIso omitted (ends now). Auto-stop → endIso is the
+  // last DELIVERED time, so the idle hour before auto-stop is never counted. The clocked minutes
+  // are the £/hour denominator; they're added to today's total and saved to users/{uid}/shifts.
+  function stopShift(endIso){
     if(!activeShift)return;
     const startMs=new Date(activeShift.startedAt).getTime();
-    const nowMs=Date.now();
-    const fullMins=Math.round((nowMs-startMs)/60000);
+    const endMs=Math.max(startMs,endIso?new Date(endIso).getTime():Date.now());
+    const fullMins=Math.round((endMs-startMs)/60000);
     const today=new Date().toDateString();
-    const todayMins=(nowMs-Math.max(startMs,startOfDayMs(new Date())))/60000;   // only today's portion if it spanned midnight
+    const todayMins=Math.max(0,(endMs-Math.max(startMs,startOfDayMs(new Date())))/60000);   // today's portion only
     setShiftToday(prev=>{
       const base=(prev&&prev.date===today)?prev.mins:0;
       const next={date:today,mins:base+todayMins};
@@ -3341,12 +4056,23 @@ export default function App() {
       return next;
     });
     const uid=auth.currentUser?.uid;
-    if(uid)addDoc(collection(db,"users",uid,"shifts"),{startedAt:activeShift.startedAt,endedAt:new Date(nowMs).toISOString(),mins:fullMins,ts:new Date(nowMs).toISOString()}).catch(()=>{});
+    if(uid&&fullMins>0)addDoc(collection(db,"users",uid,"shifts"),{startedAt:activeShift.startedAt,endedAt:new Date(endMs).toISOString(),mins:fullMins,ts:new Date(endMs).toISOString()}).catch(()=>{});
     setActiveShift(null);store.del("delivr_shift");
   }
-  // Today's shift minutes (completed today + the running shift's today-portion) for the displays.
+  // Auto clock-out: when the driver is idle (no open wait, no order out for delivery) and >1h has
+  // passed since their last DELIVERED order, end the shift at that last delivery (so the idle hour
+  // isn't counted). Runs on the 15s tick; also catches a stale shift after the app was reopened.
+  const autoStopRef=useRef(false);
+  useEffect(()=>{
+    if(!activeShift){autoStopRef.current=false;return;}
+    if(autoStopRef.current||activeWait||activeOrders.length)return;
+    const ref=activeShift.lastDeliveredAt?new Date(activeShift.lastDeliveredAt).getTime():new Date(activeShift.startedAt).getTime();
+    if(now.getTime()-ref<60*60000)return;
+    autoStopRef.current=true;
+    stopShift(activeShift.lastDeliveredAt||activeShift.startedAt);
+  },[now,activeShift,activeWait,activeOrders]);
+  // Today's clocked shift minutes completed so far (the running shift is added live in the card).
   const shiftCompletedToday=(shiftToday.date===new Date().toDateString())?shiftToday.mins:0;
-  const shiftMinsToday=shiftCompletedToday+(activeShift?(now.getTime()-Math.max(new Date(activeShift.startedAt).getTime(),startOfDayMs(now)))/60000:0);
 
   // Send a long-queue alert for a restaurant to everyone in the same area (one per restaurant per
   // 10 min). Keyed area_chain so the latest overwrites; a 20-min TTL is applied on read.
@@ -3412,7 +4138,7 @@ export default function App() {
     try{
       const r=await fetch(`${API_URL}/stripe/create-checkout-session`,{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({email:user?.email||""}),
+        body:JSON.stringify({email:user?.email||"",uid:auth.currentUser?.uid||""}),
       });
       const d=await r.json();
       if(d.url){ window.location.href=d.url; }      // redirect to Stripe hosted checkout
@@ -3472,7 +4198,8 @@ export default function App() {
         const dist=distMeters(gps.lat,gps.lng,branch.lat,branch.lng);
         // Adaptive radius: forgiving on phones with poor GPS, capped so it can't go wide-open
         const allow=Math.min(150,Math.max(80,(gps.accuracy||40)+30));
-        if(dist!=null&&dist>allow){
+        // Admins can arrive at any restaurant regardless of distance
+        if(dist!=null&&dist>allow&&!hasAdminPerks(user)){
           setArrivalError({restaurantId,dist:Math.round(dist)});
           setCheckingId(null);
           setTimeout(()=>setArrivalError(a=>a?.restaurantId===restaurantId?null:a),4000);
@@ -3483,10 +4210,14 @@ export default function App() {
     }
     const a={restaurantId,restaurantName:restaurant.name,startedAt:new Date().toISOString()};
     setActiveWait(a);store.set("delivr_activewait",a);
+    startShift(a.startedAt);   // shift auto-starts on the first ARRIVED (no-op if already on shift)
     // Earnings session: anchored to the very first ARRIVED of the shift. Orders no longer bank
     // here — each banks when the driver taps DELIVERED — so ARRIVED just keeps the session alive.
     const arrivedMs=new Date(a.startedAt).getTime();
-    const continuing=session&&(arrivedMs-new Date(session.lastActivity||session.sessionStart).getTime()<=SESSION_GAP_MS);
+    // Only continue a session that is both recent (<1h gap) AND from the same calendar day — a
+    // session started yesterday must not carry into today's £/hour (day = 00:00 → 00:00).
+    const sameDay=session&&startOfDayMs(new Date(session.sessionStart))===startOfDayMs(new Date(arrivedMs));
+    const continuing=session&&sameDay&&(arrivedMs-new Date(session.lastActivity||session.sessionStart).getTime()<=SESSION_GAP_MS);
     let sess;
     if(continuing){
       sess={...session,lastActivity:a.startedAt};
@@ -3507,9 +4238,9 @@ export default function App() {
     return true;
   }
 
-  // Save the optional popup fields. Payout (+ platform) is attached to the active wait
-  // and counted on GOT IT; the reported driver count is shared live with nearby drivers.
-  function handleSaveEarnings({platform,payout,count}){
+  // Save the optional ARRIVED popup fields — payout (+ platform) is attached to the active wait
+  // and counted on GOT IT. (Driver-count reporting now lives on the restaurant card, see below.)
+  function handleSaveEarnings({platform,payout}){
     if(payout!=null&&platform){
       setActiveWait(prev=>{
         if(!prev)return prev;
@@ -3518,17 +4249,33 @@ export default function App() {
         return n;
       });
     }
-    if(count!=null&&activeWait){
-      // Latest report wins (doc keyed per restaurant); a 20-min TTL is applied on read.
-      const key=chainKeyFromName(activeWait.restaurantName)||activeWait.restaurantId;
-      try{
-        setDoc(doc(db,"restaurantCounts",key),{
-          count, restaurantId:activeWait.restaurantId, restaurantName:activeWait.restaurantName||"",
-          username:user?.name||"anon", ts:new Date().toISOString(),
-        });
-      }catch(e){}
-    }
     setEarningsPopup(null);
+  }
+
+  // Add a 2nd (stacked) order while still waiting — stored on the active wait, merged into the
+  // out-for-delivery list when GOT IT is pressed. Needs a platform + payout (the popup enforces it).
+  function handleAddDelivery({platform,payout}){
+    if(payout==null||!platform){ setAddingDelivery(false); return; }
+    setActiveWait(prev=>{
+      if(!prev)return prev;
+      const n={...prev,extraOrders:[...(prev.extraOrders||[]),{platform,payout,restaurantName:prev.restaurantName||""}]};
+      store.set("delivr_activewait",n);
+      return n;
+    });
+    setAddingDelivery(false);
+  }
+
+  // Report how many drivers are waiting at a restaurant (from the card's 👥 DRIVERS button).
+  // Latest report wins (doc keyed per restaurant/chain); a 20-min TTL is applied on read.
+  function reportDriverCount(restaurant,count){
+    if(count==null||!restaurant)return;
+    const key=chainKeyFromName(restaurant.name)||restaurant.id;
+    try{
+      setDoc(doc(db,"restaurantCounts",key),{
+        count, restaurantId:restaurant.id, restaurantName:restaurant.name||"",
+        username:user?.name||"anon", ts:new Date().toISOString(),
+      });
+    }catch(e){}
   }
 
   // Bank a picked-up order into its session: add the payout to the session total and write
@@ -3574,8 +4321,9 @@ export default function App() {
     const eff=pinnedLocations[restaurant.id];
     const rLat=eff?eff.lat:(restaurant.branchLat??restaurant.lat);
     const rLng=eff?eff.lng:(restaurant.branchLng??restaurant.lng);
+    const admin=hasAdminPerks(user);
     const dist=rLat!=null?distMeters(gps.lat,gps.lng,rLat,rLng):0;
-    if(dist!=null&&dist>300)return; // enforce 300m server-side of the UI gate
+    if(dist!=null&&dist>300&&!admin)return; // enforce 300m server-side of the UI gate (admins exempt)
     try{
       await addDoc(collection(db,"locationVotes"),{
         restaurantId:restaurant.id,
@@ -3586,15 +4334,31 @@ export default function App() {
       });
       setManualVoted(restaurant.id);
       setTimeout(()=>setManualVoted(v=>v===restaurant.id?null:v),3000);
-      await maybeUpdatePinnedLocation(restaurant.id,restaurant.name);
+      await maybeUpdatePinnedLocation(restaurant.id,restaurant.name,admin);
     }catch(e){console.error("manual arrive error:",e);}
   }
 
   // When 5+ votes from different drivers cluster within 100m, pin the average location.
-  async function maybeUpdatePinnedLocation(restaurantId,restaurantName){
+  async function maybeUpdatePinnedLocation(restaurantId,restaurantName,admin){
     try{
       const snap=await getDocs(query(collection(db,"locationVotes"),where("restaurantId","==",restaurantId)));
       const votes=snap.docs.map(d=>d.data());
+      // Admin override: three of the admin's own arrivals pin the location PERMANENTLY (averaged).
+      if(admin){
+        const myName=user?.name||"anon";
+        const mine=votes.filter(v=>v.username===myName);
+        if(mine.length>=3){
+          const avgLat=mine.reduce((s,v)=>s+v.lat,0)/mine.length;
+          const avgLng=mine.reduce((s,v)=>s+v.lng,0)/mine.length;
+          await setDoc(doc(db,"restaurantLocations",restaurantId),{
+            lat:avgLat,lng:avgLng,votes:mine.length,permanent:true,pinnedBy:myName,
+            name:restaurantName||"",updatedAt:new Date().toISOString(),
+          });
+          return;
+        }
+      }
+      // A permanent (admin-pinned) location is never moved by later crowd votes
+      if(pinnedLocations[restaurantId]?.permanent)return;
       if(votes.length<5)return;
       let best=null;
       for(const c of votes){
@@ -3653,7 +4417,18 @@ export default function App() {
       arrivedAt:      activeWait.startedAt,
       pickedUpAt:     ts.toISOString(),
     };
-    saveOrders([...activeOrders,po]);
+    // Stacked orders added during the wait — pick them up alongside the main order.
+    const extras=(activeWait.extraOrders||[]).map(x=>({
+      id:             genId(),
+      platform:       x.platform||null,
+      payout:         x.payout!=null?x.payout:0,
+      restaurantId:   activeWait.restaurantId,
+      restaurantName: x.restaurantName||activeWait.restaurantName||"",
+      waitMins,
+      arrivedAt:      activeWait.startedAt,
+      pickedUpAt:     ts.toISOString(),
+    }));
+    saveOrders([...activeOrders,po,...extras]);
     if(session){const s={...session,lastActivity:ts.toISOString()};setSession(s);store.set("delivr_session",s);}
   }
 
@@ -3675,6 +4450,8 @@ export default function App() {
     const updated=bankOrder({...order,tip:Number(tip)||0},sess,cycleMins);
     setSession(updated);store.set("delivr_session",updated);
     saveOrders(activeOrders.filter(o=>o.id!==order.id));
+    // Mark the shift's last delivery (drives the 1-hour auto clock-out / £/hour cutoff).
+    setActiveShift(prev=>{ if(!prev)return prev; const s={...prev,lastDeliveredAt:new Date().toISOString()}; store.set("delivr_shift",s); return s; });
   }
 
   function handleCancelWait(){
@@ -3685,21 +4462,21 @@ export default function App() {
 
   const CSS=`
     :root{
-      --bg:#f4f6f8;--card:#ffffff;--ink:#16242b;
+      --bg:#f7f5f1;--card:#ffffff;--ink:#16242b;
       --muted:#6b7a82;--muted2:#8a97a0;--faint:#aab4ba;--faint2:#cdd4d9;
       --border:#e9edf0;--border2:#dfe4e8;--border3:#eef1f3;
       --tint-green:#e7f7ee;--tint-blue:#e8f1ff;--tint-red:#fdecec;
       --tint-coral:#fff1ec;--tint-coral2:#ffe4d8;--tint-amber:#fff7e0;--tint-teal:#e6faf8;
     }
     [data-theme="dark"]{
-      --bg:#0e1316;--card:#192127;--ink:#eaf0f2;
+      --bg:#121519;--card:#192127;--ink:#eaf0f2;
       --muted:#9aa7af;--muted2:#7d8a92;--faint:#5e6b73;--faint2:#46535b;
       --border:#28343a;--border2:#313d44;--border3:#222d33;
       --tint-green:#10291d;--tint-blue:#112338;--tint-red:#2c1517;
       --tint-coral:#2a1b13;--tint-coral2:#341f14;--tint-amber:#2a2410;--tint-teal:#0d2927;
     }
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-    html,body{background:var(--bg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+    html,body{background:var(--bg);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-synthesis:none;-webkit-text-size-adjust:100%}
     ::-webkit-scrollbar{display:none}
     button{font-family:'Poppins',sans-serif}
     button:active{opacity:0.85;transform:scale(0.98)}
@@ -3747,22 +4524,24 @@ export default function App() {
       <style>{CSS}</style>
       <div style={ROOT}>
         {/* Profile avatar button — fixed top right */}
-        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&(
-          <button onClick={()=>setShowProfile(true)}
-            style={{position:"fixed",top:14,right:14,zIndex:300,width:38,height:38,borderRadius:"50%",background:user.color,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px "+user.color+"55"}}>
-            <span style={{...B,fontSize:17,color:"#000"}}>{user.initial}</span>
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&(
+          <button onClick={()=>setShowProfile(true)} aria-label="Profile"
+            style={{position:"fixed",top:14,right:14,zIndex:300,width:42,height:42,borderRadius:"50%",background:"linear-gradient(135deg,"+user.color+","+user.color+"cc)",border:"2px solid rgba(255,255,255,0.65)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 14px "+user.color+"66, inset 0 1px 0 rgba(255,255,255,0.35)"}}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff" style={{display:"block"}}><circle cx="12" cy="8" r="3.6"/><path d="M5 19.5c0-3.6 3.1-5.8 7-5.8s7 2.2 7 5.8V21H5v-1.5z"/></svg>
           </button>
         )}
 
         {/* Persistent wait banner — visible on every tab while a wait is open */}
-        {activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&(
+        {activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&(
           <PersistentWaitBanner restaurantName={activeWait.restaurantName||"Restaurant"} startedAt={activeWait.startedAt} onPickedUp={handlePickedUp}/>
         )}
 
-        <div onTouchStart={onTabTouchStart} onTouchEnd={onTabTouchEnd} style={{height:"calc(100vh - 56px"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook?" - 56px":"")+")",overflowY:"auto",overflowX:"hidden"}}>
+        <div onTouchStart={onTabTouchStart} onTouchEnd={onTabTouchEnd} style={{height:"calc(100vh"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp?" - 56px":"")+")",overflowY:"auto",overflowX:"hidden"}}>
           <Suspense fallback={<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",...B,color:"#f5a623",letterSpacing:2,fontSize:14}}>LOADING…</div>}>
           <div key={screen} style={{animation:navDir>0?"slideFromR 0.22s ease":navDir<0?"slideFromL 0.22s ease":"none"}}>
-          {showLogbook?(
+          {showHelp?(
+            <HelpScreen lang={lang||"en"} onBack={()=>{setShowHelp(false);setShowProfile(true);}}/>
+          ):showLogbook?(
             <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)} myName={user.name} revealNames={hasAdminPerks(user)}/>
           ):showStats&&isOwner(user)?(
             <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} contribCounts={contribCounts} onBack={()=>setShowStats(false)}/>
@@ -3773,17 +4552,18 @@ export default function App() {
               lang={lang||"en"} onSetLang={chooseLang}
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
               onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}
+              onHelp={()=>{setShowProfile(false);setShowHelp(true);}}
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait} session={session} activeOrders={activeOrders}
-              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} reportedCounts={reportedCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} revealNames={hasAdminPerks(user)} driverCount={Math.max(driverCount,signupCount)} activeShift={activeShift} shiftCompletedToday={shiftCompletedToday} onStartShift={startShift} onEndShift={endShift} queueAlerts={queueAlerts} queueAlertsSent={queueAlertsSent} onQueueAlert={sendQueueAlert} onOpenLogbook={()=>setShowLogbook(true)}
-              onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onDelivered={handleDelivered} onCancelWait={handleCancelWait}/>
+              communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} reportedCounts={reportedCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} revealNames={hasAdminPerks(user)} driverCount={Math.max(driverCount,signupCount)} activeShift={activeShift} shiftCompletedToday={shiftCompletedToday} onStartShift={startShift} onStopShift={stopShift} queueAlerts={queueAlerts} queueAlertsSent={queueAlertsSent} onQueueAlert={sendQueueAlert} onReportCount={setCountReport} onOpenLogbook={()=>setShowLogbook(true)} onGoCheck={()=>handleNav("check")}
+              onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onDelivered={handleDelivered} onCancelWait={handleCancelWait} onAddDelivery={()=>setAddingDelivery(true)} isAdmin={hasAdminPerks(user)}/>
           ):screen==="check"?(
-            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts}/>
+            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts}/>
           ):screen==="stats"?(
-            <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftMins={shiftMinsToday}/>
+            <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftsLog={shiftsLog} activeShift={activeShift}/>
           ):(
-            <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)}/>
+            <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)} isAdmin={hasAdminPerks(user)}/>
           )}
           </div>
           </Suspense>
@@ -3801,13 +4581,21 @@ export default function App() {
         {earningsPopup&&(
           <EarningsPopup restaurantName={earningsPopup.restaurantName} onSave={handleSaveEarnings} onSkip={()=>setEarningsPopup(null)}/>
         )}
+        {/* Add-a-delivery popup — log a 2nd order's platform + price while still waiting */}
+        {addingDelivery&&(
+          <EarningsPopup restaurantName={activeWait?.restaurantName} onSave={handleAddDelivery} onSkip={()=>setAddingDelivery(false)}/>
+        )}
+        {/* Driver-count report — opened from the 👥 DRIVERS button on a restaurant card */}
+        {countReport&&(
+          <CountPopup restaurantName={countReport.name} onConfirm={c=>{reportDriverCount(countReport,c);setCountReport(null);}} onCancel={()=>setCountReport(null)}/>
+        )}
         {/* Optional cash-tip prompt — shown right after a delivery is marked DELIVERED */}
         {tipPrompt&&(
           <TipPopup restaurantName={tipPrompt.order?.restaurantName} onConfirm={confirmDelivered}/>
         )}
         {/* First-login notification opt-in (wait reminders only) */}
         {showNotifPrompt&&<NotifPrompt onAllow={allowNotifs} onSkip={skipNotifs}/>}
-        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
       </div>
     </div>
   );
