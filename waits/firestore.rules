@@ -6,10 +6,17 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.email == 'contact.morebah@gmail.com';
     }
 
-    // Users can read/write their own profile. (premium/subscriptionId are also written
-    // server-side by the Stripe webhook via the Admin SDK, which bypasses these rules.)
+    // Users can read their own profile and edit most of it, but premium/subscriptionId are
+    // LOCKED — only the Stripe webhook (Admin SDK, which bypasses these rules) can change them,
+    // so a driver can't self-grant Premium by writing their own doc.
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.get('premium', false) == false;
+      allow update: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.get('premium', false) == resource.data.get('premium', false)
+        && request.resource.data.get('subscriptionId', null) == resource.data.get('subscriptionId', null);
+      allow delete: if false;
       // Personal earnings log — strictly private to that driver
       match /earnings/{earningId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;

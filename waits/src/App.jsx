@@ -12,7 +12,7 @@ import {
 import {
   doc, setDoc, getDoc, updateDoc, deleteDoc,
   collection, addDoc, query, where, orderBy, limit,
-  onSnapshot, getDocs,
+  onSnapshot, getDocs, increment,
 } from "firebase/firestore";
 import { auth, db, setupPush } from "./firebase";
 
@@ -2909,7 +2909,7 @@ function ShiftTimer({activeShift,completedToday,onStart,onStop,onGoCheck}){
 }
 
 // ── WAITS SCREEN ──────────────────────────────────────────────────────────────
-function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrders,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,revealNames,driverCount,activeShift,shiftCompletedToday,onStartShift,onStopShift,queueAlerts,queueAlertsSent,onQueueAlert,onReportCount,onOpenLogbook,onGoCheck,onArrived,onManualArrive,onPickedUp,onDelivered,onCancelWait,onAddDelivery,isAdmin}) {
+function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrders,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,revealNames,driverCount,activeShift,shiftCompletedToday,onStartShift,onStopShift,queueAlerts,queueAlertsSent,onQueueAlert,onReportCount,onOpenLogbook,onGoCheck,onArrived,onManualArrive,onPickedUp,onDelivered,onCancelWait,onAddDelivery,isAdmin,accountLogs}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
@@ -2921,8 +2921,10 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
   useEffect(()=>{ if(!activeOrders||activeOrders.length===0) setDelivering(false); },[activeOrders?.length]);
   const per=timePeriod(now.getHours());
   const meta=communityPatterns._meta;
-  // Gate: live community data is blurred until the driver has logged UNLOCK_AFTER waits of their own.
-  const myLogCount=waitLog?.length||0;
+  // Gate: live community data is blurred until the driver has logged UNLOCK_AFTER waits of their
+  // own. Counts the max of this device's logs and the account-wide counter, so it follows the
+  // driver across devices and never re-locks them.
+  const myLogCount=Math.max(waitLog?.length||0, accountLogs||0);
   const dataLocked=myLogCount<UNLOCK_AFTER;
 
   const distMap={};
@@ -3318,7 +3320,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
 
 
 // ── CHECK SCREEN ─────────────────────────────────────────────────────────────
-function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gps,activeCounts,reportedCounts}) {
+function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gps,activeCounts,reportedCounts,accountLogs}) {
   const [query,setQuery]=useState("");
   const [results,setResults]=useState([]);
   const [searching,setSearching]=useState(false);
@@ -3346,7 +3348,7 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
 
   // A place is "logged" if anyone has logged it — your own logs OR the whole community's.
   const visitCount={};for(const l of waitLog){const k=logKey(l);visitCount[k]=(visitCount[k]||0)+1;}
-  const dataLocked=(waitLog?.length||0)<UNLOCK_AFTER;   // live data blurred until 3 own logs
+  const dataLocked=Math.max(waitLog?.length||0, accountLogs||0)<UNLOCK_AFTER;   // blurred until 3 logs (account-wide)
   const commCount=r=>communityPatterns[cardKey(r)]?.overall?.count||0;
   const isLogged=r=>(visitCount[cardKey(r)]||0)>0||commCount(r)>0;
   // Surface every logged place — your logs AND the community's — even ones not nearby right now.
@@ -3408,7 +3410,7 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
         <div style={{background:"linear-gradient(135deg,var(--tint-teal),var(--tint-blue))",border:"1px solid #00b8a944",borderRadius:14,padding:"16px",marginBottom:12,textAlign:"center"}}>
           <div style={{fontSize:26,marginBottom:4}}>🔒</div>
           <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:0.5,marginBottom:4}}>Unlock live community data</div>
-          <div style={{...M,fontSize:12,color:"var(--muted)",lineHeight:1.5}}>Log {UNLOCK_AFTER} waits on the WAITS tab to see real wait times here. {Math.min(waitLog?.length||0,UNLOCK_AFTER)}/{UNLOCK_AFTER} done.</div>
+          <div style={{...M,fontSize:12,color:"var(--muted)",lineHeight:1.5}}>Log {UNLOCK_AFTER} waits on the WAITS tab to see real wait times here. {Math.min(Math.max(waitLog?.length||0,accountLogs||0),UNLOCK_AFTER)}/{UNLOCK_AFTER} done.</div>
         </div>
       )}
       <div style={{display:"flex",flexDirection:"column",gap:10,...(dataLocked?LOCKED:null)}} aria-hidden={dataLocked}>
@@ -3749,6 +3751,7 @@ export default function App() {
           const p=snap.data();
           if(!profile){ profile={name:p.username,color:p.color,initial:p.initial}; }
           if('premium' in p){ profile={...profile,premium:!!p.premium,subscriptionId:p.subscriptionId??profile?.subscriptionId??null}; }
+          profile={...profile,logCount:p.logCount??profile?.logCount??0};   // account-based unlock counter
         }
       }catch(e){}
       if(profile){ setUser(profile);store.set("delivr_user",profile); }
@@ -3765,9 +3768,9 @@ export default function App() {
       const p=snap.data();
       setUser(u=>{
         if(!u)return u;
-        const prem=!!p.premium, sub=p.subscriptionId??null;
-        if(!!u.premium===prem && (u.subscriptionId??null)===sub)return u;
-        const n={...u,premium:prem,subscriptionId:sub};
+        const prem=!!p.premium, sub=p.subscriptionId??null, lc=p.logCount??u.logCount??0;
+        if(!!u.premium===prem && (u.subscriptionId??null)===sub && (u.logCount??0)===lc)return u;
+        const n={...u,premium:prem,subscriptionId:sub,logCount:lc};
         store.set("delivr_user",n);
         return n;
       });
@@ -4127,11 +4130,12 @@ export default function App() {
     setScreen("waits");setShowProfile(false);
   }
 
+  // Optimistic local premium for instant UX. Firestore is the source of truth and is written
+  // ONLY by the Stripe webhook (Admin SDK) — the security rules block clients from changing
+  // premium/subscriptionId, so a driver can't self-grant. The live user-doc listener reconciles.
   async function setPremium(val,subscriptionId){
     const updated={...user,premium:val,subscriptionId:val?(subscriptionId??user?.subscriptionId??null):null};
     setUser(updated);store.set("delivr_user",updated);
-    try{ await updateDoc(doc(db,"users",auth.currentUser.uid),{premium:val,subscriptionId:updated.subscriptionId}); }catch(e){}
-    try{ await updateProfile(auth.currentUser,{displayName:JSON.stringify(updated)}); }catch(e){}
   }
 
   async function handleSubscribe(){
@@ -4155,7 +4159,9 @@ export default function App() {
         });
       }catch(e){}
     }
-    await setPremium(false);
+    // Cancel at period end — premium stays active until then, and the Stripe webhook revokes it
+    // in Firestore when the period actually ends (the live listener flips it off here).
+    try{ alert("Your subscription will cancel at the end of the current billing period. You keep Premium until then."); }catch(e){}
     setShowUpgrade(false);
   }
 
@@ -4404,6 +4410,8 @@ export default function App() {
     try{
       await addDoc(collection(db,"waitLogs"),{...entry,username:user?.name||"anon"});
     }catch(e){}
+    // Account-based unlock counter — follows the driver across devices (the data gate reads this).
+    try{ await updateDoc(doc(db,"users",auth.currentUser.uid),{logCount:increment(1)}); }catch(e){}
     // ALWAYS add this order to the out-for-delivery list — even if the earnings popup was skipped
     // — so the DELIVERED / ADD DELIVERY buttons always appear and the delivery flow never breaks.
     // A skipped order is a £0 entry (no platform) that the driver can edit later in STATS.
@@ -4557,9 +4565,9 @@ export default function App() {
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait} session={session} activeOrders={activeOrders}
               communityPatterns={communityPatterns} communityLogs={communityLogs} checkingId={checkingId} arrivalError={arrivalError} premium={premium} manualVoted={manualVoted} activeCounts={activeCounts} reportedCounts={reportedCounts} activeWaitsList={activeWaitsList} contribCounts={contribCounts} myName={user.name} revealNames={hasAdminPerks(user)} driverCount={Math.max(driverCount,signupCount)} activeShift={activeShift} shiftCompletedToday={shiftCompletedToday} onStartShift={startShift} onStopShift={stopShift} queueAlerts={queueAlerts} queueAlertsSent={queueAlertsSent} onQueueAlert={sendQueueAlert} onReportCount={setCountReport} onOpenLogbook={()=>setShowLogbook(true)} onGoCheck={()=>handleNav("check")}
-              onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onDelivered={handleDelivered} onCancelWait={handleCancelWait} onAddDelivery={()=>setAddingDelivery(true)} isAdmin={hasAdminPerks(user)}/>
+              onArrived={handleArrived} onManualArrive={handleManualArrive} onPickedUp={handlePickedUp} onDelivered={handleDelivered} onCancelWait={handleCancelWait} onAddDelivery={()=>setAddingDelivery(true)} isAdmin={hasAdminPerks(user)} accountLogs={user?.logCount||0}/>
           ):screen==="check"?(
-            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts}/>
+            <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts} accountLogs={user?.logCount||0}/>
           ):screen==="stats"?(
             <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftsLog={shiftsLog} activeShift={activeShift}/>
           ):(

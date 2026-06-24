@@ -416,6 +416,10 @@ app.get('/stripe/verify-session', async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.retrieve(session_id);
     const paid = session.payment_status === 'paid' || session.status === 'complete';
+    // Grant premium server-side (Admin SDK) as a reliable fallback to the webhook — clients can't
+    // write premium themselves, so this is the safety net if the webhook is delayed/missed.
+    const uid = session.client_reference_id || (session.metadata && session.metadata.uid);
+    if (paid && uid) await setUserPremium(uid, true, session.subscription || null);
     res.json({ paid, subscriptionId: session.subscription || null, email: session.customer_email || null });
   } catch (e) {
     console.error('Stripe verify error:', e.message);
