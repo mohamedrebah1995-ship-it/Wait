@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>WAITS — Community-powered wait times for delivery drivers</title>
+  <meta name="description" content="WAITS shows delivery drivers the real wait time at every restaurant, logged live by drivers like you. Skip the long queues, earn more per hour. Built by a delivery driver, for delivery drivers." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://drivers-eyes.web.app/" />
+  <meta name="theme-color" content="#0e1316" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="WAITS — Community-powered wait times for delivery drivers" />
+  <meta property="og:description" content="See the real wait time at every restaurant before you drive there. Logged live by drivers, for drivers." />
+  <meta property="og:url" content="https://drivers-eyes.web.app/" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet" />
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3527173535512943" crossorigin="anonymous"></script>
+  <!-- Returning/installed drivers (who already have a session) skip the landing and go straight to the app. -->
+  <script>try{if(localStorage.getItem('delivr_user')){location.replace('/app'+location.search+location.hash);}}catch(e){}</script>
+  <style>
+    :root{
+      --bg:#0e1316; --bg2:#121519; --card:#192127; --line:#28343a;
+      --ink:#eaf0f2; --muted:#9aa7af; --faint:#6b7a82;
+      --teal:#00b8a9; --green:#06c167; --amber:#f5a623; --coral:#ff5a2d;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{background:var(--bg);color:var(--ink);font-family:'Nunito',system-ui,sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+    h1,h2,h3,.brand{font-family:'Poppins',system-ui,sans-serif}
+    a{color:inherit;text-decoration:none}
+    .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--teal);color:#06231f;font-family:'Poppins',sans-serif;font-weight:800;font-size:16px;padding:14px 26px;border-radius:14px;box-shadow:0 8px 24px rgba(0,184,169,.25);transition:transform .12s}
+    .btn:active{transform:scale(.97)}
+    .btn.ghost{background:transparent;color:var(--teal);box-shadow:none;border:1px solid #00b8a955;padding:12px 22px}
+
+    /* Header */
+    header{position:sticky;top:0;z-index:10;background:rgba(14,19,22,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+    .nav{display:flex;align-items:center;justify-content:space-between;height:62px}
+    .brand{font-weight:800;font-size:24px;letter-spacing:2px;color:var(--teal);display:flex;align-items:center;gap:8px}
+    .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green)}
+
+    /* Hero */
+    .hero{padding:54px 0 30px;text-align:center;background:radial-gradient(120% 80% at 50% -10%, #0d2927 0%, var(--bg) 55%)}
+    .hero h1{font-size:40px;line-height:1.12;font-weight:800;letter-spacing:-.5px;margin-bottom:14px}
+    .hero h1 .hl{color:var(--teal)}
+    .hero p.sub{font-size:17px;color:var(--muted);max-width:560px;margin:0 auto 26px}
+    .cta-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .trust{margin-top:14px;font-size:12.5px;color:var(--faint)}
+
+    /* Live stats */
+    .stats{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:30px 0 6px}
+    .stat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 24px;min-width:150px}
+    .stat .n{font-family:'Poppins',sans-serif;font-weight:800;font-size:34px;color:var(--teal);line-height:1}
+    .stat .l{font-size:11px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-top:6px}
+    .stat .live{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--green);margin-top:8px}
+    .stat .live i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);display:block;animation:pulse 2s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+    section{padding:46px 0}
+    .eyebrow{font-family:'Poppins',sans-serif;font-weight:700;font-size:12px;letter-spacing:2px;color:var(--teal);text-transform:uppercase;text-align:center;margin-bottom:8px}
+    h2{font-size:28px;font-weight:800;text-align:center;letter-spacing:-.3px;margin-bottom:8px}
+    .lead{text-align:center;color:var(--muted);max-width:560px;margin:0 auto 30px}
+
+    /* Steps */
+    .steps{display:grid;grid-template-columns:1fr;gap:14px}
+    .step{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;gap:16px;align-items:flex-start}
+    .step .num{flex-shrink:0;width:40px;height:40px;border-radius:50%;background:#00b8a91a;border:1px solid #00b8a955;color:var(--teal);font-family:'Poppins',sans-serif;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:17px}
+    .step h3{font-size:18px;margin-bottom:4px}
+    .step p{color:var(--muted);font-size:14.5px}
+
+    /* Mockup */
+    .showcase{display:flex;gap:34px;align-items:center;flex-wrap:wrap;justify-content:center}
+    .showcase .copy{flex:1;min-width:260px}
+    .showcase .copy h2{text-align:left}
+    .showcase .copy ul{list-style:none;margin-top:16px;display:flex;flex-direction:column;gap:12px}
+    .showcase .copy li{display:flex;gap:10px;color:var(--muted);font-size:15px}
+    .showcase .copy li b{color:var(--ink);font-weight:700}
+    .showcase .copy .tick{color:var(--green);flex-shrink:0;font-weight:800}
+    .phone{flex-shrink:0;width:268px;background:#05080a;border:8px solid #05080a;border-radius:38px;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden}
+    .screen{background:var(--bg2);border-radius:30px;padding:16px 14px 22px}
+    .screen .greet{font-family:'Poppins',sans-serif;font-weight:700;font-size:13px;margin-bottom:10px}
+    .screen .title{font-family:'Poppins',sans-serif;font-weight:800;font-size:22px;color:var(--teal);letter-spacing:1px}
+    .screen .meta{font-size:9px;color:var(--faint);letter-spacing:1px;margin:2px 0 14px}
+    .circ-row{display:flex;gap:12px;justify-content:center;margin-bottom:14px}
+    .circ{width:78px;height:78px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Poppins',sans-serif;font-weight:800;font-size:15px;letter-spacing:1px}
+    .circ.start{background:#10291d;border:2px solid #06c16766;color:var(--green)}
+    .circ.check{background:#112338;border:2px solid #2b8fff66;color:#2b8fff}
+    .rcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+    .rcard .nm{font-family:'Poppins',sans-serif;font-weight:700;font-size:14px}
+    .rcard .sub{font-size:9px;color:var(--faint);margin-top:2px}
+    .rcard .wait{font-family:'Poppins',sans-serif;font-weight:800;font-size:22px;line-height:1}
+    .g{color:var(--green)}.a{color:var(--amber)}.r{color:#ef4444}
+
+    /* Testimonial */
+    .quote{background:linear-gradient(135deg,#0d2927,#101a22);border:1px solid #00b8a944;border-radius:20px;padding:36px 26px;text-align:center}
+    .quote blockquote{font-family:'Poppins',sans-serif;font-weight:700;font-size:23px;line-height:1.35;letter-spacing:-.3px}
+    .quote p{color:var(--muted);max-width:540px;margin:16px auto 0;font-size:15px}
+    .quote .by{margin-top:18px;font-size:13px;color:var(--teal);font-weight:700}
+
+    /* Install */
+    .installs{display:grid;grid-template-columns:1fr;gap:14px}
+    .install{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+    .install h3{font-size:17px;color:var(--teal);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+    .install ol{list-style:none;counter-reset:s;display:flex;flex-direction:column;gap:10px}
+    .install li{counter-increment:s;display:flex;gap:10px;color:var(--muted);font-size:14.5px}
+    .install li::before{content:counter(s);flex-shrink:0;width:22px;height:22px;border-radius:50%;background:#00b8a91a;color:var(--teal);font-family:'Poppins',sans-serif;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center}
+
+    /* Final CTA */
+    .final{text-align:center;background:radial-gradient(120% 90% at 50% 120%, #0d2927 0%, var(--bg) 60%);padding:54px 0}
+    .final h2{font-size:30px}
+    .final p{color:var(--muted);margin:8px auto 24px;max-width:480px}
+
+    footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--faint);font-size:13px;text-align:center}
+    footer .links{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;margin-bottom:12px}
+    footer a{color:var(--muted)}
+    footer a:hover{color:var(--teal)}
+    .disclaimer{max-width:560px;margin:0 auto;font-size:12px;line-height:1.5}
+
+    @media(min-width:680px){
+      .hero h1{font-size:52px}
+      .steps{grid-template-columns:1fr 1fr 1fr}
+      .installs{grid-template-columns:1fr 1fr}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap nav">
+      <div class="brand"><span class="dot"></span>WAITS</div>
+      <a class="btn ghost" href="/app">Sign up</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="wrap">
+        <h1>Community-powered <span class="hl">wait times</span> for delivery drivers</h1>
+        <p class="sub">Stop guessing how long you'll be stuck at the counter. WAITS shows you the real wait at every restaurant — logged live by drivers like you — so you can skip the long queues and earn more per hour.</p>
+        <div class="cta-row">
+          <a class="btn" href="/app">Get started — it's free</a>
+          <a class="btn ghost" href="#how">See how it works</a>
+        </div>
+        <div class="trust">Free to use · No platform login needed · Works on any phone</div>
+
+        <!-- LIVE STATS -->
+        <div class="stats" aria-label="Live community stats">
+          <div class="stat">
+            <div class="n" id="stat-drivers">—</div>
+            <div class="l">Drivers</div>
+            <div class="live"><i></i> Live</div>
+          </div>
+          <div class="stat">
+            <div class="n" id="stat-logs">—</div>
+            <div class="l">Waits logged</div>
+            <div class="live"><i></i> Updating in real time</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section id="how">
+      <div class="wrap">
+        <div class="eyebrow">How it works</div>
+        <h2>Two taps while you wait. That's it.</h2>
+        <p class="lead">No forms, no fuss. Logging a wait takes about as long as reading this sentence — and it helps every driver near you.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="num">1</div>
+            <div><h3>Arrive at the restaurant</h3><p>Tap <b>Arrived</b> when you pull up. A timer starts on its own — no typing, no setup.</p></div>
+          </div>
+          <div class="step">
+            <div class="num">2</div>
+            <div><h3>Log your wait</h3><p>The moment you've got the food, tap <b>Got it</b>. Your real wait time is saved in a single tap.</p></div>
+          </div>
+          <div class="step">
+            <div class="num">3</div>
+            <div><h3>See the community data</h3><p>Every driver nearby instantly sees the live and typical wait at each restaurant — so nobody walks into a 30-minute queue blind.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MOCKUP / SCREENSHOT -->
+    <section style="background:var(--bg2)">
+      <div class="wrap showcase">
+        <div class="copy">
+          <div class="eyebrow" style="text-align:left">Inside the app</div>
+          <h2>Real waits, ranked nearest first</h2>
+          <ul>
+            <li><span class="tick">✓</span><span><b>Live &amp; typical wait</b> on every nearby restaurant, colour-coded green to red.</span></li>
+            <li><span class="tick">✓</span><span><b>Busiest-times</b> charts so you know when to avoid a place.</span></li>
+            <li><span class="tick">✓</span><span><b>Earnings &amp; £/hour</b> tracker and a shift timer, all private to you.</span></li>
+            <li><span class="tick">✓</span><span><b>Local driver chat</b> to share tips with your area.</span></li>
+          </ul>
+        </div>
+        <div class="phone" role="img" aria-label="Screenshot of the WAITS app showing nearby restaurants with live wait times">
+          <div class="screen">
+            <div class="greet">Good evening, Mo 👋</div>
+            <div class="title">RESTAURANT WAITS</div>
+            <div class="meta">EVENING · SATURDAY</div>
+            <div class="circ-row">
+              <div class="circ start">START</div>
+              <div class="circ check">CHECK</div>
+            </div>
+            <div class="rcard"><div><div class="nm">McDonald's</div><div class="sub">320m · 7 visits</div></div><div class="wait g">4m</div></div>
+            <div class="rcard"><div><div class="nm">KFC</div><div class="sub">540m · 6 visits</div></div><div class="wait a">13m</div></div>
+            <div class="rcard"><div><div class="nm">Nando's</div><div class="sub">1.1km · busy now</div></div><div class="wait r">22m</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TESTIMONIAL -->
+    <section>
+      <div class="wrap">
+        <div class="quote">
+          <blockquote>“Built by a delivery driver, for delivery drivers.”</blockquote>
+          <p>WAITS started in a car outside a chicken shop, on a 25-minute wait that should have been five. Every feature exists because a real driver needed it on a real shift — not because it looked good in a meeting.</p>
+          <div class="by">— The WAITS team</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- INSTALL -->
+    <section id="install" style="background:var(--bg2)">
+      <div class="wrap">
+        <div class="eyebrow">Add to your home screen</div>
+        <h2>Install in 10 seconds</h2>
+        <p class="lead">WAITS runs right in your browser — no app store, no download. Add it to your home screen so it opens like a normal app.</p>
+        <div class="installs">
+          <div class="install">
+            <h3>📱 iPhone (Safari)</h3>
+            <ol>
+              <li>Open this page in <b>Safari</b>.</li>
+              <li>Tap the <b>Share</b> button (the square with an arrow pointing up).</li>
+              <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
+              <li>Tap <b>Add</b> in the top corner.</li>
+            </ol>
+          </div>
+          <div class="install">
+            <h3>🤖 Android (Chrome)</h3>
+            <ol>
+              <li>Open this page in <b>Chrome</b>.</li>
+              <li>Tap the <b>three-dots</b> menu, top right.</li>
+              <li>Tap <b>Add to Home screen</b>.</li>
+              <li>Tap <b>Add</b>.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FINAL CTA -->
+    <section class="final">
+      <div class="wrap">
+        <h2>Ready to stop waiting blind?</h2>
+        <p>Join the drivers already sharing real wait times in your area. It's free, and your first three logs unlock the live community data.</p>
+        <a class="btn" href="/app">Create your free account</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <div class="links">
+        <a href="#how">How it works</a>
+        <a href="#install">Install</a>
+        <a href="/privacy.html">Privacy policy</a>
+        <a href="/app">Sign in</a>
+      </div>
+      <p class="disclaimer">WAITS is an independent community tool. It is not affiliated with, endorsed by, or connected to Uber Eats, Deliveroo, Just Eat or any delivery platform. We only use your device location to find nearby restaurants — we never touch your delivery accounts.</p>
+      <p style="margin-top:12px">© 2026 WAITS · Community-powered wait times for delivery drivers</p>
+    </div>
+  </footer>
+
+  <!-- Live stats from the public backend (real driver + log counts from Firestore), refreshed every 15s. -->
+  <script>
+    (function(){
+      var API='https://wait-production.up.railway.app';
+      function set(id,n){var el=document.getElementById(id);if(el&&typeof n==='number')el.textContent=n.toLocaleString();}
+      function load(){
+        fetch(API+'/stats').then(function(r){return r.json();}).then(function(d){
+          if(!d)return; set('stat-drivers',d.drivers); set('stat-logs',d.logs);
+        }).catch(function(){
+          // Fallback to the always-available driver count endpoint
+          fetch(API+'/stats/drivers').then(function(r){return r.json();}).then(function(d){if(d)set('stat-drivers',d.count);}).catch(function(){});
+        });
+      }
+      load(); setInterval(load,15000);
+    })();
+  </script>
+</body>
+</html>

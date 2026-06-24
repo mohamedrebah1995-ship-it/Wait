@@ -322,6 +322,32 @@ app.get('/stats/drivers', async (_req, res) => {
   } catch (e) { console.error('stats/drivers error:', e.message); res.json({ count: _driverCountCache.n }); }
 });
 
+// Public community stats for the landing page — real registered drivers + total Firestore wait
+// logs. Cached 30s so the landing can poll it without load. No auth (read-only counts only).
+let _statsCache = { drivers: 0, logs: 0, at: 0 };
+app.get('/stats', async (_req, res) => {
+  if (Date.now() - _statsCache.at < 30000) return res.json({ drivers: _statsCache.drivers, logs: _statsCache.logs });
+  if (!adminReady) return res.json({ drivers: _statsCache.drivers, logs: _statsCache.logs });
+  try {
+    // Registered drivers (reuse the 60s-cached count)
+    let drivers = _driverCountCache.n;
+    if (Date.now() - _driverCountCache.at >= 60000) {
+      let count = 0, token;
+      do { const r = await adminAuth.listUsers(1000, token); count += r.users.length; token = r.pageToken; } while (token);
+      _driverCountCache = { n: count, at: Date.now() };
+      drivers = count;
+    }
+    // Total wait logs (Firestore count aggregation — doesn't read every doc)
+    let logs = _statsCache.logs;
+    try { logs = (await admin.firestore().collection('waitLogs').count().get()).data().count; } catch (e) { /* keep last */ }
+    _statsCache = { drivers, logs, at: Date.now() };
+    res.json({ drivers, logs });
+  } catch (e) {
+    console.error('stats error:', e.message);
+    res.json({ drivers: _statsCache.drivers, logs: _statsCache.logs });
+  }
+});
+
 // One-time: merge all historic chat into a single Braintree room (idempotent)
 app.post('/admin/merge-chat', async (_req, res) => {
   if (!adminAuth) return res.status(500).json({ error: 'no admin' });

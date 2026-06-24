@@ -1,7 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can read/write their own profile
+    // The delegated admin (matches the app's hasAdminPerks check).
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'contact.morebah@gmail.com';
+    }
+
+    // Users can read/write their own profile. (premium/subscriptionId are also written
+    // server-side by the Stripe webhook via the Admin SDK, which bypasses these rules.)
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
       // Personal earnings log — strictly private to that driver
@@ -13,37 +19,73 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
     }
-    // Wait logs — any authenticated user can read/write
+
+    // Wait logs — the crowd data. Create-only (the client never edits/deletes them) with a
+    // sanity-checked wait time so garbage/abusive values can't poison the community averages.
     match /waitLogs/{logId} {
-      allow read, write: if request.auth != null;
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.restaurantId is string
+        && request.resource.data.waitMins is number
+        && request.resource.data.waitMins >= 0
+        && request.resource.data.waitMins <= 600;
+      allow update: if false;
+      allow delete: if isAdmin();
     }
-    // Location votes (Manual Arrive) — authenticated users can read/create
+
+    // Location votes (Manual Arrive) — create-only, with valid coordinates.
     match /locationVotes/{voteId} {
-      allow read, create: if request.auth != null;
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.restaurantId is string
+        && request.resource.data.lat is number && request.resource.data.lat >= -90  && request.resource.data.lat <= 90
+        && request.resource.data.lng is number && request.resource.data.lng >= -180 && request.resource.data.lng <= 180;
+      allow update, delete: if false;
     }
-    // Crowd-sourced pinned restaurant locations
+
+    // Crowd-sourced pinned restaurant locations — valid coords; an admin-pinned PERMANENT
+    // location cannot be overwritten or have `permanent` set by anyone but the admin.
     match /restaurantLocations/{restaurantId} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.data.lat is number && request.resource.data.lat >= -90  && request.resource.data.lat <= 90
+        && request.resource.data.lng is number && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+        && ( isAdmin()
+             || ( request.resource.data.get('permanent', false) != true
+                  && (resource == null || resource.data.get('permanent', false) != true) ) );
+      allow delete: if isAdmin();
     }
-    // Driver-reported "drivers waiting now" counts (latest per restaurant, 20-min TTL on read)
+
+    // Driver-reported "drivers waiting now" counts — sane count range, no cross-user deletes.
     match /restaurantCounts/{restaurantId} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.data.count is number
+        && request.resource.data.count >= 0 && request.resource.data.count <= 999;
+      allow delete: if isAdmin();
     }
-    // Area-specific long-queue alerts (latest per restaurant per area, 20-min TTL on read)
+
+    // Area-specific long-queue alerts (ephemeral, 20-min TTL on read).
     match /queueAlerts/{alertId} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.data.ts is string;
+      allow delete: if isAdmin();
     }
-    // Live "waiting now" presence — anyone reads, you only write your own
+
+    // Live "waiting now" presence — anyone reads, you only write your own.
     match /activeWaits/{uid} {
-      allow read: if request.auth != null;
+      allow read:  if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == uid;
     }
-    // Driver roster (for the live driver count) — read by all, you only write your own (no PII stored)
+
+    // Driver roster (for the live driver count) — read by all, you only write your own (no PII).
     match /drivers/{uid} {
-      allow read: if request.auth != null;
+      allow read:  if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == uid;
     }
+
     // Area chat rooms (subcollections) — any authenticated user can read/write
+    // (admin moderation/deletes are handled in-app; messages are keyed by username, not uid).
     match /chats/{room}/messages/{messageId} {
       allow read, write: if request.auth != null;
     }
