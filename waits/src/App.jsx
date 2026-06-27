@@ -1464,7 +1464,7 @@ function GPSGateScreen({status,onRetry,onSkip}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,onHelp,contribCount,lang,onSetLang}) {
+function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,onHelp,contribCount,lang,onSetLang,communityPatterns}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -1565,6 +1565,33 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         {stat(totalRestaurants,t("prof_restaurants"))}
         {stat(avgWait+"m",t("prof_avgWait"))}
       </div>
+
+      {/* Personal Insights — a warm weekly summary built from the driver's own logs */}
+      {(()=>{
+        const ins=personalInsights(new Date(),waitLog,communityPatterns||{});
+        if(!ins||(!ins.fastest&&ins.saved===0&&ins.week<2))return null;
+        const first=(user.name||"").trim().split(/\s+/)[0];
+        const fc=first?first.charAt(0).toUpperCase()+first.slice(1):"";
+        return(
+          <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-teal))",border:"1px solid #06c16744",borderRadius:16,padding:"16px",marginBottom:16}}>
+            <div style={{...B,fontWeight:700,fontSize:9,color:"#06c167",letterSpacing:2,marginBottom:8}}>✨ YOUR WEEK{fc?" · "+fc.toUpperCase():""}</div>
+            {ins.saved>0?(
+              <div style={{marginBottom:8}}>
+                <span style={{...B,fontWeight:800,fontSize:34,color:"#06c167",letterSpacing:0.5}}>{ins.saved}m</span>
+                <span style={{...M,fontSize:14,color:"var(--muted)",marginLeft:8}}>of waiting dodged this week 🎉</span>
+              </div>
+            ):(
+              <div style={{...B,fontWeight:700,fontSize:18,color:"var(--ink)",marginBottom:8}}>{ins.week>0?ins.week+" wait"+(ins.week!==1?"s":"")+" logged this week":"Your week so far"}</div>
+            )}
+            <div style={{...M,fontSize:13.5,color:"var(--ink)",lineHeight:1.55}}>
+              {ins.saved>0&&<span>That&apos;s {ins.saved} minute{ins.saved!==1?"s":""} you didn&apos;t spend stuck at a counter{ins.savedVisits?" across "+ins.savedVisits+" pickup"+(ins.savedVisits!==1?"s":""):""} — nice going{fc?", "+fc:""}. </span>}
+              {ins.fastest&&<span>Your quickest spot is <b style={{color:"#06c167"}}>{ins.fastest.name}</b> at just {ins.fastest.avg}m on average. </span>}
+              {ins.slowest&&<span>Heads up — <b style={{color:"#ef4444"}}>{ins.slowest.name}</b> is your slowest at {ins.slowest.avg}m, so think twice at peak. </span>}
+            </div>
+            <div style={{fontSize:10,...M,color:"var(--muted2)",marginTop:10,letterSpacing:0.3}}>{ins.week} wait{ins.week!==1?"s":""} logged this week{ins.week>0?" · keep it coming 💪":""}</div>
+          </div>
+        );
+      })()}
 
       {/* Contributor badge + progress */}
       {(()=>{
@@ -3288,33 +3315,6 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
 
       {!premium&&<AdBanner premium={premium}/>}
 
-      {/* Personal Insights — a warm weekly summary built from the driver's own logs */}
-      {(()=>{
-        const ins=personalInsights(now,waitLog,communityPatterns);
-        if(!ins||(!ins.fastest&&ins.saved===0&&ins.week<2))return null;
-        const first=(myName||"").trim().split(/\s+/)[0];
-        const fc=first?first.charAt(0).toUpperCase()+first.slice(1):"";
-        return(
-          <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-teal))",border:"1px solid #06c16744",borderRadius:16,padding:"16px",marginBottom:14}}>
-            <div style={{...B,fontWeight:700,fontSize:9,color:"#06c167",letterSpacing:2,marginBottom:8}}>✨ YOUR WEEK{fc?" · "+fc.toUpperCase():""}</div>
-            {ins.saved>0?(
-              <div style={{marginBottom:8}}>
-                <span style={{...B,fontWeight:800,fontSize:34,color:"#06c167",letterSpacing:0.5}}>{ins.saved}m</span>
-                <span style={{...M,fontSize:14,color:"var(--muted)",marginLeft:8}}>of waiting dodged this week 🎉</span>
-              </div>
-            ):(
-              <div style={{...B,fontWeight:700,fontSize:18,color:"var(--ink)",marginBottom:8}}>{ins.week>0?ins.week+" wait"+(ins.week!==1?"s":"")+" logged this week":"Your week so far"}</div>
-            )}
-            <div style={{...M,fontSize:13.5,color:"var(--ink)",lineHeight:1.55}}>
-              {ins.saved>0&&<span>That&apos;s {ins.saved} minute{ins.saved!==1?"s":""} you didn&apos;t spend stuck at a counter{ins.savedVisits?" across "+ins.savedVisits+" pickup"+(ins.savedVisits!==1?"s":""):""} — nice going{fc?", "+fc:""}. </span>}
-              {ins.fastest&&<span>Your quickest spot is <b style={{color:"#06c167"}}>{ins.fastest.name}</b> at just {ins.fastest.avg}m on average. </span>}
-              {ins.slowest&&<span>Heads up — <b style={{color:"#ef4444"}}>{ins.slowest.name}</b> is your slowest at {ins.slowest.avg}m, so think twice at peak. </span>}
-            </div>
-            <div style={{fontSize:10,...M,color:"var(--muted2)",marginTop:10,letterSpacing:0.3}}>{ins.week} wait{ins.week!==1?"s":""} logged this week{ins.week>0?" · keep it coming 💪":""}</div>
-          </div>
-        );
-      })()}
-
       {dataLocked&&(
         <div style={{background:"linear-gradient(135deg,var(--tint-teal),var(--tint-blue))",border:"1px solid #00b8a944",borderRadius:14,padding:"16px",marginBottom:12,textAlign:"center"}}>
           <div style={{fontSize:26,marginBottom:4}}>🔒</div>
@@ -4729,7 +4729,7 @@ export default function App() {
             <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
           ):showProfile?(
             <ProfileScreen user={user} waitLog={waitLog} gps={gps} premium={premium} theme={theme} onToggleTheme={toggleTheme} contribCount={contribCounts[user.name]||0}
-              lang={lang||"en"} onSetLang={chooseLang}
+              communityPatterns={communityPatterns} lang={lang||"en"} onSetLang={chooseLang}
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
               onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}
               onHelp={()=>{setShowProfile(false);setShowHelp(true);}}
