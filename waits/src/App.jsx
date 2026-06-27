@@ -1811,6 +1811,39 @@ function SectionLabel({children}){
   return <div style={{...B,fontSize:13,color:"var(--muted2)",letterSpacing:2,margin:"22px 0 8px"}}>{children}</div>;
 }
 
+// Community leaderboard — top contributors by total wait logs. Pulls only display name + log
+// counts from the backend (/leaderboard); no real name, email, status, last-seen, or location.
+function CommunityLeaderboard({myName}){
+  const [rows,setRows]=useState(null);
+  useEffect(()=>{
+    let alive=true;
+    fetch(`${API_URL}/leaderboard`).then(r=>r.json()).then(d=>{if(alive&&Array.isArray(d))setRows(d);}).catch(()=>{if(alive)setRows([]);});
+    return ()=>{alive=false;};
+  },[]);
+  if(!rows||!rows.length)return null;
+  const medal=i=>i===0?"🥇":i===1?"🥈":i===2?"🥉":null;
+  return(
+    <>
+      <SectionLabel>COMMUNITY LEADERBOARD</SectionLabel>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {rows.slice(0,20).map((r,i)=>{
+          const me=!!myName&&r.name===myName;
+          const m=medal(i);
+          return(
+            <div key={r.name+i} style={{display:"flex",alignItems:"center",gap:10,background:me?"var(--tint-teal)":"var(--card)",border:"1px solid "+(me?"#00b8a9":"var(--border)"),borderRadius:10,padding:"11px 14px"}}>
+              <span style={{...B,fontSize:m?18:13,color:m?"inherit":"var(--muted2)",width:28,textAlign:"center",flexShrink:0}}>{m||("#"+(i+1))}</span>
+              <span style={{flex:1,minWidth:0,...B,fontSize:14,color:me?"#00b8a9":"var(--ink)",letterSpacing:0.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}{me?" · you":""}</span>
+              <span style={{fontSize:10,...M,color:"var(--muted)",flexShrink:0}}>{r.week} this wk</span>
+              <span style={{...B,fontSize:15,color:"#06c167",flexShrink:0,minWidth:30,textAlign:"right"}}>{r.total}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{fontSize:9,...M,color:"var(--faint)",textAlign:"center",marginTop:8,letterSpacing:0.3}}>Total logs all-time · this week shown on the left</div>
+    </>
+  );
+}
+
 // Mon→Sun earnings bar chart for the weekly view. Tap a day → its full stats (onPick(i)).
 function WeekChart({byDay,onPick}){
   const max=Math.max(...byDay.map(d=>d.sum),0.01);
@@ -1903,7 +1936,7 @@ function DeliveryRow({e,onTap}){
   );
 }
 
-function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift}){
+function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift,myName}){
   const [view,setView]=useState("today");   // today | week | all
   const [editing,setEditing]=useState(null);   // entry being edited, or null
   const [adding,setAdding]=useState(null);      // manual add: null | {platform} (prefill)
@@ -2334,6 +2367,9 @@ function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift}){
           )}
         </>
       )}
+
+      {/* Community leaderboard — below the personal stats */}
+      <CommunityLeaderboard myName={myName}/>
     </div>
   );
 }
@@ -3135,7 +3171,10 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
   const addExtra=(id,name)=>{const k=chainKeyFromName(name)||id;if(presentKeys.has(k)||seenExtra.has(k))return;seenExtra.add(k);extras.push({id,name:name||"Restaurant",baseWait:0,rel:1,label:""});};
   for(let i=waitLog.length-1;i>=0;i--)addExtra(waitLog[i].restaurantId,waitLog[i].restaurantName);
   for(let i=(communityLogs||[]).length-1;i>=0;i--)addExtra(communityLogs[i].restaurantId,communityLogs[i].restaurantName);
-  const sorted=[...restaurants,...extras].sort((a,b)=>{
+  // Only show restaurants that have at least one log (yours or the community's), nearest first —
+  // never zero-log places. Drivers find/arrive at new spots via ARRIVED → search. The active wait
+  // is always kept visible.
+  const sorted=[...restaurants,...extras].filter(r=>activeWait?.restaurantId===r.id||isLogged(r)).sort((a,b)=>{
     if(activeWait?.restaurantId===a.id)return -1;
     if(activeWait?.restaurantId===b.id)return 1;
     const la=isLogged(a),lb=isLogged(b);
@@ -3350,6 +3389,14 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
             {[0,1,2].map(i=>(<span key={i} style={{width:26,height:6,borderRadius:3,background:i<myLogCount?"#00b8a9":"var(--border2)"}}/>))}
             <span style={{...B,fontSize:12,color:"#00b8a9",marginLeft:6}}>{Math.min(myLogCount,UNLOCK_AFTER)}/{UNLOCK_AFTER}</span>
           </div>
+        </div>
+      )}
+
+      {sorted.length===0&&(
+        <div style={{background:"var(--card)",border:"1px dashed var(--border2)",borderRadius:14,padding:"22px 18px",textAlign:"center",marginBottom:14}}>
+          <div style={{fontSize:26,marginBottom:6}}>📍</div>
+          <div style={{...B,fontWeight:700,fontSize:15,color:"var(--ink)",marginBottom:4}}>{gps.status==="active"?"No logged restaurants near you yet":"Finding restaurants near you…"}</div>
+          <div style={{...M,fontSize:12,color:"var(--muted)",lineHeight:1.5}}>{gps.status==="active"?"Tap ARRIVED above and log the first wait — it'll appear here for every driver nearby.":"Make sure location is on. Restaurants with wait data show here automatically."}</div>
         </div>
       )}
 
@@ -4767,7 +4814,7 @@ export default function App() {
           ):screen==="check"?(
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts} accountLogs={user?.logCount||0}/>
           ):screen==="stats"?(
-            <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftsLog={shiftsLog} activeShift={activeShift}/>
+            <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftsLog={shiftsLog} activeShift={activeShift} myName={user.name}/>
           ):(
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)} isAdmin={hasAdminPerks(user)}/>
           )}

@@ -348,6 +348,33 @@ app.get('/stats', async (_req, res) => {
   }
 });
 
+// Public community leaderboard — log counts per driver display name only. Deliberately exposes
+// NOTHING else (no real name, email, online status, last-active, or location). Cached 5 min.
+let _lbCache = { data: [], at: 0 };
+app.get('/leaderboard', async (_req, res) => {
+  if (Date.now() - _lbCache.at < 300000) return res.json(_lbCache.data);
+  if (!adminReady) return res.json(_lbCache.data);
+  try {
+    const snap = await admin.firestore().collection('waitLogs').get();
+    const weekAgo = Date.now() - 7 * 86400000;
+    const by = {};
+    snap.forEach(d => {
+      const x = d.data(); const u = (x.username || '').trim();
+      if (!u || u.toLowerCase() === 'anon') return;
+      if (!by[u]) by[u] = { name: u, total: 0, week: 0 };
+      by[u].total++;
+      const t = Date.parse(x.ts);
+      if (t >= weekAgo) by[u].week++;
+    });
+    const list = Object.values(by).sort((a, b) => b.total - a.total || b.week - a.week).slice(0, 50);
+    _lbCache = { data: list, at: Date.now() };
+    res.json(list);
+  } catch (e) {
+    console.error('leaderboard error:', e.message);
+    res.json(_lbCache.data);
+  }
+});
+
 // One-time: merge all historic chat into a single Braintree room (idempotent)
 app.post('/admin/merge-chat', async (_req, res) => {
   if (!adminAuth) return res.status(500).json({ error: 'no admin' });
