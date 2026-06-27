@@ -1089,6 +1089,35 @@ function restaurantIntel(ck, now, logs) {
   return { n, todayAvg, weekAvg, reliability, trend, best, worst, grade };
 }
 
+// Personal Insights — aggregates the driver's OWN logs: minutes saved this week (their waits vs the
+// area average), their fastest/slowest spots, and how active they've been. Returns null if there's
+// nothing worth showing yet.
+function personalInsights(now, waitLog, communityPatterns) {
+  const logs = (waitLog||[]).filter(l => typeof l.waitMins==="number");
+  if (!logs.length) return null;
+  const nowMs = now.getTime(), DAY = 86400000;
+  const week = logs.filter(l => nowMs - new Date(l.ts).getTime() <= 7*DAY);
+  // Minutes saved this week: for each visit, (area average − your wait) when you beat the average.
+  let saved = 0, savedVisits = 0;
+  for (const l of week) {
+    const a = communityPatterns?.[logKey(l)]?.overall?.avg;
+    if (a!=null) { const d = a - l.waitMins; if (d>0) { saved += d; savedVisits++; } }
+  }
+  // Fastest / slowest by your own average (needs ≥2 visits to a place to count).
+  const byRest = {};
+  for (const l of logs) { const ck = logKey(l); (byRest[ck] = byRest[ck] || {name:l.restaurantName||"a spot", waits:[]}).waits.push(l.waitMins); }
+  let fastest=null, slowest=null;
+  for (const ck in byRest) {
+    const x = byRest[ck]; if (x.waits.length<2) continue;
+    const avg = x.waits.reduce((s,v)=>s+v,0)/x.waits.length;
+    const e = {name:x.name, avg:Math.round(avg), visits:x.waits.length};
+    if (fastest==null||avg<fastest.avg) fastest=e;
+    if (slowest==null||avg>slowest.avg) slowest=e;
+  }
+  if (slowest && fastest && slowest.name===fastest.name) slowest=null;   // need two distinct places
+  return { week: week.length, saved: Math.round(saved), savedVisits, fastest, slowest };
+}
+
 // Improved wait-time prediction — weighted historical model over the driver's own logs:
 //   (1) filter to this restaurant + today's day-of-week + the current time period
 //   (2) recent logs (within the last 7 days) count double
@@ -3258,6 +3287,33 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
       )}
 
       {!premium&&<AdBanner premium={premium}/>}
+
+      {/* Personal Insights — a warm weekly summary built from the driver's own logs */}
+      {(()=>{
+        const ins=personalInsights(now,waitLog,communityPatterns);
+        if(!ins||(!ins.fastest&&ins.saved===0&&ins.week<2))return null;
+        const first=(myName||"").trim().split(/\s+/)[0];
+        const fc=first?first.charAt(0).toUpperCase()+first.slice(1):"";
+        return(
+          <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-teal))",border:"1px solid #06c16744",borderRadius:16,padding:"16px",marginBottom:14}}>
+            <div style={{...B,fontWeight:700,fontSize:9,color:"#06c167",letterSpacing:2,marginBottom:8}}>✨ YOUR WEEK{fc?" · "+fc.toUpperCase():""}</div>
+            {ins.saved>0?(
+              <div style={{marginBottom:8}}>
+                <span style={{...B,fontWeight:800,fontSize:34,color:"#06c167",letterSpacing:0.5}}>{ins.saved}m</span>
+                <span style={{...M,fontSize:14,color:"var(--muted)",marginLeft:8}}>of waiting dodged this week 🎉</span>
+              </div>
+            ):(
+              <div style={{...B,fontWeight:700,fontSize:18,color:"var(--ink)",marginBottom:8}}>{ins.week>0?ins.week+" wait"+(ins.week!==1?"s":"")+" logged this week":"Your week so far"}</div>
+            )}
+            <div style={{...M,fontSize:13.5,color:"var(--ink)",lineHeight:1.55}}>
+              {ins.saved>0&&<span>That&apos;s {ins.saved} minute{ins.saved!==1?"s":""} you didn&apos;t spend stuck at a counter{ins.savedVisits?" across "+ins.savedVisits+" pickup"+(ins.savedVisits!==1?"s":""):""} — nice going{fc?", "+fc:""}. </span>}
+              {ins.fastest&&<span>Your quickest spot is <b style={{color:"#06c167"}}>{ins.fastest.name}</b> at just {ins.fastest.avg}m on average. </span>}
+              {ins.slowest&&<span>Heads up — <b style={{color:"#ef4444"}}>{ins.slowest.name}</b> is your slowest at {ins.slowest.avg}m, so think twice at peak. </span>}
+            </div>
+            <div style={{fontSize:10,...M,color:"var(--muted2)",marginTop:10,letterSpacing:0.3}}>{ins.week} wait{ins.week!==1?"s":""} logged this week{ins.week>0?" · keep it coming 💪":""}</div>
+          </div>
+        );
+      })()}
 
       {dataLocked&&(
         <div style={{background:"linear-gradient(135deg,var(--tint-teal),var(--tint-blue))",border:"1px solid #00b8a944",borderRadius:14,padding:"16px",marginBottom:12,textAlign:"center"}}>
