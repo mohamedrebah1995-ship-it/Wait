@@ -101,6 +101,9 @@ function chainKeyFromName(name){
 }
 function logKey(l){ return chainKeyFromName(l.restaurantName)||l.restaurantId; }   // for a stored log
 function cardKey(r){ return chainKeyFromName(r.name)||r.id; }                       // for a restaurant card
+// Coarse ~1km zone (2 decimals ≈ 0.7–1.1km) — used so we NEVER store an exact pickup/drop-off
+// point. Powers branch-level wait accuracy + the area/earnings map without exposing addresses.
+function coarseZone(lat,lng){ return (lat==null||lng==null)?null:{lat:Math.round(lat*100)/100,lng:Math.round(lng*100)/100}; }
 
 // ── Contributor badges ────────────────────────────────────────────────────────
 const BADGE_TIERS = [
@@ -4312,6 +4315,10 @@ export default function App() {
       hour:           pickedUp.getHours(),
       dow:            pickedUp.getDay(),
       period:         timePeriod(pickedUp.getHours()),
+      // Area/earnings map foundation (coarse zones only): where you picked up, where you dropped off,
+      // and the full job time. cycleMins above is the job duration. All private to this driver.
+      pickupZone:     order.pickupZone||null,
+      dropoffZone:    order.dropoffZone||null,
     };
     const uid=auth.currentUser?.uid;
     if(uid){
@@ -4390,6 +4397,9 @@ export default function App() {
     if(!activeWait)return;
     const waitMins=Math.round((Date.now()-new Date(activeWait.startedAt))/60000*10)/10;
     const ts=new Date();
+    // Coarse pickup zone (where you waited) — lets us later split a chain into its real branches
+    // for sharper waits. It's the restaurant's area, rounded to ~1km. Never an exact point.
+    const pickup=gps?.status==="active"?coarseZone(gps.lat,gps.lng):null;
     const entry={
       id:             Date.now().toString(),
       restaurantId:   activeWait.restaurantId,
@@ -4399,6 +4409,7 @@ export default function App() {
       hour:           ts.getHours(),
       dow:            ts.getDay(),
       period:         timePeriod(ts.getHours()),
+      ...(pickup?{pLat:pickup.lat,pLng:pickup.lng}:{}),
     };
     // Save locally (instant, works offline)
     const newLog=[...waitLog,entry];
@@ -4424,6 +4435,7 @@ export default function App() {
       waitMins,
       arrivedAt:      activeWait.startedAt,
       pickedUpAt:     ts.toISOString(),
+      pickupZone:     pickup,   // coarse ~1km pickup zone for the area/earnings map
     };
     // Stacked orders added during the wait — pick them up alongside the main order.
     const extras=(activeWait.extraOrders||[]).map(x=>({
@@ -4455,7 +4467,9 @@ export default function App() {
     const win=(Date.now()-new Date(order.arrivedAt).getTime())/60000;
     const cycleMins=win<MIN_CYCLE_GAP_MINS?(order.waitMins||0)+DEFAULT_DELIVERY_MINS:win;
     const sess=session||{sessionId:genId(),sessionStart:order.arrivedAt,totalEarnings:0,lastActivity:order.pickedUpAt};
-    const updated=bankOrder({...order,tip:Number(tip)||0},sess,cycleMins);
+    // Coarse drop-off zone captured at the real delivery moment (rounded to ~1km, never the address).
+    const dropoffZone=gps?.status==="active"?coarseZone(gps.lat,gps.lng):null;
+    const updated=bankOrder({...order,tip:Number(tip)||0,dropoffZone},sess,cycleMins);
     setSession(updated);store.set("delivr_session",updated);
     saveOrders(activeOrders.filter(o=>o.id!==order.id));
     // Mark the shift's last delivery (drives the 1-hour auto clock-out / £/hour cutoff).
