@@ -290,6 +290,32 @@ let _lang="en";                                   // current language (set by Ap
 const tr = (lang,key) => (T[lang]&&T[lang][key])||T.en[key]||key;
 const t  = key => (T[_lang]&&T[_lang][key])||T.en[key]||key;
 
+// ── RESTAURANT INTELLIGENCE + PERSONAL INSIGHTS strings (per language) ─────────
+// ti(key,{vals}) looks up the current language (English fallback) and fills {placeholders}.
+const INTEL_TR = {
+  en:{ ri_title:"RESTAURANT INTELLIGENCE",ri_today:"TODAY AVG",ri_thisWeek:"THIS WEEK",ri_reports:"REPORTS",ri_reliability:"RELIABILITY",ri_trend:"TREND (7D)",ri_steady:"→ steady",ri_improving:"↓ improving",ri_worse:"↑ getting worse",ri_best:"Best",ri_worst:"Worst",ri_grade:"OVERALL GRADE",ri_good:"Good choice",ri_avoid:"Avoid at peak",ri_okay:"Okay right now",ri_expected:"~{m}m expected right now",ri_based:"Based on {n} community reports",
+    pi_yourWeek:"YOUR WEEK",pi_dodged:"of waiting dodged this week 🎉",pi_logged:"{n} waits logged this week",pi_weekSoFar:"Your week so far",pi_saved:"That's {m} minutes you didn't spend stuck at a counter{across} — nice going.",pi_across:" across {n} pickups",pi_fastest:"Your quickest spot is {name} at just {avg}m on average. ",pi_slowest:"Heads up — {name} is your slowest at {avg}m, so think twice at peak. ",pi_footer:"{n} waits logged this week · keep it coming 💪" },
+  pl:{ ri_title:"INFORMACJE O RESTAURACJI",ri_today:"ŚR. DZIŚ",ri_thisWeek:"TEN TYDZIEŃ",ri_reports:"ZGŁOSZENIA",ri_reliability:"NIEZAWODNOŚĆ",ri_trend:"TREND (7D)",ri_steady:"→ stabilnie",ri_improving:"↓ poprawa",ri_worse:"↑ pogarsza się",ri_best:"Najlepiej",ri_worst:"Najgorzej",ri_grade:"OCENA OGÓLNA",ri_good:"Dobry wybór",ri_avoid:"Unikaj w szczycie",ri_okay:"Na razie OK",ri_expected:"~{m}m oczekiwane teraz",ri_based:"Na podstawie {n} zgłoszeń społeczności",
+    pi_yourWeek:"TWÓJ TYDZIEŃ",pi_dodged:"oczekiwania zaoszczędzone w tym tygodniu 🎉",pi_logged:"{n} oczekiwań zapisanych w tym tygodniu",pi_weekSoFar:"Twój tydzień jak dotąd",pi_saved:"To {m} minut, których nie spędziłeś pod ladą{across} — dobra robota.",pi_across:" w {n} odbiorach",pi_fastest:"Twoje najszybsze miejsce to {name}, średnio tylko {avg}m. ",pi_slowest:"Uwaga — {name} jest Twoim najwolniejszym, średnio {avg}m, więc uważaj w szczycie. ",pi_footer:"{n} oczekiwań w tym tygodniu · tak trzymaj 💪" },
+  ar:{ ri_title:"معلومات المطعم",ri_today:"متوسط اليوم",ri_thisWeek:"هذا الأسبوع",ri_reports:"التقارير",ri_reliability:"الموثوقية",ri_trend:"الاتجاه (7 أيام)",ri_steady:"→ ثابت",ri_improving:"↓ يتحسّن",ri_worse:"↑ يزداد سوءاً",ri_best:"الأفضل",ri_worst:"الأسوأ",ri_grade:"التقييم العام",ri_good:"خيار جيّد",ri_avoid:"تجنّبه وقت الذروة",ri_okay:"مقبول الآن",ri_expected:"~{m}m متوقّعة الآن",ri_based:"بناءً على {n} تقرير من المجتمع",
+    pi_yourWeek:"أسبوعك",pi_dodged:"من الانتظار وفّرتها هذا الأسبوع 🎉",pi_logged:"{n} حالة انتظار سُجّلت هذا الأسبوع",pi_weekSoFar:"أسبوعك حتى الآن",pi_saved:"هذه {m} دقيقة لم تقضِها واقفاً عند المنضدة{across} — أحسنت.",pi_across:" عبر {n} عملية استلام",pi_fastest:"أسرع مكان لك هو {name} بمتوسط {avg}m فقط. ",pi_slowest:"انتبه — {name} هو الأبطأ لديك بمتوسط {avg}m، ففكّر مرتين وقت الذروة. ",pi_footer:"{n} حالة انتظار هذا الأسبوع · واصل 💪" },
+  hi:{ ri_title:"रेस्टोरेंट जानकारी",ri_today:"आज औसत",ri_thisWeek:"इस हफ़्ते",ri_reports:"रिपोर्ट",ri_reliability:"भरोसेमंदी",ri_trend:"रुझान (7दिन)",ri_steady:"→ स्थिर",ri_improving:"↓ सुधर रहा",ri_worse:"↑ बिगड़ रहा",ri_best:"सबसे अच्छा",ri_worst:"सबसे बुरा",ri_grade:"कुल ग्रेड",ri_good:"अच्छा विकल्प",ri_avoid:"व्यस्त समय में बचें",ri_okay:"अभी ठीक है",ri_expected:"~{m}m अभी अनुमानित",ri_based:"{n} समुदाय रिपोर्ट के आधार पर",
+    pi_yourWeek:"आपका हफ़्ता",pi_dodged:"का इंतज़ार इस हफ़्ते बचाया 🎉",pi_logged:"इस हफ़्ते {n} इंतज़ार दर्ज किए",pi_weekSoFar:"अब तक आपका हफ़्ता",pi_saved:"ये {m} मिनट हैं जो आपने काउंटर पर खड़े होकर नहीं बिताए{across} — बढ़िया।",pi_across:" {n} पिकअप में",pi_fastest:"आपकी सबसे तेज़ जगह {name} है, औसतन सिर्फ़ {avg}m। ",pi_slowest:"ध्यान दें — {name} आपकी सबसे धीमी है, औसतन {avg}m, तो व्यस्त समय में सोच-समझकर। ",pi_footer:"इस हफ़्ते {n} इंतज़ार दर्ज · ऐसे ही चलते रहें 💪" },
+  ur:{ ri_title:"ریستوران معلومات",ri_today:"آج اوسط",ri_thisWeek:"اس ہفتے",ri_reports:"رپورٹس",ri_reliability:"بھروسہ",ri_trend:"رجحان (7دن)",ri_steady:"→ مستحکم",ri_improving:"↓ بہتر ہو رہا",ri_worse:"↑ خراب ہو رہا",ri_best:"بہترین",ri_worst:"بدترین",ri_grade:"مجموعی گریڈ",ri_good:"اچھا انتخاب",ri_avoid:"مصروف وقت میں گریز کریں",ri_okay:"ابھی ٹھیک ہے",ri_expected:"~{m}m ابھی متوقع",ri_based:"{n} کمیونٹی رپورٹس کی بنیاد پر",
+    pi_yourWeek:"آپ کا ہفتہ",pi_dodged:"کا انتظار اس ہفتے بچایا 🎉",pi_logged:"اس ہفتے {n} انتظار درج کیے",pi_weekSoFar:"اب تک آپ کا ہفتہ",pi_saved:"یہ {m} منٹ ہیں جو آپ نے کاؤنٹر پر کھڑے ہو کر نہیں گزارے{across} — شاباش۔",pi_across:" {n} پک اپ میں",pi_fastest:"آپ کی سب سے تیز جگہ {name} ہے، اوسطاً صرف {avg}m۔ ",pi_slowest:"خبردار — {name} آپ کی سب سے سست ہے، اوسطاً {avg}m، تو مصروف وقت میں سوچ سمجھ کر۔ ",pi_footer:"اس ہفتے {n} انتظار درج · ایسے ہی چلتے رہیں 💪" },
+  pt:{ ri_title:"INTELIGÊNCIA DO RESTAURANTE",ri_today:"MÉDIA HOJE",ri_thisWeek:"ESTA SEMANA",ri_reports:"REGISTROS",ri_reliability:"CONFIABILIDADE",ri_trend:"TENDÊNCIA (7D)",ri_steady:"→ estável",ri_improving:"↓ melhorando",ri_worse:"↑ piorando",ri_best:"Melhor",ri_worst:"Pior",ri_grade:"NOTA GERAL",ri_good:"Boa escolha",ri_avoid:"Evite no pico",ri_okay:"Ok agora",ri_expected:"~{m}m esperado agora",ri_based:"Com base em {n} registros da comunidade",
+    pi_yourWeek:"SUA SEMANA",pi_dodged:"de espera evitados esta semana 🎉",pi_logged:"{n} esperas registradas esta semana",pi_weekSoFar:"Sua semana até agora",pi_saved:"São {m} minutos que você não passou parado no balcão{across} — mandou bem.",pi_across:" em {n} retiradas",pi_fastest:"Seu lugar mais rápido é {name}, com média de só {avg}m. ",pi_slowest:"Atenção — {name} é o seu mais lento, com média de {avg}m, então pense duas vezes no pico. ",pi_footer:"{n} esperas esta semana · continue assim 💪" },
+  zh:{ ri_title:"餐厅情报",ri_today:"今日平均",ri_thisWeek:"本周",ri_reports:"记录数",ri_reliability:"可靠度",ri_trend:"趋势（7天）",ri_steady:"→ 稳定",ri_improving:"↓ 在改善",ri_worse:"↑ 在变差",ri_best:"最佳",ri_worst:"最差",ri_grade:"综合评分",ri_good:"不错的选择",ri_avoid:"高峰期避开",ri_okay:"现在还行",ri_expected:"预计现在约 {m} 分钟",ri_based:"基于 {n} 条社区记录",
+    pi_yourWeek:"你的一周",pi_dodged:"的等待，本周省下了 🎉",pi_logged:"本周记录了 {n} 次等待",pi_weekSoFar:"你本周到目前为止",pi_saved:"这是你没有耗在柜台前的 {m} 分钟{across}——干得好。",pi_across:"，共 {n} 单取餐",pi_fastest:"你最快的地点是 {name}，平均仅 {avg} 分钟。",pi_slowest:"注意——{name} 是你最慢的，平均 {avg} 分钟，高峰期要三思。",pi_footer:"本周记录了 {n} 次等待 · 继续加油 💪" },
+  ro:{ ri_title:"INTELIGENȚA RESTAURANTULUI",ri_today:"MEDIA AZI",ri_thisWeek:"SĂPTĂMÂNA ASTA",ri_reports:"RAPOARTE",ri_reliability:"FIABILITATE",ri_trend:"TENDINȚĂ (7Z)",ri_steady:"→ constant",ri_improving:"↓ se îmbunătățește",ri_worse:"↑ se înrăutățește",ri_best:"Cel mai bun",ri_worst:"Cel mai prost",ri_grade:"NOTĂ GENERALĂ",ri_good:"Alegere bună",ri_avoid:"Evită la oră de vârf",ri_okay:"Ok acum",ri_expected:"~{m}m estimat acum",ri_based:"Pe baza a {n} rapoarte din comunitate",
+    pi_yourWeek:"SĂPTĂMÂNA TA",pi_dodged:"de așteptare evitate săptămâna asta 🎉",pi_logged:"{n} așteptări înregistrate săptămâna asta",pi_weekSoFar:"Săptămâna ta până acum",pi_saved:"Sunt {m} minute pe care nu le-ai petrecut la tejghea{across} — bravo.",pi_across:" în {n} preluări",pi_fastest:"Cel mai rapid loc al tău e {name}, cu o medie de doar {avg}m. ",pi_slowest:"Atenție — {name} e cel mai lent al tău, cu o medie de {avg}m, deci gândește-te de două ori la oră de vârf. ",pi_footer:"{n} așteptări săptămâna asta · ține-o tot așa 💪" },
+  es:{ ri_title:"INTELIGENCIA DEL RESTAURANTE",ri_today:"MEDIA HOY",ri_thisWeek:"ESTA SEMANA",ri_reports:"REPORTES",ri_reliability:"FIABILIDAD",ri_trend:"TENDENCIA (7D)",ri_steady:"→ estable",ri_improving:"↓ mejorando",ri_worse:"↑ empeorando",ri_best:"Mejor",ri_worst:"Peor",ri_grade:"NOTA GENERAL",ri_good:"Buena opción",ri_avoid:"Evita en hora punta",ri_okay:"Bien por ahora",ri_expected:"~{m}m esperado ahora",ri_based:"Basado en {n} reportes de la comunidad",
+    pi_yourWeek:"TU SEMANA",pi_dodged:"de espera ahorrados esta semana 🎉",pi_logged:"{n} esperas registradas esta semana",pi_weekSoFar:"Tu semana hasta ahora",pi_saved:"Son {m} minutos que no pasaste parado en el mostrador{across} — bien hecho.",pi_across:" en {n} recogidas",pi_fastest:"Tu sitio más rápido es {name}, con una media de solo {avg}m. ",pi_slowest:"Ojo — {name} es tu más lento, con una media de {avg}m, así que piénsatelo en hora punta. ",pi_footer:"{n} esperas esta semana · sigue así 💪" },
+  ru:{ ri_title:"АНАЛИТИКА РЕСТОРАНА",ri_today:"СРЕДНЕЕ ЗА ДЕНЬ",ri_thisWeek:"ЭТА НЕДЕЛЯ",ri_reports:"ОТЧЁТЫ",ri_reliability:"НАДЁЖНОСТЬ",ri_trend:"ТРЕНД (7Д)",ri_steady:"→ стабильно",ri_improving:"↓ улучшается",ri_worse:"↑ ухудшается",ri_best:"Лучшее",ri_worst:"Худшее",ri_grade:"ОБЩАЯ ОЦЕНКА",ri_good:"Хороший выбор",ri_avoid:"Избегайте в час пик",ri_okay:"Сейчас норм",ri_expected:"~{m}m ожидается сейчас",ri_based:"На основе {n} отчётов сообщества",
+    pi_yourWeek:"ВАША НЕДЕЛЯ",pi_dodged:"ожидания сэкономлено на этой неделе 🎉",pi_logged:"{n} ожиданий записано на этой неделе",pi_weekSoFar:"Ваша неделя пока что",pi_saved:"Это {m} минут, которые вы не простояли у стойки{across} — отличная работа.",pi_across:" за {n} заборов",pi_fastest:"Ваше самое быстрое место — {name}, в среднем всего {avg}m. ",pi_slowest:"Внимание — {name} у вас самое медленное, в среднем {avg}m, так что подумайте дважды в час пик. ",pi_footer:"{n} ожиданий на этой неделе · так держать 💪" },
+};
+const ti = (key, vals) => { let s=(INTEL_TR[_lang]&&INTEL_TR[_lang][key])||INTEL_TR.en[key]||key; if(vals)for(const k in vals)s=s.split("{"+k+"}").join(vals[k]); return s; };
+
 // ── HELP / GUIDE CONTENT (per language) ───────────────────────────────────────
 // FAQ, install guides and a one-page manual. HelpScreen falls back to English for
 // any language not listed here.
@@ -1574,21 +1600,21 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         const fc=first?first.charAt(0).toUpperCase()+first.slice(1):"";
         return(
           <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-teal))",border:"1px solid #06c16744",borderRadius:16,padding:"16px",marginBottom:16}}>
-            <div style={{...B,fontWeight:700,fontSize:9,color:"#06c167",letterSpacing:2,marginBottom:8}}>✨ YOUR WEEK{fc?" · "+fc.toUpperCase():""}</div>
+            <div style={{...B,fontWeight:700,fontSize:9,color:"#06c167",letterSpacing:2,marginBottom:8}}>✨ {ti("pi_yourWeek")}{fc?" · "+fc.toUpperCase():""}</div>
             {ins.saved>0?(
               <div style={{marginBottom:8}}>
                 <span style={{...B,fontWeight:800,fontSize:34,color:"#06c167",letterSpacing:0.5}}>{ins.saved}m</span>
-                <span style={{...M,fontSize:14,color:"var(--muted)",marginLeft:8}}>of waiting dodged this week 🎉</span>
+                <span style={{...M,fontSize:14,color:"var(--muted)",marginLeft:8}}>{ti("pi_dodged")}</span>
               </div>
             ):(
-              <div style={{...B,fontWeight:700,fontSize:18,color:"var(--ink)",marginBottom:8}}>{ins.week>0?ins.week+" wait"+(ins.week!==1?"s":"")+" logged this week":"Your week so far"}</div>
+              <div style={{...B,fontWeight:700,fontSize:18,color:"var(--ink)",marginBottom:8}}>{ins.week>0?ti("pi_logged",{n:ins.week}):ti("pi_weekSoFar")}</div>
             )}
             <div style={{...M,fontSize:13.5,color:"var(--ink)",lineHeight:1.55}}>
-              {ins.saved>0&&<span>That&apos;s {ins.saved} minute{ins.saved!==1?"s":""} you didn&apos;t spend stuck at a counter{ins.savedVisits?" across "+ins.savedVisits+" pickup"+(ins.savedVisits!==1?"s":""):""} — nice going{fc?", "+fc:""}. </span>}
-              {ins.fastest&&<span>Your quickest spot is <b style={{color:"#06c167"}}>{ins.fastest.name}</b> at just {ins.fastest.avg}m on average. </span>}
-              {ins.slowest&&<span>Heads up — <b style={{color:"#ef4444"}}>{ins.slowest.name}</b> is your slowest at {ins.slowest.avg}m, so think twice at peak. </span>}
+              {ins.saved>0&&<span>{ti("pi_saved",{m:ins.saved,across:ins.savedVisits?ti("pi_across",{n:ins.savedVisits}):""})} </span>}
+              {ins.fastest&&(()=>{const [a,b]=ti("pi_fastest",{avg:ins.fastest.avg}).split("{name}");return <span>{a}<b style={{color:"#06c167"}}>{ins.fastest.name}</b>{b}</span>;})()}
+              {ins.slowest&&(()=>{const [a,b]=ti("pi_slowest",{avg:ins.slowest.avg}).split("{name}");return <span>{a}<b style={{color:"#ef4444"}}>{ins.slowest.name}</b>{b}</span>;})()}
             </div>
-            <div style={{fontSize:10,...M,color:"var(--muted2)",marginTop:10,letterSpacing:0.3}}>{ins.week} wait{ins.week!==1?"s":""} logged this week{ins.week>0?" · keep it coming 💪":""}</div>
+            <div style={{fontSize:10,...M,color:"var(--muted2)",marginTop:10,letterSpacing:0.3}}>{ti("pi_footer",{n:ins.week})}</div>
           </div>
         );
       })()}
@@ -2783,9 +2809,9 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,communityLogs,act
         const nowH=now.getHours();
         const nearWorst=intel.worst&&Math.abs(intel.worst.h-nowH)<=1;
         let rec;
-        if(queueActive||nearWorst||(curr!=null&&curr>18)) rec={t:"Avoid at peak",c:"#ef4444",bg:"var(--tint-red)",icon:"⚠"};
-        else if(curr!=null&&curr<=10&&intel.reliability>=55) rec={t:"Good choice",c:"#06c167",bg:"var(--tint-green)",icon:"✓"};
-        else rec={t:"Okay right now",c:"#f5a623",bg:"var(--tint-amber)",icon:"•"};
+        if(queueActive||nearWorst||(curr!=null&&curr>18)) rec={t:ti("ri_avoid"),c:"#ef4444",bg:"var(--tint-red)",icon:"⚠"};
+        else if(curr!=null&&curr<=10&&intel.reliability>=55) rec={t:ti("ri_good"),c:"#06c167",bg:"var(--tint-green)",icon:"✓"};
+        else rec={t:ti("ri_okay"),c:"#f5a623",bg:"var(--tint-amber)",icon:"•"};
         const tile=(label,val,col)=>(
           <div style={{flex:1,minWidth:78,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"9px 10px",textAlign:"center"}}>
             <div style={{...B,fontSize:18,color:col||"var(--ink)",letterSpacing:0.5}}>{val}</div>
@@ -2794,44 +2820,44 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,communityLogs,act
         );
         const trendEl=intel.trend
           ? (intel.trend.dir==="flat"
-              ? <span style={{color:"var(--muted)"}}>→ steady</span>
-              : <span style={{color:intel.trend.dir==="down"?"#06c167":"#ef4444"}}>{intel.trend.dir==="down"?"↓ improving":"↑ getting worse"} {Math.abs(intel.trend.d)}m</span>)
+              ? <span style={{color:"var(--muted)"}}>{ti("ri_steady")}</span>
+              : <span style={{color:intel.trend.dir==="down"?"#06c167":"#ef4444"}}>{intel.trend.dir==="down"?ti("ri_improving"):ti("ri_worse")} {Math.abs(intel.trend.d)}m</span>)
           : <span style={{color:"var(--faint)"}}>—</span>;
         return(
           <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-              <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2}}>RESTAURANT INTELLIGENCE</div>
+              <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2}}>{ti("ri_title")}</div>
               {intel.grade&&(()=>{const gc={A:"#06c167",B:"#00b8a9",C:"#f5a623",D:"#ff7a1a",F:"#ef4444"}[intel.grade];return(
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{fontSize:8,...M,fontWeight:700,color:"var(--muted2)",letterSpacing:1,textAlign:"right",lineHeight:1.2}}>OVERALL<br/>GRADE</div>
+                  <div style={{fontSize:8,...M,fontWeight:700,color:"var(--muted2)",letterSpacing:1,textAlign:"right",lineHeight:1.2,maxWidth:54}}>{ti("ri_grade")}</div>
                   <div style={{width:42,height:42,borderRadius:11,background:gc+"22",border:"2px solid "+gc,display:"flex",alignItems:"center",justifyContent:"center",...B,fontWeight:800,fontSize:24,color:gc}}>{intel.grade}</div>
                 </div>
               );})()}
             </div>
             <div style={{display:"flex",gap:8,marginBottom:8}}>
-              {tile("WAITING NOW",waitingNow,waitingNow>0?"#06c167":"var(--faint2)")}
-              {tile("TODAY AVG",intel.todayAvg!=null?intel.todayAvg+"m":"—",colW(intel.todayAvg))}
-              {tile("THIS WEEK",intel.weekAvg!=null?intel.weekAvg+"m":"—",colW(intel.weekAvg))}
+              {tile(t("w_waitingNow"),waitingNow,waitingNow>0?"#06c167":"var(--faint2)")}
+              {tile(ti("ri_today"),intel.todayAvg!=null?intel.todayAvg+"m":"—",colW(intel.todayAvg))}
+              {tile(ti("ri_thisWeek"),intel.weekAvg!=null?intel.weekAvg+"m":"—",colW(intel.weekAvg))}
             </div>
             <div style={{display:"flex",gap:8,marginBottom:12}}>
-              {tile("REPORTS",intel.n,"#00b8a9")}
-              {tile("RELIABILITY",intel.reliability+"%",intel.reliability>=70?"#06c167":intel.reliability>=45?"#f5a623":"#ef4444")}
+              {tile(ti("ri_reports"),intel.n,"#00b8a9")}
+              {tile(ti("ri_reliability"),intel.reliability+"%",intel.reliability>=70?"#06c167":intel.reliability>=45?"#f5a623":"#ef4444")}
               <div style={{flex:1,minWidth:78,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"9px 10px",textAlign:"center"}}>
                 <div style={{...B,fontSize:12,letterSpacing:0.3,marginTop:2}}>{trendEl}</div>
-                <div style={{fontSize:8,...M,color:"var(--muted2)",letterSpacing:1,marginTop:4}}>TREND (7D)</div>
+                <div style={{fontSize:8,...M,color:"var(--muted2)",letterSpacing:1,marginTop:4}}>{ti("ri_trend")}</div>
               </div>
             </div>
             {(intel.best||intel.worst)&&(
               <div style={{display:"flex",gap:10,fontSize:11,...M,color:"var(--muted)",marginBottom:12,flexWrap:"wrap"}}>
-                {intel.best&&<span>🟢 Best: <b style={{color:"#06c167"}}>{hourLabel(intel.best.h)}</b> (~{intel.best.avg}m)</span>}
-                {intel.worst&&<span>🔴 Worst: <b style={{color:"#ef4444"}}>{hourLabel(intel.worst.h)}</b> (~{intel.worst.avg}m)</span>}
+                {intel.best&&<span>🟢 {ti("ri_best")}: <b style={{color:"#06c167"}}>{hourLabel(intel.best.h)}</b> (~{intel.best.avg}m)</span>}
+                {intel.worst&&<span>🔴 {ti("ri_worst")}: <b style={{color:"#ef4444"}}>{hourLabel(intel.worst.h)}</b> (~{intel.worst.avg}m)</span>}
               </div>
             )}
             <div style={{display:"flex",alignItems:"center",gap:10,background:rec.bg,border:"1px solid "+rec.c+"44",borderRadius:10,padding:"12px 14px"}}>
               <span style={{fontSize:20}}>{rec.icon}</span>
               <div>
                 <div style={{...B,fontSize:15,color:rec.c,letterSpacing:0.5}}>{rec.t}</div>
-                <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{curr!=null?"~"+curr+"m expected right now":"Based on "+intel.n+" community report"+(intel.n!==1?"s":"")}</div>
+                <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{curr!=null?ti("ri_expected",{m:curr}):ti("ri_based",{n:intel.n})}</div>
               </div>
             </div>
           </div>
