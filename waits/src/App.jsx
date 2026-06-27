@@ -1081,7 +1081,12 @@ function restaurantIntel(ck, now, logs) {
   for (const l of mine) { const h = (l.hour ?? new Date(l.ts).getHours()); (byHour[h]=byHour[h]||[]).push(l.waitMins); }
   let best=null, worst=null;
   for (const h in byHour) { if (byHour[h].length<2) continue; const a = mean(byHour[h]); if (best==null||a<best.avg) best={h:+h,avg:r1(a)}; if (worst==null||a>worst.avg) worst={h:+h,avg:r1(a)}; }
-  return { n, todayAvg, weekAvg, reliability, trend, best, worst };
+  // Overall grade (A–F): mostly how short the typical wait is (≤5m great, ≥25m poor), weighted with
+  // reliability. Needs at least 3 reports to grade fairly.
+  const speed = Math.max(0, Math.min(100, 100 - (overall-5)/20*100));
+  const gradeScore = Math.round(speed*0.7 + reliability*0.3);
+  const grade = n>=3 ? (gradeScore>=85?"A":gradeScore>=70?"B":gradeScore>=55?"C":gradeScore>=40?"D":"F") : null;
+  return { n, todayAvg, weekAvg, reliability, trend, best, worst, grade };
 }
 
 // Improved wait-time prediction — weighted historical model over the driver's own logs:
@@ -2738,7 +2743,15 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,communityLogs,act
           : <span style={{color:"var(--faint)"}}>—</span>;
         return(
           <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
-            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:12}}>RESTAURANT INTELLIGENCE</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2}}>RESTAURANT INTELLIGENCE</div>
+              {intel.grade&&(()=>{const gc={A:"#06c167",B:"#00b8a9",C:"#f5a623",D:"#ff7a1a",F:"#ef4444"}[intel.grade];return(
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{fontSize:8,...M,fontWeight:700,color:"var(--muted2)",letterSpacing:1,textAlign:"right",lineHeight:1.2}}>OVERALL<br/>GRADE</div>
+                  <div style={{width:42,height:42,borderRadius:11,background:gc+"22",border:"2px solid "+gc,display:"flex",alignItems:"center",justifyContent:"center",...B,fontWeight:800,fontSize:24,color:gc}}>{intel.grade}</div>
+                </div>
+              );})()}
+            </div>
             <div style={{display:"flex",gap:8,marginBottom:8}}>
               {tile("WAITING NOW",waitingNow,waitingNow>0?"#06c167":"var(--faint2)")}
               {tile("TODAY AVG",intel.todayAvg!=null?intel.todayAvg+"m":"—",colW(intel.todayAvg))}
