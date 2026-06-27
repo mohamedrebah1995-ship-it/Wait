@@ -1943,6 +1943,7 @@ function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift,myName}){
   const [drill,setDrill]=useState(null);        // drill-down: null | "__list__" (platform filter) | platform name
   const [dayDrill,setDayDrill]=useState(null);  // weekly "by day" drill: null | that day's start-of-day ms
   const [weekOffset,setWeekOffset]=useState(0); // THIS WEEK tab: 0 = current week, 1 = last week, 2 = two weeks ago…
+  const [showLeaderboard,setShowLeaderboard]=useState(false);   // community leaderboard sub-view
   // Re-bucket only when the calendar day rolls over (drives the midnight reset), not every tick.
   const dayKey=startOfDayMs(now||new Date());
   const nowMs=(now||new Date()).getTime();
@@ -2050,6 +2051,12 @@ function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift,myName}){
   }
   if(editing) return <EarningsEditScreen entry={editing} bulk={!!editing.bulk} onSave={saveEdit} onDelete={deleteEdit} onCancel={()=>setEditing(null)}/>;
   if(adding) return <EarningsEditScreen entry={{platform:adding.platform||"",payout:"",restaurantName:"",tip:"",cycleMins:0,bulk:adding.bulk}} isNew bulk={!!adding.bulk} onSave={adding.bulk?saveBulk:saveNew} onCancel={()=>setAdding(null)}/>;
+  if(showLeaderboard) return (
+    <div style={{padding:"22px 16px 100px"}}>
+      <button onClick={()=>setShowLeaderboard(false)} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",...B,fontSize:14,letterSpacing:1,padding:0,marginBottom:6}}>‹ BACK TO STATS</button>
+      <CommunityLeaderboard myName={myName}/>
+    </div>
+  );
 
   const s=view==="today"?today:view==="week"?week:all;
   const viewEntries=entries[view];
@@ -2368,8 +2375,14 @@ function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift,myName}){
         </>
       )}
 
-      {/* Community leaderboard — below the personal stats */}
-      <CommunityLeaderboard myName={myName}/>
+      {/* Community leaderboard — opens as a sub-view when pressed */}
+      <button onClick={()=>setShowLeaderboard(true)} style={{width:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginTop:22,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+        <div>
+          <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:0.5}}>🏆 Community leaderboard</div>
+          <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>See the top contributors</div>
+        </div>
+        <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
+      </button>
     </div>
   );
 }
