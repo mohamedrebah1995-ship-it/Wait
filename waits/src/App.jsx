@@ -1054,6 +1054,36 @@ function predictWait(restId,dow,hour,patterns) {
 
 function hourLabel(h){ const ampm=h<12?"am":"pm"; const hr=h%12===0?12:h%12; return hr+ampm; }
 
+// Restaurant Intelligence — distilled stats from the whole community's logs for one place:
+// today/week averages, reliability (how consistent the waits are), trend (recent vs prior week),
+// and the best/worst hours. Returns null when there's nothing logged yet.
+function restaurantIntel(ck, now, logs) {
+  const mine = (logs||[]).filter(l => logKey(l)===ck && typeof l.waitMins==="number");
+  const n = mine.length;
+  if (!n) return null;
+  const mean = a => a.length ? a.reduce((s,x)=>s+x,0)/a.length : null;
+  const r1 = x => x==null ? null : Math.round(x*10)/10;
+  const nowMs = now.getTime(), DAY = 86400000, todayStart = startOfDayMs(now);
+  const w = arr => arr.map(l=>l.waitMins);
+  const todayAvg = r1(mean(w(mine.filter(l => new Date(l.ts).getTime() >= todayStart))));
+  const weekAvg  = r1(mean(w(mine.filter(l => nowMs - new Date(l.ts).getTime() <= 7*DAY))));
+  const overall  = mean(w(mine));
+  // Reliability: lower spread (coefficient of variation) → more reliable/predictable.
+  const sd = Math.sqrt(w(mine).reduce((s,x)=>s+(x-overall)**2,0)/n);
+  const reliability = Math.max(0, Math.min(100, Math.round(100 - (overall>0 ? sd/overall : 1)*100)));
+  // Trend: average of the last 7 days vs the 7 days before that.
+  const recent = w(mine.filter(l => nowMs - new Date(l.ts).getTime() <= 7*DAY));
+  const prior  = w(mine.filter(l => { const a = nowMs - new Date(l.ts).getTime(); return a > 7*DAY && a <= 14*DAY; }));
+  let trend = null;
+  if (recent.length>=3 && prior.length>=3) { const d = mean(recent)-mean(prior); trend = Math.abs(d)<0.6 ? {dir:"flat",d} : {dir: d<0?"down":"up", d:r1(d)}; }
+  // Best / worst hour (needs at least 2 samples in that hour to count).
+  const byHour = {};
+  for (const l of mine) { const h = (l.hour ?? new Date(l.ts).getHours()); (byHour[h]=byHour[h]||[]).push(l.waitMins); }
+  let best=null, worst=null;
+  for (const h in byHour) { if (byHour[h].length<2) continue; const a = mean(byHour[h]); if (best==null||a<best.avg) best={h:+h,avg:r1(a)}; if (worst==null||a>worst.avg) worst={h:+h,avg:r1(a)}; }
+  return { n, todayAvg, weekAvg, reliability, trend, best, worst };
+}
+
 // Improved wait-time prediction — weighted historical model over the driver's own logs:
 //   (1) filter to this restaurant + today's day-of-week + the current time period
 //   (2) recent logs (within the last 7 days) count double
@@ -2604,7 +2634,7 @@ function VerifyCodeScreen({email,onVerified,onBack}) {
 }
 
 // ── RESTAURANT DETAIL ─────────────────────────────────────────────────────────
-function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingId,arrivalError,activeWait,manualVoted,onArrived,onManualArrive,isAdmin,queueActive,onBack}) {
+function RestaurantDetail({r,now,gps,waitLog,communityPatterns,communityLogs,activeCounts,reportedCounts,distMap,checkingId,arrivalError,activeWait,manualVoted,onArrived,onManualArrive,isAdmin,queueActive,onBack}) {
   const ck=cardKey(r);
   const personal=getPersonalWait(ck,now,waitLog);
   const community=getCommunityWait(ck,now,communityPatterns);
@@ -2677,6 +2707,64 @@ function RestaurantDetail({r,now,gps,waitLog,communityPatterns,distMap,checkingI
               <div style={{fontSize:11,...M,color:"var(--muted)"}}>{basis} — estimated {pred.minutes} minute{pred.minutes!==1?"s":""}{queueActive?" · +30% long queue":""}</div>
             </div>
             <div style={{...B,fontSize:30,color:c,letterSpacing:1}}>{pred.minutes}m</div>
+          </div>
+        );
+      })()}
+
+      {/* Restaurant Intelligence — distilled community stats + a recommendation */}
+      {(()=>{
+        const intel=restaurantIntel(ck,now,communityLogs);
+        if(!intel)return null;
+        const pred=smartPredictWait(ck,now,waitLog,communityPatterns,queueActive);
+        const curr=pred?pred.minutes:(getCommunityWait(ck,now,communityPatterns)?.avg??null);
+        const waitingNow=activeCounts?.[ck]||0;
+        const colW=v=>v==null?"var(--muted)":v>18?"#ef4444":v>10?"#f5a623":"#06c167";
+        const nowH=now.getHours();
+        const nearWorst=intel.worst&&Math.abs(intel.worst.h-nowH)<=1;
+        let rec;
+        if(queueActive||nearWorst||(curr!=null&&curr>18)) rec={t:"Avoid at peak",c:"#ef4444",bg:"var(--tint-red)",icon:"⚠"};
+        else if(curr!=null&&curr<=10&&intel.reliability>=55) rec={t:"Good choice",c:"#06c167",bg:"var(--tint-green)",icon:"✓"};
+        else rec={t:"Okay right now",c:"#f5a623",bg:"var(--tint-amber)",icon:"•"};
+        const tile=(label,val,col)=>(
+          <div style={{flex:1,minWidth:78,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"9px 10px",textAlign:"center"}}>
+            <div style={{...B,fontSize:18,color:col||"var(--ink)",letterSpacing:0.5}}>{val}</div>
+            <div style={{fontSize:8,...M,color:"var(--muted2)",letterSpacing:1,marginTop:2}}>{label}</div>
+          </div>
+        );
+        const trendEl=intel.trend
+          ? (intel.trend.dir==="flat"
+              ? <span style={{color:"var(--muted)"}}>→ steady</span>
+              : <span style={{color:intel.trend.dir==="down"?"#06c167":"#ef4444"}}>{intel.trend.dir==="down"?"↓ improving":"↑ getting worse"} {Math.abs(intel.trend.d)}m</span>)
+          : <span style={{color:"var(--faint)"}}>—</span>;
+        return(
+          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+            <div style={{fontSize:9,color:"var(--muted2)",letterSpacing:2,marginBottom:12}}>RESTAURANT INTELLIGENCE</div>
+            <div style={{display:"flex",gap:8,marginBottom:8}}>
+              {tile("WAITING NOW",waitingNow,waitingNow>0?"#06c167":"var(--faint2)")}
+              {tile("TODAY AVG",intel.todayAvg!=null?intel.todayAvg+"m":"—",colW(intel.todayAvg))}
+              {tile("THIS WEEK",intel.weekAvg!=null?intel.weekAvg+"m":"—",colW(intel.weekAvg))}
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              {tile("REPORTS",intel.n,"#00b8a9")}
+              {tile("RELIABILITY",intel.reliability+"%",intel.reliability>=70?"#06c167":intel.reliability>=45?"#f5a623":"#ef4444")}
+              <div style={{flex:1,minWidth:78,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"9px 10px",textAlign:"center"}}>
+                <div style={{...B,fontSize:12,letterSpacing:0.3,marginTop:2}}>{trendEl}</div>
+                <div style={{fontSize:8,...M,color:"var(--muted2)",letterSpacing:1,marginTop:4}}>TREND (7D)</div>
+              </div>
+            </div>
+            {(intel.best||intel.worst)&&(
+              <div style={{display:"flex",gap:10,fontSize:11,...M,color:"var(--muted)",marginBottom:12,flexWrap:"wrap"}}>
+                {intel.best&&<span>🟢 Best: <b style={{color:"#06c167"}}>{hourLabel(intel.best.h)}</b> (~{intel.best.avg}m)</span>}
+                {intel.worst&&<span>🔴 Worst: <b style={{color:"#ef4444"}}>{hourLabel(intel.worst.h)}</b> (~{intel.worst.avg}m)</span>}
+              </div>
+            )}
+            <div style={{display:"flex",alignItems:"center",gap:10,background:rec.bg,border:"1px solid "+rec.c+"44",borderRadius:10,padding:"12px 14px"}}>
+              <span style={{fontSize:20}}>{rec.icon}</span>
+              <div>
+                <div style={{...B,fontSize:15,color:rec.c,letterSpacing:0.5}}>{rec.t}</div>
+                <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{curr!=null?"~"+curr+"m expected right now":"Based on "+intel.n+" community report"+(intel.n!==1?"s":"")}</div>
+              </div>
+            </div>
           </div>
         );
       })()}
@@ -2997,6 +3085,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
     const selQa=queueAlerts?.[cardKey(selectedRestaurant)];
     const selQueueActive=!!(selQa&&now.getTime()-new Date(selQa.ts).getTime()<QUEUE_ALERT_TTL_MS);
     return <RestaurantDetail r={selectedRestaurant} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns}
+      communityLogs={communityLogs} activeCounts={activeCounts} reportedCounts={reportedCounts}
       distMap={distMap} checkingId={checkingId} arrivalError={arrivalError} activeWait={activeWait} manualVoted={manualVoted}
       onArrived={onArrived} onManualArrive={onManualArrive} isAdmin={isAdmin} queueActive={selQueueActive} onBack={()=>setSelectedRestaurant(null)}/>;
   }
@@ -3368,7 +3457,7 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
 
   // Tapped a restaurant → full stats (detail in stats-only mode: no arrive/manual buttons)
   if(selected){
-    return <RestaurantDetail r={selected} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns} distMap={distMap} onBack={()=>setSelected(null)}/>;
+    return <RestaurantDetail r={selected} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns} communityLogs={communityLogs} activeCounts={activeCounts} reportedCounts={reportedCounts} distMap={distMap} onBack={()=>setSelected(null)}/>;
   }
 
   // Default = every logged place first (anyone's logs), nearest-first, then the rest by distance.
