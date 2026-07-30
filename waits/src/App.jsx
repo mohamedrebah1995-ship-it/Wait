@@ -3903,41 +3903,92 @@ function StackScreen({gps,activeOrders}){
   const [loading,setLoading]=useState(false);
   const [res,setRes]=useState(null);
   const [err,setErr]=useState("");
-  const fld={width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"13px 15px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
+  const [pins,setPins]=useState({heading:null,pickup:null,drop:null});
+  const [placing,setPlacing]=useState("pickup");
+  const mapEl=useRef(null), mapRef=useRef(null), markRef=useRef({}), placingRef=useRef("pickup"), pinsRef=useRef(pins);
+  useEffect(()=>{placingRef.current=placing;},[placing]);
+  useEffect(()=>{pinsRef.current=pins;},[pins]);
+  const PIN={heading:"#2b8fff",pickup:"#06c167",drop:"#ef4444"};
+  const fld={width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px 15px",color:"var(--ink)",fontSize:14,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
   const lbl={fontSize:10,...M,fontWeight:700,color:"var(--muted)",letterSpacing:0.5,marginBottom:5};
+
+  // Lazy-load Mapbox GL only when this admin-only screen opens (keeps it out of the main bundle).
+  useEffect(()=>{
+    let cancelled=false, map;
+    (async()=>{
+      try{
+        const mapboxgl=(await import("mapbox-gl")).default;
+        await import("mapbox-gl/dist/mapbox-gl.css");
+        if(cancelled||!mapEl.current)return;
+        mapboxgl.accessToken=MAPBOX_TOKEN;
+        const dark=document.documentElement.getAttribute("data-theme")==="dark"||(!document.documentElement.getAttribute("data-theme")&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);
+        const center=(gps.status==="active"&&gps.lat!=null)?[gps.lng,gps.lat]:[-0.12,51.5];
+        map=new mapboxgl.Map({container:mapEl.current,style:dark?"mapbox://styles/mapbox/dark-v11":"mapbox://styles/mapbox/streets-v12",center,zoom:12,attributionControl:false});
+        mapRef.current=map;
+        map.addControl(new mapboxgl.NavigationControl({showCompass:false}),"top-right");
+        if(gps.status==="active"&&gps.lat!=null){ new mapboxgl.Marker({color:"#00b8a9",scale:0.75}).setLngLat([gps.lng,gps.lat]).addTo(map); }
+        map.on("click",e=>{
+          const which=placingRef.current, c={lat:e.lngLat.lat,lng:e.lngLat.lng};
+          setPins(p=>({...p,[which]:c}));
+          let m=markRef.current[which];
+          if(m)m.setLngLat([c.lng,c.lat]); else { m=new mapboxgl.Marker({color:PIN[which],draggable:true}).setLngLat([c.lng,c.lat]).addTo(map); m.on("dragend",()=>{const ll=m.getLngLat();setPins(p=>({...p,[which]:{lat:ll.lat,lng:ll.lng}}));}); markRef.current[which]=m; }
+          if(which==="pickup"&&!pinsRef.current.drop)setPlacing("drop");
+        });
+      }catch(e){ if(!cancelled)setErr("Map couldn't load — you can still type the addresses below."); }
+    })();
+    return ()=>{cancelled=true; if(map)map.remove();};
+  },[]);
+
+  function clearPins(){
+    setPins({heading:null,pickup:null,drop:null});
+    Object.values(markRef.current).forEach(m=>m&&m.remove()); markRef.current={};
+    setPlacing("pickup"); setRes(null);
+  }
+  async function resolve(which,text){ if(pins[which])return pins[which]; if(text&&text.trim())return await geocodeText(text,gps.lat,gps.lng); return null; }
 
   async function check(){
     setErr("");setRes(null);
     if(gps.status!=="active"||gps.lat==null){setErr("Turn on location first — the check starts from where you are.");return;}
     const p=parseFloat(String(pay).replace(/[^0-9.]/g,""));
-    if(!pickup.trim()||!drop.trim()){setErr("Enter the new order's pickup and drop-off.");return;}
     if(!(p>0)){setErr("Enter the offered pay.");return;}
     setLoading(true);
     try{
-      const [np,nd,cd]=await Promise.all([
-        geocodeText(pickup,gps.lat,gps.lng),
-        geocodeText(drop,gps.lat,gps.lng),
-        heading.trim()?geocodeText(heading,gps.lat,gps.lng):Promise.resolve(null),
-      ]);
-      if(!np||!nd){setErr("Couldn't find one of those addresses — try being more specific.");setLoading(false);return;}
+      const [np,nd,cd]=await Promise.all([resolve("pickup",pickup),resolve("drop",drop),resolve("heading",heading)]);
+      if(!np||!nd){setErr("Set the new pickup and drop-off — drop a pin on the map or type an address.");setLoading(false);return;}
       const pts=[{lat:gps.lat,lng:gps.lng},...(cd?[cd]:[]),np,nd];
       const m=await mapboxMatrix(pts);
       if(!m){setErr("Routing is unavailable right now — try again.");setLoading(false);return;}
-      setRes({...stackDecision(m,!!cd,p),np,nd,cd,pay:p});
+      setRes({...stackDecision(m,!!cd,p),pay:p});
     }catch(e){setErr("Something went wrong — try again.");}
     setLoading(false);
   }
 
   const V={take:{t:"✅ Take it",c:"#06c167",bg:"var(--tint-green)"},marginal:{t:"⚠️ Marginal",c:"#f5a623",bg:"var(--tint-amber)"},skip:{t:"❌ Skip it",c:"#ef4444",bg:"var(--tint-red)"}};
+  const modes=[["pickup","📍 Pickup"],["drop","🏁 Drop-off"],["heading","🚗 Current drop"]];
   return(
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>STACK CHECK</div>
-      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:16}}>ADMIN TEST · CAN I TAKE ANOTHER ORDER?</div>
+      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:14}}>ADMIN TEST · CAN I TAKE ANOTHER ORDER?</div>
 
-      <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>
-        <div><div style={lbl}>CURRENTLY HEADING TO (optional)</div><input value={heading} onChange={e=>setHeading(e.target.value)} placeholder="Your current drop-off — leave blank if free" style={fld}/></div>
-        <div><div style={lbl}>NEW ORDER — PICKUP</div><input value={pickup} onChange={e=>setPickup(e.target.value)} placeholder="Restaurant / pickup address" style={fld}/></div>
-        <div><div style={lbl}>NEW ORDER — DROP-OFF</div><input value={drop} onChange={e=>setDrop(e.target.value)} placeholder="Delivery address" style={fld}/></div>
+      {/* Pick which pin the next map tap sets */}
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        {modes.map(([id,l])=>(
+          <button key={id} onClick={()=>setPlacing(id)} style={{flex:1,background:placing===id?PIN[id]:"var(--card)",border:"1px solid "+(placing===id?PIN[id]:"var(--border)"),borderRadius:10,padding:"9px 4px",...B,fontWeight:700,fontSize:11,letterSpacing:0.2,color:placing===id?"#fff":"var(--muted)",cursor:"pointer"}}>{l}{pins[id]?" ✓":""}</button>
+        ))}
+      </div>
+      <div style={{fontSize:10,...M,color:"var(--muted2)",marginBottom:8}}>Tap the map to drop the <b style={{color:PIN[placing]}}>{placing==="pickup"?"pickup":placing==="drop"?"drop-off":"current drop"}</b> pin · drag a pin to fine-tune.</div>
+      <div ref={mapEl} style={{height:300,borderRadius:14,overflow:"hidden",border:"1px solid var(--border)",marginBottom:8,background:"var(--border3)"}}/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:9,...M,color:"var(--faint)"}}>🟢 you · 📍 pickup · 🏁 drop</div>
+        {(pins.pickup||pins.drop||pins.heading)&&<button onClick={clearPins} style={{background:"none",border:"none",...M,fontSize:11,fontWeight:700,color:"#ef4444",cursor:"pointer"}}>Clear pins</button>}
+      </div>
+
+      {/* Or type addresses instead */}
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+        <div style={{fontSize:9,...M,color:"var(--faint)",letterSpacing:1}}>OR TYPE ADDRESSES (a pin overrides the box)</div>
+        <div><div style={lbl}>NEW PICKUP {pins.pickup?"· 📍 pinned":""}</div><input value={pickup} onChange={e=>setPickup(e.target.value)} placeholder="Restaurant / pickup address" style={fld}/></div>
+        <div><div style={lbl}>NEW DROP-OFF {pins.drop?"· 📍 pinned":""}</div><input value={drop} onChange={e=>setDrop(e.target.value)} placeholder="Delivery address" style={fld}/></div>
+        <div><div style={lbl}>CURRENTLY HEADING TO (optional) {pins.heading?"· 📍 pinned":""}</div><input value={heading} onChange={e=>setHeading(e.target.value)} placeholder="Leave blank if you're free" style={fld}/></div>
         <div><div style={lbl}>OFFERED PAY (£)</div><input value={pay} onChange={e=>setPay(e.target.value)} inputMode="decimal" placeholder="e.g. 4.50" style={fld}/></div>
       </div>
       {err&&<div style={{fontSize:12,...M,color:"#ef4444",marginBottom:12}}>{err}</div>}
