@@ -986,46 +986,68 @@ async function geocodeText(q,lat,lng){
 }
 
 // Mapbox Matrix API — one call returns pairwise driving durations (s) + distances (m) for all points.
+// driving-traffic (live traffic) allows ≤10 coords; above that fall back to plain driving (≤25).
 async function mapboxMatrix(points){
   if(!MAPBOX_TOKEN||!points||points.length<2)return null;
   const coords=points.map(p=>`${p.lng},${p.lat}`).join(";");
+  const profile=points.length<=10?"driving-traffic":"driving";
   try{
-    const res=await fetch(`https://api.mapbox.com/directions-matrix/v1/mapbox/driving-traffic/${coords}?annotations=duration,distance&access_token=${MAPBOX_TOKEN}`);
+    const res=await fetch(`https://api.mapbox.com/directions-matrix/v1/mapbox/${profile}/${coords}?annotations=duration,distance&access_token=${MAPBOX_TOKEN}`);
     const g=await res.json();
     return (g.durations&&g.distances)?{dur:g.durations,dist:g.distances}:null;
   }catch(e){return null;}
 }
 
-// Can we stack a new order (C pickup → D drop) while already carrying order 1 (to drop B)?
-// Points in the matrix: 0 = you now, 1 = order-1 drop (B), 2 = new pickup (C), 3 = new drop (D).
-// Tries every valid stop order (new pickup before new drop), and a sequence is FEASIBLE only if
-// BOTH orders stay inside the time window: order 1 (now → B) and order 2 (C → D). Returns the best.
-function stackFit(m, windowMin, pay){
+// Small numbered pin element for the map (P1 = order-1 pickup, D1 = order-1 drop, …).
+function stackMarkerEl(text,color){
+  const el=document.createElement("div");
+  el.style.cssText="width:26px;height:26px;border-radius:50%;background:"+color+";border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;font-weight:700;font-size:10px;cursor:grab";
+  el.textContent=text; return el;
+}
+
+// Plan a stack of N orders (each = optional pickup + a drop-off) from your current spot (matrix
+// index 0). Finds the best legal stop order (each order's pickup before its own drop) and checks
+// every order delivers within the window (pickup→drop, or now→drop if already in hand). Branch-and-
+// bound with a safety cap so it stays fast for the realistic 2–6 orders.
+function planStack(m, orders, windowMin){
   const D=m.dur, X=m.dist, W=windowMin*60;
-  const seqs=[[0,2,3,1],[0,2,1,3],[0,1,2,3]];   // start, then B/C/D with C(2) before D(3)
-  const arrivals=seq=>{ const a={}; let t=0; for(let i=1;i<seq.length;i++){ t+=D[seq[i-1]][seq[i]]; a[seq[i]]=t; } return a; };
-  const distOf=seq=>seq.reduce((t,_,i)=>i?t+X[seq[i-1]][seq[i]]:0,0);
-  let best=null;
-  for(const seq of seqs){
-    const a=arrivals(seq);
-    const o1=a[1], o2=a[3]-a[2];                 // order-1 (now→B) and order-2 (C→D) durations
-    const feasible=o1<=W && o2<=W;
-    const total=Math.max(a[1],a[3]);
-    const cand={seq,o1,o2,feasible,total,dist:distOf(seq)};
-    if(!best || (cand.feasible&&!best.feasible) || (cand.feasible===best.feasible&&cand.total<best.total)) best=cand;
-  }
-  const baseline=D[0][1];                        // just delivering order 1 on its own
-  const extraSec=Math.max(0,best.total-baseline);
-  const label={0:"You",1:"Order 1 drop",2:"New pickup",3:"New drop"};
+  const stopIdxs=[]; orders.forEach(o=>{ if(o.pickupIdx!=null)stopIdxs.push(o.pickupIdx); stopIdxs.push(o.dropIdx); });
+  const dropToPickup={}; orders.forEach(o=>{ if(o.pickupIdx!=null)dropToPickup[o.dropIdx]=o.pickupIdx; });
+  const windowsOK=arr=>orders.every(o=>{ const pt=o.pickupIdx!=null?arr[o.pickupIdx]:0; return (arr[o.dropIdx]-pt)<=W; });
+  let best=null, count=0; const CAP=300000;
+  (function rec(seq,used,time,arr){
+    if(count>CAP)return;
+    if(seq.length===stopIdxs.length){
+      count++;
+      const ok=windowsOK(arr), total=Math.max(0,...stopIdxs.map(i=>arr[i]));
+      const cand={seq:seq.slice(),ok,total,arr:{...arr}};
+      if(!best||(cand.ok&&!best.ok)||(cand.ok===best.ok&&cand.total<best.total))best=cand;
+      return;
+    }
+    const last=seq.length?seq[seq.length-1]:0;
+    for(const s of stopIdxs){
+      if(used.has(s))continue;
+      if(dropToPickup[s]!==undefined&&!used.has(dropToPickup[s]))continue;   // can't drop before its pickup
+      const t=time+D[last][s];
+      if(best&&best.ok&&t>=best.total)continue;                              // prune slower partials
+      used.add(s);arr[s]=t;seq.push(s);
+      rec(seq,used,t,arr);
+      seq.pop();used.delete(s);delete arr[s];
+    }
+  })([],new Set(),0,{});
+  if(!best)return null;
+  const arr=best.arr;
+  const perOrder=orders.map((o,i)=>{ const pt=o.pickupIdx!=null?arr[o.pickupIdx]:0; const mins=Math.round((arr[o.dropIdx]-pt)/60); return {n:i+1, mins, fits:mins<=windowMin, hasPickup:o.pickupIdx!=null}; });
+  const label={}; orders.forEach((o,i)=>{ if(o.pickupIdx!=null)label[o.pickupIdx]="P"+(i+1); label[o.dropIdx]="D"+(i+1); });
+  let d=0,last=0; for(const s of best.seq){ d+=X[last][s]; last=s; }
+  const totalPay=orders.reduce((s,o)=>s+(o.pay||0),0);
   return {
-    feasible:best.feasible,
-    order1Min:Math.round(best.o1/60),
-    order2Min:Math.round(best.o2/60),
-    over: best.o1>W?"order1":(best.o2>W?"order2":null),
-    extraMin:Math.round(extraSec/60),
-    extraMiles:Math.round(Math.max(0,best.dist-X[0][1])/1609.34*10)/10,
-    rate: pay>0&&extraSec>0?Math.round(pay/(extraSec/3600)):null,
-    order:best.seq.map(i=>label[i]),
+    feasible:best.ok,
+    perOrder,
+    order:["You",...best.seq.map(i=>label[i])],
+    totalMin:Math.round(best.total/60),
+    totalMiles:Math.round(d/1609.34*10)/10,
+    rate: totalPay>0&&best.total>0?Math.round(totalPay/(best.total/3600)):null,
     windowMin,
   };
 }
@@ -3900,23 +3922,18 @@ function HelpScreen({lang,onBack}){
 
 // ── STACK CHECK SCREEN (admin test) ───────────────────────────────────────────
 function StackScreen({gps,activeOrders}){
-  const [drop1,setDrop1]=useState("");    // order 1 drop-off (B) — you're carrying this
-  const [pickup,setPickup]=useState("");  // new order pickup (C)
-  const [drop,setDrop]=useState("");      // new order drop-off (D)
-  const [pay,setPay]=useState("");
+  const [orders,setOrders]=useState([{id:0,pickup:null,drop:null,pText:"",dText:"",pay:""}]);
+  const [placing,setPlacing]=useState({id:0,kind:"pickup"});
   const [windowMin,setWindowMin]=useState(STACK_CFG.windowMin);
+  const [myPos,setMyPos]=useState(gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null);
   const [loading,setLoading]=useState(false);
   const [res,setRes]=useState(null);
   const [err,setErr]=useState("");
-  const [pins,setPins]=useState({drop1:null,pickup:null,drop:null});
-  const [placing,setPlacing]=useState("drop1");
-  const [myPos,setMyPos]=useState(gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null);
-  const mapEl=useRef(null), markRef=useRef({}), placingRef=useRef("drop1"), pinsRef=useRef(pins);
+  const mapEl=useRef(null), mapRef=useRef(null), glRef=useRef(null), markRef=useRef({}), placingRef=useRef(placing), idRef=useRef(1);
   useEffect(()=>{placingRef.current=placing;},[placing]);
-  useEffect(()=>{pinsRef.current=pins;},[pins]);
-  const PIN={drop1:"#2b8fff",pickup:"#06c167",drop:"#ef4444"};
-  const fld={width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px 15px",color:"var(--ink)",fontSize:14,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
+  const fld={width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 12px",color:"var(--ink)",fontSize:13,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
   const lbl={fontSize:10,...M,fontWeight:700,color:"var(--muted)",letterSpacing:0.5,marginBottom:5};
+  const upd=(id,patch)=>setOrders(os=>os.map(o=>o.id===id?{...o,...patch}:o));
 
   // Lazy-load Mapbox GL only when this admin-only screen opens (keeps it out of the main bundle).
   useEffect(()=>{
@@ -3930,101 +3947,116 @@ function StackScreen({gps,activeOrders}){
         const dark=document.documentElement.getAttribute("data-theme")==="dark"||(!document.documentElement.getAttribute("data-theme")&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);
         const center=myPos?[myPos.lng,myPos.lat]:[-0.12,51.5];
         map=new mapboxgl.Map({container:mapEl.current,style:dark?"mapbox://styles/mapbox/dark-v11":"mapbox://styles/mapbox/streets-v12",center,zoom:13,attributionControl:false});
+        mapRef.current=map; glRef.current=mapboxgl;
         map.addControl(new mapboxgl.NavigationControl({showCompass:false}),"top-right");
-        // Live location: Mapbox's own control shows the blue dot, centres on you, and gives us the
-        // start point for routing — fixes "my location isn't on the map".
+        // Live location: shows the blue dot, centres on you, and gives the route's start point.
         const geo=new mapboxgl.GeolocateControl({positionOptions:{enableHighAccuracy:true},trackUserLocation:true,showUserHeading:true});
         map.addControl(geo,"top-right");
         geo.on("geolocate",e=>{ if(!cancelled)setMyPos({lat:e.coords.latitude,lng:e.coords.longitude}); });
         map.on("load",()=>{ setTimeout(()=>{try{geo.trigger();}catch(e){}},400); });
         map.on("click",e=>{
-          const which=placingRef.current, c={lat:e.lngLat.lat,lng:e.lngLat.lng};
-          setPins(p=>({...p,[which]:c}));
-          let mk=markRef.current[which];
-          if(mk)mk.setLngLat([c.lng,c.lat]); else { mk=new mapboxgl.Marker({color:PIN[which],draggable:true}).setLngLat([c.lng,c.lat]).addTo(map); mk.on("dragend",()=>{const ll=mk.getLngLat();setPins(p=>({...p,[which]:{lat:ll.lat,lng:ll.lng}}));}); markRef.current[which]=mk; }
-          if(which==="drop1"&&!pinsRef.current.pickup)setPlacing("pickup");
-          else if(which==="pickup"&&!pinsRef.current.drop)setPlacing("drop");
+          const {id,kind}=placingRef.current, c={lat:e.lngLat.lat,lng:e.lngLat.lng};
+          setOrders(os=>os.map(o=>o.id===id?{...o,[kind]:c}:o));
+          if(kind==="pickup")setPlacing(p=>({...p,kind:"drop"}));
         });
       }catch(e){ if(!cancelled)setErr("Map couldn't load — you can still type the addresses below."); }
     })();
     return ()=>{cancelled=true; if(map)map.remove();};
   },[]);
 
-  function clearPins(){
-    setPins({drop1:null,pickup:null,drop:null});
-    Object.values(markRef.current).forEach(m=>m&&m.remove()); markRef.current={};
-    setPlacing("drop1"); setRes(null);
-  }
-  async function resolve(which,text,near){ if(pins[which])return pins[which]; if(text&&text.trim())return await geocodeText(text,near?.lat,near?.lng); return null; }
+  // Keep the numbered map pins in sync with the orders list (P1/D1, P2/D2, …).
+  useEffect(()=>{
+    const map=mapRef.current, gl=glRef.current; if(!map||!gl)return;
+    const wanted=new Set();
+    orders.forEach((o,i)=>{
+      [["pickup",o.pickup,"#06c167","P"+(i+1)],["drop",o.drop,"#ef4444","D"+(i+1)]].forEach(([kind,coord,color,text])=>{
+        if(!coord)return;
+        const key=o.id+"-"+kind; wanted.add(key);
+        let mk=markRef.current[key];
+        if(!mk){ mk=new gl.Marker({element:stackMarkerEl(text,color),draggable:true}).setLngLat([coord.lng,coord.lat]).addTo(map); mk.on("dragend",()=>{const ll=mk.getLngLat(); upd(o.id,{[kind]:{lat:ll.lat,lng:ll.lng}});}); markRef.current[key]=mk; }
+        else { mk.setLngLat([coord.lng,coord.lat]); mk.getElement().textContent=text; }
+      });
+    });
+    Object.keys(markRef.current).forEach(k=>{ if(!wanted.has(k)){markRef.current[k].remove(); delete markRef.current[k];} });
+  },[orders]);
+
+  function addOrder(){ if(orders.length>=6)return; const id=idRef.current++; setOrders(os=>[...os,{id,pickup:null,drop:null,pText:"",dText:"",pay:""}]); setPlacing({id,kind:"pickup"}); }
+  function removeOrder(id){ setOrders(os=>os.filter(o=>o.id!==id)); setPlacing(p=>p.id===id?{id:(orders.find(o=>o.id!==id)||{}).id??0,kind:"pickup"}:p); setRes(null); }
 
   async function check(){
     setErr("");setRes(null);
     const start=myPos||(gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null);
-    if(!start){setErr("We need your location first — tap the ⌖ locate button on the map (top-right) and allow location.");return;}
-    const p=pay?parseFloat(String(pay).replace(/[^0-9.]/g,"")):0;
+    if(!start){setErr("We need your location — tap the ⌖ locate button on the map (top-right) and allow it.");return;}
     setLoading(true);
     try{
-      const [b,c,d]=await Promise.all([resolve("drop1",drop1,start),resolve("pickup",pickup,start),resolve("drop",drop,start)]);
-      if(!b||!c||!d){setErr("Set order 1's drop-off, plus the new order's pickup and drop-off (pins or addresses).");setLoading(false);return;}
-      const m=await mapboxMatrix([start,b,c,d]);   // 0=you, 1=order-1 drop, 2=new pickup, 3=new drop
+      const points=[start], ord=[];
+      for(const o of orders){
+        const pk=o.pickup||(o.pText.trim()?await geocodeText(o.pText,start.lat,start.lng):null);
+        const dp=o.drop||(o.dText.trim()?await geocodeText(o.dText,start.lat,start.lng):null);
+        if(!dp){setErr("Every order needs a drop-off (pin or address).");setLoading(false);return;}
+        let pIdx=null; if(pk){points.push(pk);pIdx=points.length-1;}
+        points.push(dp); ord.push({pickupIdx:pIdx,dropIdx:points.length-1,pay:o.pay?parseFloat(String(o.pay).replace(/[^0-9.]/g,"")):0});
+      }
+      if(points.length>25){setErr("Too many stops — keep it to about 6 orders.");setLoading(false);return;}
+      const m=await mapboxMatrix(points);
       if(!m){setErr("Routing is unavailable right now — try again.");setLoading(false);return;}
-      setRes(stackFit(m,windowMin,p));
+      const plan=planStack(m,ord,windowMin);
+      if(!plan){setErr("Couldn't work out a route — try again.");setLoading(false);return;}
+      setRes(plan);
     }catch(e){setErr("Something went wrong — try again.");}
     setLoading(false);
   }
 
-  const modes=[["drop1","🔵 Order-1 drop"],["pickup","📍 New pickup"],["drop","🏁 New drop"]];
-  const modeName={drop1:"order-1 drop-off",pickup:"new pickup",drop:"new drop-off"};
+  const activeIdx=orders.findIndex(o=>o.id===placing.id);
   return(
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>STACK CHECK</div>
-      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:12}}>ADMIN TEST · WILL A NEW ORDER FIT MY {windowMin}-MIN WINDOW?</div>
-      <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5,marginBottom:14}}>You're already carrying order&nbsp;1 (heading to its drop-off). Drop pins for that drop-off and the new order's pickup + drop-off — it checks if both deliver within {windowMin} minutes.</div>
+      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:10}}>ADMIN TEST · FIT MULTIPLE ORDERS IN THE {windowMin}-MIN WINDOW</div>
+      <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5,marginBottom:12}}>Add each order (pickup + drop-off), pin them on the map, and it finds the best route from where you are and tells you which orders still deliver within {windowMin} minutes.</div>
 
-      <div style={{display:"flex",gap:6,marginBottom:8}}>
-        {modes.map(([id,l])=>(
-          <button key={id} onClick={()=>setPlacing(id)} style={{flex:1,background:placing===id?PIN[id]:"var(--card)",border:"1px solid "+(placing===id?PIN[id]:"var(--border)"),borderRadius:10,padding:"9px 4px",...B,fontWeight:700,fontSize:11,letterSpacing:0.2,color:placing===id?"#fff":"var(--muted)",cursor:"pointer"}}>{l}{pins[id]?" ✓":""}</button>
-        ))}
-      </div>
-      <div style={{fontSize:10,...M,color:"var(--muted2)",marginBottom:8}}>Tap the map to drop the <b style={{color:PIN[placing]}}>{modeName[placing]}</b> pin · drag to fine-tune. Use ⌖ (top-right) for your location.</div>
-      <div ref={mapEl} style={{height:300,borderRadius:14,overflow:"hidden",border:"1px solid var(--border)",marginBottom:8,background:"var(--border3)"}}/>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:9,...M,color:"var(--faint)"}}>🔵 order-1 drop · 📍 new pickup · 🏁 new drop</div>
-        {(pins.drop1||pins.pickup||pins.drop)&&<button onClick={clearPins} style={{background:"none",border:"none",...M,fontSize:11,fontWeight:700,color:"#ef4444",cursor:"pointer"}}>Clear pins</button>}
-      </div>
+      <div style={{fontSize:10,...M,color:"var(--muted2)",marginBottom:8}}>{activeIdx>=0?<>Tap the map to set <b style={{color:placing.kind==="pickup"?"#06c167":"#ef4444"}}>Order {activeIdx+1} {placing.kind==="pickup"?"pickup":"drop-off"}</b> · drag to fine-tune. Use ⌖ for your location.</>:"Add an order below to start."}</div>
+      <div ref={mapEl} style={{height:300,borderRadius:14,overflow:"hidden",border:"1px solid var(--border)",marginBottom:12,background:"var(--border3)"}}/>
 
-      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-        <div style={{fontSize:9,...M,color:"var(--faint)",letterSpacing:1}}>OR TYPE ADDRESSES (a pin overrides the box)</div>
-        <div><div style={lbl}>ORDER-1 DROP-OFF {pins.drop1?"· 📍 pinned":""}</div><input value={drop1} onChange={e=>setDrop1(e.target.value)} placeholder="Where you're delivering order 1" style={fld}/></div>
-        <div><div style={lbl}>NEW ORDER — PICKUP {pins.pickup?"· 📍 pinned":""}</div><input value={pickup} onChange={e=>setPickup(e.target.value)} placeholder="Restaurant / pickup address" style={fld}/></div>
-        <div><div style={lbl}>NEW ORDER — DROP-OFF {pins.drop?"· 📍 pinned":""}</div><input value={drop} onChange={e=>setDrop(e.target.value)} placeholder="Delivery address" style={fld}/></div>
-        <div style={{display:"flex",gap:10}}>
-          <div style={{flex:1}}><div style={lbl}>WINDOW (MIN)</div><input value={windowMin} onChange={e=>setWindowMin(Math.max(1,parseInt(String(e.target.value).replace(/[^0-9]/g,""))||0)||45)} inputMode="numeric" style={fld}/></div>
-          <div style={{flex:1}}><div style={lbl}>NEW ORDER PAY (£, optional)</div><input value={pay} onChange={e=>setPay(e.target.value)} inputMode="decimal" placeholder="e.g. 4.50" style={fld}/></div>
-        </div>
-      </div>
+      {orders.map((o,i)=>{
+        const aP=placing.id===o.id&&placing.kind==="pickup", aD=placing.id===o.id&&placing.kind==="drop";
+        return(
+          <div key={o.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px",marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{...B,fontWeight:800,fontSize:13,color:"var(--ink)",letterSpacing:0.5}}>ORDER {i+1}</div>
+              {orders.length>1&&<button onClick={()=>removeOrder(o.id)} style={{background:"none",border:"none",color:"var(--muted2)",fontSize:16,cursor:"pointer",lineHeight:1}}>✕</button>}
+            </div>
+            <div style={{display:"flex",gap:6,marginBottom:8}}>
+              <button onClick={()=>setPlacing({id:o.id,kind:"pickup"})} style={{flex:1,background:aP?"#06c167":"var(--bg)",border:"1px solid "+(aP?"#06c167":"var(--border2)"),borderRadius:9,padding:"8px 4px",...B,fontWeight:700,fontSize:11,color:aP?"#fff":o.pickup?"#06c167":"var(--muted)",cursor:"pointer"}}>📍 Pickup{o.pickup?" ✓":""}</button>
+              <button onClick={()=>setPlacing({id:o.id,kind:"drop"})} style={{flex:1,background:aD?"#ef4444":"var(--bg)",border:"1px solid "+(aD?"#ef4444":"var(--border2)"),borderRadius:9,padding:"8px 4px",...B,fontWeight:700,fontSize:11,color:aD?"#fff":o.drop?"#ef4444":"var(--muted)",cursor:"pointer"}}>🏁 Drop{o.drop?" ✓":""}</button>
+            </div>
+            <input value={o.pText} onChange={e=>upd(o.id,{pText:e.target.value})} placeholder={o.pickup?"📍 pinned · or type pickup":"Pickup address (blank = already collected)"} style={{...fld,marginBottom:6}}/>
+            <input value={o.dText} onChange={e=>upd(o.id,{dText:e.target.value})} placeholder={o.drop?"📍 pinned · or type drop-off":"Drop-off address"} style={{...fld,marginBottom:6}}/>
+            <input value={o.pay} onChange={e=>upd(o.id,{pay:e.target.value})} inputMode="decimal" placeholder="Pay £ (optional)" style={fld}/>
+          </div>
+        );
+      })}
+      {orders.length<6&&<button onClick={addOrder} style={{width:"100%",background:"var(--card)",border:"1px dashed var(--border2)",borderRadius:12,padding:"12px",...B,fontWeight:700,fontSize:13,color:"#00b8a9",cursor:"pointer",marginBottom:12}}>+ Add order ({orders.length}/6)</button>}
+
+      <div style={{marginBottom:12}}><div style={lbl}>DELIVERY WINDOW (MINUTES)</div><input value={windowMin} onChange={e=>setWindowMin(Math.max(1,parseInt(String(e.target.value).replace(/[^0-9]/g,""))||0)||45)} inputMode="numeric" style={fld}/></div>
       {err&&<div style={{fontSize:12,...M,color:"#ef4444",marginBottom:12}}>{err}</div>}
-      <button onClick={check} disabled={loading} style={{width:"100%",minHeight:56,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontWeight:800,fontSize:17,letterSpacing:0.5,color:loading?"var(--faint)":"#003",cursor:loading?"default":"pointer"}}>{loading?"CHECKING ROUTE…":"CAN I STACK THIS?"}</button>
+      <button onClick={check} disabled={loading} style={{width:"100%",minHeight:56,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontWeight:800,fontSize:17,letterSpacing:0.5,color:loading?"var(--faint)":"#003",cursor:loading?"default":"pointer"}}>{loading?"WORKING OUT THE ROUTE…":"CHECK THE STACK"}</button>
 
       {res&&(()=>{
-        const low=res.rate!=null&&res.rate<STACK_CFG.minRate;
-        const v=!res.feasible?{t:"❌ Won't fit in "+res.windowMin+" min",c:"#ef4444",bg:"var(--tint-red)"}
-              :low?{t:"⚠️ Fits — but low pay",c:"#f5a623",bg:"var(--tint-amber)"}
-              :{t:"✅ Yes — you can take it",c:"#06c167",bg:"var(--tint-green)"};
-        const W=res.windowMin;
-        const col=x=>x>W?"#ef4444":"#06c167";
+        const v=res.feasible?{t:"✅ You can take them all",c:"#06c167",bg:"var(--tint-green)"}:{t:"❌ Some won't fit in "+res.windowMin+" min",c:"#ef4444",bg:"var(--tint-red)"};
         return(
           <div style={{marginTop:16,background:v.bg,border:"1px solid "+v.c+"55",borderRadius:16,padding:"18px"}}>
-            <div style={{...B,fontWeight:800,fontSize:23,color:v.c,letterSpacing:0.5,marginBottom:12}}>{v.t}</div>
-            <div style={{display:"flex",gap:8,marginBottom:12}}>
-              <div style={{flex:1,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}><div style={{...B,fontWeight:800,fontSize:18,color:col(res.order1Min)}}>{res.order1Min}m</div><div style={{fontSize:8,...M,color:"var(--muted2)",letterSpacing:0.5,marginTop:3}}>ORDER 1 →B</div></div>
-              <div style={{flex:1,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}><div style={{...B,fontWeight:800,fontSize:18,color:col(res.order2Min)}}>{res.order2Min}m</div><div style={{fontSize:8,...M,color:"var(--muted2)",letterSpacing:0.5,marginTop:3}}>NEW C→D</div></div>
-              <div style={{flex:1,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}><div style={{...B,fontWeight:800,fontSize:18,color:v.c}}>+{res.extraMin}m</div><div style={{fontSize:8,...M,color:"var(--muted2)",letterSpacing:0.5,marginTop:3}}>EXTRA TIME</div></div>
-              {res.rate!=null&&<div style={{flex:1,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}><div style={{...B,fontWeight:800,fontSize:18,color:low?"#f5a623":"#06c167"}}>£{res.rate}</div><div style={{fontSize:8,...M,color:"var(--muted2)",letterSpacing:0.5,marginTop:3}}>£/HR EXTRA</div></div>}
+            <div style={{...B,fontWeight:800,fontSize:22,color:v.c,letterSpacing:0.5,marginBottom:12}}>{v.t}</div>
+            <div style={{marginBottom:10}}>
+              {res.perOrder.map(o=>(
+                <div key={o.n} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid var(--border3)"}}>
+                  <span style={{...M,fontSize:13,color:"var(--ink)"}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
+                  <span style={{...B,fontWeight:800,fontSize:14,color:o.fits?"#06c167":"#ef4444"}}>{o.mins}m {o.fits?"✓":"✗ over"}</span>
+                </div>
+              ))}
             </div>
-            {!res.feasible&&<div style={{fontSize:11.5,...M,color:"#ef4444",marginBottom:10}}>{res.over==="order1"?`Order 1 would take ${res.order1Min}m to deliver — over the ${W}-min window.`:`The new order would take ${res.order2Min}m pickup-to-drop — over the ${W}-min window.`}</div>}
-            <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5}}><b style={{color:"var(--ink)"}}>Best route:</b> {res.order.join("  →  ")}</div>
-            <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>+{res.extraMiles}mi extra · traffic-aware driving times from Mapbox · window {W}m (editable).</div>
+            <div style={{fontSize:12,...M,color:"var(--muted)",marginBottom:6}}>Whole run: <b style={{color:"var(--ink)"}}>{res.totalMin}m</b> · {res.totalMiles}mi{res.rate!=null?" · £"+res.rate+"/hr":""}</div>
+            <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}><b style={{color:"var(--ink)"}}>Best route:</b> {res.order.join("  →  ")}</div>
+            <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>P = pickup, D = drop · traffic-aware driving times from Mapbox · window {res.windowMin}m (editable).</div>
           </div>
         );
       })()}
