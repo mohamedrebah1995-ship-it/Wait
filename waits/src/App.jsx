@@ -965,6 +965,67 @@ async function geocodeBranch(lat,lng,name) {
   }catch(e){return null;}
 }
 
+// ── STACK CHECK (admin test) — "can I take another order?" ─────────────────────
+// Tunable buffer thresholds. Admin can tweak these while testing before going live.
+const STACK_CFG = { targetRate:13, minRate:8, maxExtraMin:20 };   // £/hr targets + max extra detour
+
+// Geocode a typed address / place → {lat,lng,label}. Mapbox forward search (biased to the driver).
+async function geocodeText(q,lat,lng){
+  if(!MAPBOX_TOKEN||!q||!q.trim())return null;
+  try{
+    let url=`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(q.trim())}&limit=1&access_token=${MAPBOX_TOKEN}`;
+    if(lat!=null&&lng!=null)url+=`&proximity=${lng},${lat}`;
+    const res=await fetch(url); const g=await res.json();
+    const f=g.features?.[0]; if(!f)return null;
+    const p=f.properties||{};
+    const lo=p.coordinates?.longitude??f.geometry?.coordinates?.[0];
+    const la=p.coordinates?.latitude??f.geometry?.coordinates?.[1];
+    return la!=null?{lat:la,lng:lo,label:p.name||p.full_address||q.trim()}:null;
+  }catch(e){return null;}
+}
+
+// Mapbox Matrix API — one call returns pairwise driving durations (s) + distances (m) for all points.
+async function mapboxMatrix(points){
+  if(!MAPBOX_TOKEN||!points||points.length<2)return null;
+  const coords=points.map(p=>`${p.lng},${p.lat}`).join(";");
+  try{
+    const res=await fetch(`https://api.mapbox.com/directions-matrix/v1/mapbox/driving/${coords}?annotations=duration,distance&access_token=${MAPBOX_TOKEN}`);
+    const g=await res.json();
+    return (g.durations&&g.distances)?{dur:g.durations,dist:g.distances}:null;
+  }catch(e){return null;}
+}
+
+// Decide whether to stack the new order. Indices: 0=you(GPS), then current-drop (if any), pickup, drop.
+// Compares your baseline route (finish current drop) with the best stacked route, and rates the
+// extra time against the extra pay. Returns the verdict + the numbers + the recommended stop order.
+function stackDecision(m, hasCurrent, pay){
+  const D=m.dur, X=m.dist;
+  const G=0, C=hasCurrent?1:-1, P=hasCurrent?2:1, DP=hasCurrent?3:2;
+  const seqDur=s=>s.reduce((t,_,i)=>i?t+D[s[i-1]][s[i]]:0,0);
+  const seqDist=s=>s.reduce((t,_,i)=>i?t+X[s[i-1]][s[i]]:0,0);
+  let stacked, baseDur=0, baseDist=0, orderIdx;
+  if(hasCurrent){
+    baseDur=D[G][C]; baseDist=X[G][C];
+    const cands=[[G,P,C,DP],[G,P,DP,C],[G,C,P,DP]];
+    let best=cands[0], bestT=seqDur(cands[0]);
+    for(const s of cands){ const t=seqDur(s); if(t<bestT){bestT=t;best=s;} }
+    stacked=bestT; orderIdx=best; var stackedDist=seqDist(best);
+  } else {
+    orderIdx=[G,P,DP]; stacked=seqDur(orderIdx); var stackedDist=seqDist(orderIdx);
+  }
+  const extraSec=Math.max(0,stacked-baseDur);
+  const extraMin=Math.round(extraSec/60);
+  const extraMiles=Math.round((Math.max(0,stackedDist-baseDist))/1609.34*10)/10;
+  const rate=extraSec>0?pay/(extraSec/3600):999;
+  let verdict;
+  if(extraMin>STACK_CFG.maxExtraMin) verdict="skip";
+  else if(rate>=STACK_CFG.targetRate) verdict="take";
+  else if(rate<STACK_CFG.minRate) verdict="skip";
+  else verdict="marginal";
+  const label={[G]:"You",[P]:"New pickup",[DP]:"New drop"}; if(hasCurrent)label[C]="Current drop";
+  return { verdict, extraMin, extraMiles, rate:Math.round(rate), order:orderIdx.map(i=>label[i]) };
+}
+
 // Search restaurants by name — used in the picker so drivers can find any restaurant anywhere.
 // Mapbox Search Box only (no Google). Mapbox carries no opening hours, so openNow stays unknown.
 async function searchRestaurants(query,lat,lng) {
@@ -3833,12 +3894,81 @@ function HelpScreen({lang,onBack}){
   );
 }
 
+// ── STACK CHECK SCREEN (admin test) ───────────────────────────────────────────
+function StackScreen({gps,activeOrders}){
+  const [heading,setHeading]=useState("");
+  const [pickup,setPickup]=useState("");
+  const [drop,setDrop]=useState("");
+  const [pay,setPay]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [res,setRes]=useState(null);
+  const [err,setErr]=useState("");
+  const fld={width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"13px 15px",color:"var(--ink)",fontSize:15,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
+  const lbl={fontSize:10,...M,fontWeight:700,color:"var(--muted)",letterSpacing:0.5,marginBottom:5};
+
+  async function check(){
+    setErr("");setRes(null);
+    if(gps.status!=="active"||gps.lat==null){setErr("Turn on location first — the check starts from where you are.");return;}
+    const p=parseFloat(String(pay).replace(/[^0-9.]/g,""));
+    if(!pickup.trim()||!drop.trim()){setErr("Enter the new order's pickup and drop-off.");return;}
+    if(!(p>0)){setErr("Enter the offered pay.");return;}
+    setLoading(true);
+    try{
+      const [np,nd,cd]=await Promise.all([
+        geocodeText(pickup,gps.lat,gps.lng),
+        geocodeText(drop,gps.lat,gps.lng),
+        heading.trim()?geocodeText(heading,gps.lat,gps.lng):Promise.resolve(null),
+      ]);
+      if(!np||!nd){setErr("Couldn't find one of those addresses — try being more specific.");setLoading(false);return;}
+      const pts=[{lat:gps.lat,lng:gps.lng},...(cd?[cd]:[]),np,nd];
+      const m=await mapboxMatrix(pts);
+      if(!m){setErr("Routing is unavailable right now — try again.");setLoading(false);return;}
+      setRes({...stackDecision(m,!!cd,p),np,nd,cd,pay:p});
+    }catch(e){setErr("Something went wrong — try again.");}
+    setLoading(false);
+  }
+
+  const V={take:{t:"✅ Take it",c:"#06c167",bg:"var(--tint-green)"},marginal:{t:"⚠️ Marginal",c:"#f5a623",bg:"var(--tint-amber)"},skip:{t:"❌ Skip it",c:"#ef4444",bg:"var(--tint-red)"}};
+  return(
+    <div style={{padding:"20px 16px 100px"}}>
+      <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>STACK CHECK</div>
+      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:16}}>ADMIN TEST · CAN I TAKE ANOTHER ORDER?</div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>
+        <div><div style={lbl}>CURRENTLY HEADING TO (optional)</div><input value={heading} onChange={e=>setHeading(e.target.value)} placeholder="Your current drop-off — leave blank if free" style={fld}/></div>
+        <div><div style={lbl}>NEW ORDER — PICKUP</div><input value={pickup} onChange={e=>setPickup(e.target.value)} placeholder="Restaurant / pickup address" style={fld}/></div>
+        <div><div style={lbl}>NEW ORDER — DROP-OFF</div><input value={drop} onChange={e=>setDrop(e.target.value)} placeholder="Delivery address" style={fld}/></div>
+        <div><div style={lbl}>OFFERED PAY (£)</div><input value={pay} onChange={e=>setPay(e.target.value)} inputMode="decimal" placeholder="e.g. 4.50" style={fld}/></div>
+      </div>
+      {err&&<div style={{fontSize:12,...M,color:"#ef4444",marginBottom:12}}>{err}</div>}
+      <button onClick={check} disabled={loading} style={{width:"100%",minHeight:56,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontWeight:800,fontSize:17,letterSpacing:0.5,color:loading?"var(--faint)":"#003",cursor:loading?"default":"pointer"}}>{loading?"CHECKING ROUTE…":"CHECK IF I CAN STACK"}</button>
+
+      {res&&(()=>{const v=V[res.verdict];return(
+        <div style={{marginTop:16,background:v.bg,border:"1px solid "+v.c+"55",borderRadius:16,padding:"18px"}}>
+          <div style={{...B,fontWeight:800,fontSize:24,color:v.c,letterSpacing:0.5,marginBottom:12}}>{v.t}</div>
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            {[["+"+res.extraMin+"m","EXTRA TIME"],["+"+res.extraMiles+"mi","EXTRA DISTANCE"],["£"+res.rate+"/hr","ON THIS ORDER"]].map(([val,l],i)=>(
+              <div key={i} style={{flex:1,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+                <div style={{...B,fontWeight:800,fontSize:18,color:v.c}}>{val}</div>
+                <div style={{fontSize:8,...M,color:"var(--muted2)",letterSpacing:0.5,marginTop:3}}>{l}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5}}><b style={{color:"var(--ink)"}}>Best order:</b> {res.order.join("  →  ")}</div>
+          <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>Rates the extra time against the pay · target £{STACK_CFG.targetRate}/hr, skip under £{STACK_CFG.minRate}/hr or over +{STACK_CFG.maxExtraMin}m. Driving times from Mapbox.</div>
+        </div>
+      );})()}
+    </div>
+  );
+}
+
 // ── BOTTOM NAV ────────────────────────────────────────────────────────────────
-function BottomNav({screen,onNav,activeWait,unreadChat}) {
+function BottomNav({screen,onNav,activeWait,unreadChat,isAdmin}) {
   const tabs=[
     {id:"waits",icon:"⏱",label:t("nav_waits"),dot:activeWait,  color:"#00b8a9"},
     {id:"stats",icon:"📊",label:t("nav_stats"),dot:false,       color:"#f5a623"},
     {id:"chat", icon:"💬",label:t("nav_chat"), dot:unreadChat,  color:"#06c167"},
+    ...(isAdmin?[{id:"stack",icon:"📦",label:"STACK",dot:false,color:"#2b8fff"}]:[]),   // admin-only test tab
   ];
   // Floating circles instead of a flat bar — stay fixed (always visible), merged onto the page.
   // pointerEvents:none on the strip + auto on the circles keeps swipes/taps in the gaps passing through.
@@ -4828,6 +4958,8 @@ export default function App() {
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts} accountLogs={user?.logCount||0}/>
           ):screen==="stats"?(
             <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftsLog={shiftsLog} activeShift={activeShift} myName={user.name}/>
+          ):screen==="stack"&&hasAdminPerks(user)?(
+            <StackScreen gps={gps} activeOrders={activeOrders}/>
           ):(
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)} isAdmin={hasAdminPerks(user)}/>
           )}
@@ -4861,7 +4993,7 @@ export default function App() {
         )}
         {/* First-login notification opt-in (wait reminders only) */}
         {showNotifPrompt&&<NotifPrompt onAllow={allowNotifs} onSkip={skipNotifs}/>}
-        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat} isAdmin={hasAdminPerks(user)}/>}
       </div>
     </div>
   );
