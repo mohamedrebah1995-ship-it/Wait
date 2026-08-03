@@ -970,6 +970,12 @@ async function geocodeBranch(lat,lng,name) {
 // windowMin = the delivery deadline most platforms give (pickup → drop within 45 min).
 // minRate is only used for a soft "low pay" note; the real verdict is whether it FITS in time.
 const STACK_CFG = { windowMin:45, minRate:10 };
+// Stack Check time-budget assumptions. TEMPORARY flat values — once waitEngine.js has enough
+// real samples for a restaurant+hour, that average OVERRIDES the flat PICKUP_DWELL_MIN below.
+const PICKUP_DWELL_MIN  = 5;                 // per pickup: parking + walking in + waiting if not ready + walking back
+const DROPOFF_DWELL_MIN = 2;                 // per drop-off: parking + walking to the door + handover
+const SAME_PLATFORM_STACK_BONUS_MIN = 45;    // extra window for the LAST order of a same-platform group of 2+ (capped at 45)
+const STACK_PLATFORMS = ["Deliveroo","Uber Eats","Just Eat","Other"];
 
 // Geocode a typed address / place → {lat,lng,label}. Mapbox forward search (biased to the driver).
 async function geocodeText(q,lat,lng){
@@ -1010,12 +1016,12 @@ function stackMarkerEl(text,color){
 // index 0). Finds the best legal stop order (each order's pickup before its own drop) and checks
 // every order delivers within the window (pickup→drop, or now→drop if already in hand). Branch-and-
 // bound with a safety cap so it stays fast for the realistic 2–6 orders.
-function planStack(m, orders, windowMin, waitAt){
-  const D=m.dur, X=m.dist, W=windowMin*60;
-  waitAt=waitAt||{};                                                          // {pickupIdx: seconds of wait at that pickup} — 0/absent = today's behaviour
+function planStack(m, orders, dwell){
+  const D=m.dur, X=m.dist;
+  dwell=dwell||{};                                                          // {stopIdx: seconds spent at that stop} — pickup dwell (real wait or flat) + drop dwell (flat)
   const stopIdxs=[]; orders.forEach(o=>{ if(o.pickupIdx!=null)stopIdxs.push(o.pickupIdx); stopIdxs.push(o.dropIdx); });
   const dropToPickup={}; orders.forEach(o=>{ if(o.pickupIdx!=null)dropToPickup[o.dropIdx]=o.pickupIdx; });
-  const windowsOK=arr=>orders.every(o=>{ const pt=o.pickupIdx!=null?arr[o.pickupIdx]:0; return (arr[o.dropIdx]-pt)<=W; });
+  const windowsOK=arr=>orders.every(o=>{ const pt=o.pickupIdx!=null?arr[o.pickupIdx]:0; return (arr[o.dropIdx]-pt)<=o.windowSec; });   // per-order window (incl. same-platform bonus)
   let best=null, count=0; const CAP=300000;
   (function rec(seq,used,time,arr){
     if(count>CAP)return;
@@ -1030,8 +1036,8 @@ function planStack(m, orders, windowMin, waitAt){
     for(const s of stopIdxs){
       if(used.has(s))continue;
       if(dropToPickup[s]!==undefined&&!used.has(dropToPickup[s]))continue;   // can't drop before its pickup
-      const t=time+(waitAt[last]||0)+D[last][s];                            // + real wait at the pickup you're leaving (0 until data exists)
-      if(best&&best.ok&&t>=best.total)continue;                              // prune slower partials
+      const t=time+(dwell[last]||0)+D[last][s];                             // + dwell at the stop you're leaving (real wait / flat pickup / flat drop)
+      if(best&&best.ok&&t>=best.total)continue;                             // prune slower partials
       used.add(s);arr[s]=t;seq.push(s);
       rec(seq,used,t,arr);
       seq.pop();used.delete(s);delete arr[s];
@@ -1039,7 +1045,7 @@ function planStack(m, orders, windowMin, waitAt){
   })([],new Set(),0,{});
   if(!best)return null;
   const arr=best.arr;
-  const perOrder=orders.map((o,i)=>{ const pt=o.pickupIdx!=null?arr[o.pickupIdx]:0; const mins=Math.round((arr[o.dropIdx]-pt)/60); return {n:i+1, mins, fits:mins<=windowMin, hasPickup:o.pickupIdx!=null}; });
+  const perOrder=orders.map((o,i)=>{ const pt=o.pickupIdx!=null?arr[o.pickupIdx]:0; const dur=arr[o.dropIdx]-pt; return {n:i+1, mins:Math.round(dur/60), fits:dur<=o.windowSec, hasPickup:o.pickupIdx!=null, bonus:!!o.bonus, platform:o.platform||null}; });
   const label={}; orders.forEach((o,i)=>{ if(o.pickupIdx!=null)label[o.pickupIdx]="P"+(i+1); label[o.dropIdx]="D"+(i+1); });
   let d=0,last=0; for(const s of best.seq){ d+=X[last][s]; last=s; }
   const totalPay=orders.reduce((s,o)=>s+(o.pay||0),0);
@@ -1050,7 +1056,6 @@ function planStack(m, orders, windowMin, waitAt){
     totalMin:Math.round(best.total/60),
     totalMiles:Math.round(d/1609.34*10)/10,
     rate: totalPay>0&&best.total>0?Math.round(totalPay/(best.total/3600)):null,
-    windowMin,
   };
 }
 
@@ -3924,7 +3929,7 @@ function HelpScreen({lang,onBack}){
 
 // ── STACK CHECK SCREEN (admin test) ───────────────────────────────────────────
 function StackScreen({gps,activeOrders}){
-  const [orders,setOrders]=useState([{id:0,pickup:null,drop:null,pText:"",dText:"",pay:""}]);
+  const [orders,setOrders]=useState([{id:0,pickup:null,drop:null,pText:"",dText:"",pay:"",platform:null}]);
   const [placing,setPlacing]=useState({id:0,kind:"pickup"});
   const [windowMin,setWindowMin]=useState(STACK_CFG.windowMin);
   const [myPos,setMyPos]=useState(gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null);
@@ -3991,7 +3996,7 @@ function StackScreen({gps,activeOrders}){
     trackWait(gps,pickups);
   },[gps.lat,gps.lng,orders]);
 
-  function addOrder(){ if(orders.length>=6)return; const id=idRef.current++; setOrders(os=>[...os,{id,pickup:null,drop:null,pText:"",dText:"",pay:""}]); setPlacing({id,kind:"pickup"}); }
+  function addOrder(){ if(orders.length>=6)return; const id=idRef.current++; setOrders(os=>[...os,{id,pickup:null,drop:null,pText:"",dText:"",pay:"",platform:null}]); setPlacing({id,kind:"pickup"}); }
   function removeOrder(id){ setOrders(os=>os.filter(o=>o.id!==id)); setPlacing(p=>p.id===id?{id:(orders.find(o=>o.id!==id)||{}).id??0,kind:"pickup"}:p); setRes(null); }
 
   async function check(){
@@ -4006,17 +4011,30 @@ function StackScreen({gps,activeOrders}){
         const dp=o.drop||(o.dText.trim()?await geocodeText(o.dText,start.lat,start.lng):null);
         if(!dp){setErr("Every order needs a drop-off (pin or address).");setLoading(false);return;}
         let pIdx=null, pKey=null; if(pk){points.push(pk);pIdx=points.length-1;pKey=restaurantKey(o.pText||"",pk.lat,pk.lng);}
-        points.push(dp); ord.push({pickupIdx:pIdx,dropIdx:points.length-1,pay:o.pay?parseFloat(String(o.pay).replace(/[^0-9.]/g,"")):0,pKey});
+        points.push(dp); ord.push({pickupIdx:pIdx,dropIdx:points.length-1,pay:o.pay?parseFloat(String(o.pay).replace(/[^0-9.]/g,"")):0,pKey,platform:o.platform||null});
       }
       if(points.length>25){setErr("Too many stops — keep it to about 6 orders.");setLoading(false);return;}
       const m=await mapboxMatrix(points);
       if(!m){setErr("Routing is unavailable right now — try again.");setLoading(false);return;}
-      // Real per-restaurant/hour wait times where enough samples exist (else 0 — unchanged behaviour).
-      const hour=new Date().getHours(), waitAt={};
-      await Promise.all(ord.map(async o=>{ if(o.pKey){ const wa=await getWaitAverage(o.pKey,hour); if(wa)waitAt[o.pickupIdx]=Math.round(wa.avgMin*60); } }));
-      const plan=planStack(m,ord,windowMin,waitAt);
+      // Dwell per stop: pickup = real restaurant wait if enough samples exist, else flat PICKUP_DWELL_MIN;
+      // drop-off = flat DROPOFF_DWELL_MIN. Applied per stop, so N orders = N pickup + N drop buffers.
+      const hour=new Date().getHours(), dwell={}; let usedWait=false;
+      await Promise.all(ord.map(async o=>{
+        if(o.pickupIdx!=null){
+          let sec=PICKUP_DWELL_MIN*60;
+          if(o.pKey){ const wa=await getWaitAverage(o.pKey,hour); if(wa){ sec=Math.round(wa.avgMin*60); usedWait=true; } }
+          dwell[o.pickupIdx]=sec;
+        }
+        dwell[o.dropIdx]=DROPOFF_DWELL_MIN*60;
+      }));
+      // Same-platform stacking bonus: the LAST order (in list order) of each known-platform group of
+      // 2+ gets the extra window. Different platforms / single / "Other" → no bonus (independent).
+      const byPlat={}; ord.forEach((o,i)=>{ if(o.platform&&o.platform!=="Other")(byPlat[o.platform]=byPlat[o.platform]||[]).push(i); });
+      const bonusIdx=new Set(); for(const p in byPlat){ if(byPlat[p].length>=2)bonusIdx.add(byPlat[p][byPlat[p].length-1]); }
+      ord.forEach((o,i)=>{ o.bonus=bonusIdx.has(i); o.windowSec=(windowMin+(o.bonus?SAME_PLATFORM_STACK_BONUS_MIN:0))*60; });
+      const plan=planStack(m,ord,dwell);
       if(!plan){setErr("Couldn't work out a route — try again.");setLoading(false);return;}
-      setRes({...plan,usedWait:Object.values(waitAt).some(v=>v>0)});
+      setRes({...plan,usedWait});
     }catch(e){setErr("Something went wrong — try again.");}
     setLoading(false);
   }
@@ -4050,7 +4068,12 @@ function StackScreen({gps,activeOrders}){
             </div>
             <input value={o.pText} onChange={e=>upd(o.id,{pText:e.target.value})} placeholder={o.pickup?"📍 pinned · or type pickup":"Pickup address (blank = already collected)"} style={{...fld,marginBottom:6}}/>
             <input value={o.dText} onChange={e=>upd(o.id,{dText:e.target.value})} placeholder={o.drop?"📍 pinned · or type drop-off":"Drop-off address"} style={{...fld,marginBottom:6}}/>
-            <input value={o.pay} onChange={e=>upd(o.id,{pay:e.target.value})} inputMode="decimal" placeholder="Pay £ (optional)" style={fld}/>
+            <input value={o.pay} onChange={e=>upd(o.id,{pay:e.target.value})} inputMode="decimal" placeholder="Pay £ (optional)" style={{...fld,marginBottom:6}}/>
+            <div style={{display:"flex",gap:4}}>
+              {STACK_PLATFORMS.map(p=>{ const on=o.platform===p; return(
+                <button key={p} onClick={()=>upd(o.id,{platform:on?null:p})} style={{flex:1,background:on?"#00b8a9":"var(--bg)",border:"1px solid "+(on?"#00b8a9":"var(--border2)"),borderRadius:8,padding:"7px 2px",...B,fontWeight:700,fontSize:9.5,color:on?"#fff":"var(--muted)",cursor:"pointer"}}>{p}</button>
+              );})}
+            </div>
           </div>
         );
       })}
@@ -4066,9 +4089,10 @@ function StackScreen({gps,activeOrders}){
             <div style={{...B,fontWeight:800,fontSize:22,color:v.c,letterSpacing:0.5,marginBottom:12}}>{v.t}</div>
             <div style={{marginBottom:10}}>
               {res.perOrder.map(o=>(
-                <div key={o.n} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid var(--border3)"}}>
-                  <span style={{...M,fontSize:13,color:"var(--ink)"}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
-                  <span style={{...B,fontWeight:800,fontSize:14,color:o.fits?"#06c167":"#ef4444"}}>{o.mins}m {o.fits?"✓":"✗ over"}</span>
+                <div key={o.n} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid var(--border3)"}}>
+                  <span style={{...M,fontSize:13,color:"var(--ink)",flexShrink:0}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
+                  <span style={{flex:1,textAlign:"right",fontSize:9.5,...M,fontWeight:700,color:o.bonus?"#00b8a9":"var(--faint)"}}>{o.bonus?"🔗 stacked +"+SAME_PLATFORM_STACK_BONUS_MIN:"independent"}</span>
+                  <span style={{...B,fontWeight:800,fontSize:14,color:o.fits?"#06c167":"#ef4444",flexShrink:0,minWidth:56,textAlign:"right"}}>{o.mins}m {o.fits?"✓":"✗ over"}</span>
                 </div>
               ))}
             </div>
