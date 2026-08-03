@@ -15,6 +15,7 @@ import {
   onSnapshot, getDocs, increment,
 } from "firebase/firestore";
 import { auth, db, setupPush } from "./firebase";
+import { restaurantKey, trackWait, getWaitAverage } from "./waitEngine";   // passive GPS wait-time engine (additive)
 
 // Chat is the heaviest screen and rarely the landing tab — load it (and firebase/storage)
 // on demand the first time a driver opens CHAT, not on first paint.
@@ -1009,8 +1010,9 @@ function stackMarkerEl(text,color){
 // index 0). Finds the best legal stop order (each order's pickup before its own drop) and checks
 // every order delivers within the window (pickup→drop, or now→drop if already in hand). Branch-and-
 // bound with a safety cap so it stays fast for the realistic 2–6 orders.
-function planStack(m, orders, windowMin){
+function planStack(m, orders, windowMin, waitAt){
   const D=m.dur, X=m.dist, W=windowMin*60;
+  waitAt=waitAt||{};                                                          // {pickupIdx: seconds of wait at that pickup} — 0/absent = today's behaviour
   const stopIdxs=[]; orders.forEach(o=>{ if(o.pickupIdx!=null)stopIdxs.push(o.pickupIdx); stopIdxs.push(o.dropIdx); });
   const dropToPickup={}; orders.forEach(o=>{ if(o.pickupIdx!=null)dropToPickup[o.dropIdx]=o.pickupIdx; });
   const windowsOK=arr=>orders.every(o=>{ const pt=o.pickupIdx!=null?arr[o.pickupIdx]:0; return (arr[o.dropIdx]-pt)<=W; });
@@ -1028,7 +1030,7 @@ function planStack(m, orders, windowMin){
     for(const s of stopIdxs){
       if(used.has(s))continue;
       if(dropToPickup[s]!==undefined&&!used.has(dropToPickup[s]))continue;   // can't drop before its pickup
-      const t=time+D[last][s];
+      const t=time+(waitAt[last]||0)+D[last][s];                            // + real wait at the pickup you're leaving (0 until data exists)
       if(best&&best.ok&&t>=best.total)continue;                              // prune slower partials
       used.add(s);arr[s]=t;seq.push(s);
       rec(seq,used,t,arr);
@@ -3980,6 +3982,13 @@ function StackScreen({gps,activeOrders}){
     Object.keys(markRef.current).forEach(k=>{ if(!wanted.has(k)){markRef.current[k].remove(); delete markRef.current[k];} });
   },[orders]);
 
+  // Passive wait-time capture: while Stack Check is open, watch arrivals/departures at pinned
+  // pickups using the existing GPS stream (no new permission). Writes to waitTimeSamples; UI unaffected.
+  useEffect(()=>{
+    const pickups=orders.filter(o=>o.pickup).map(o=>({key:restaurantKey(o.pText||"",o.pickup.lat,o.pickup.lng),lat:o.pickup.lat,lng:o.pickup.lng}));
+    trackWait(gps,pickups);
+  },[gps.lat,gps.lng,orders]);
+
   function addOrder(){ if(orders.length>=6)return; const id=idRef.current++; setOrders(os=>[...os,{id,pickup:null,drop:null,pText:"",dText:"",pay:""}]); setPlacing({id,kind:"pickup"}); }
   function removeOrder(id){ setOrders(os=>os.filter(o=>o.id!==id)); setPlacing(p=>p.id===id?{id:(orders.find(o=>o.id!==id)||{}).id??0,kind:"pickup"}:p); setRes(null); }
 
@@ -3994,15 +4003,18 @@ function StackScreen({gps,activeOrders}){
         const pk=o.pickup||(o.pText.trim()?await geocodeText(o.pText,start.lat,start.lng):null);
         const dp=o.drop||(o.dText.trim()?await geocodeText(o.dText,start.lat,start.lng):null);
         if(!dp){setErr("Every order needs a drop-off (pin or address).");setLoading(false);return;}
-        let pIdx=null; if(pk){points.push(pk);pIdx=points.length-1;}
-        points.push(dp); ord.push({pickupIdx:pIdx,dropIdx:points.length-1,pay:o.pay?parseFloat(String(o.pay).replace(/[^0-9.]/g,"")):0});
+        let pIdx=null, pKey=null; if(pk){points.push(pk);pIdx=points.length-1;pKey=restaurantKey(o.pText||"",pk.lat,pk.lng);}
+        points.push(dp); ord.push({pickupIdx:pIdx,dropIdx:points.length-1,pay:o.pay?parseFloat(String(o.pay).replace(/[^0-9.]/g,"")):0,pKey});
       }
       if(points.length>25){setErr("Too many stops — keep it to about 6 orders.");setLoading(false);return;}
       const m=await mapboxMatrix(points);
       if(!m){setErr("Routing is unavailable right now — try again.");setLoading(false);return;}
-      const plan=planStack(m,ord,windowMin);
+      // Real per-restaurant/hour wait times where enough samples exist (else 0 — unchanged behaviour).
+      const hour=new Date().getHours(), waitAt={};
+      await Promise.all(ord.map(async o=>{ if(o.pKey){ const wa=await getWaitAverage(o.pKey,hour); if(wa)waitAt[o.pickupIdx]=Math.round(wa.avgMin*60); } }));
+      const plan=planStack(m,ord,windowMin,waitAt);
       if(!plan){setErr("Couldn't work out a route — try again.");setLoading(false);return;}
-      setRes(plan);
+      setRes({...plan,usedWait:Object.values(waitAt).some(v=>v>0)});
     }catch(e){setErr("Something went wrong — try again.");}
     setLoading(false);
   }
@@ -4056,7 +4068,7 @@ function StackScreen({gps,activeOrders}){
             </div>
             <div style={{fontSize:12,...M,color:"var(--muted)",marginBottom:6}}>Whole run: <b style={{color:"var(--ink)"}}>{res.totalMin}m</b> · {res.totalMiles}mi{res.rate!=null?" · £"+res.rate+"/hr":""}</div>
             <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}><b style={{color:"var(--ink)"}}>Best route:</b> {res.order.join("  →  ")}</div>
-            <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>P = pickup, D = drop · traffic-aware driving times from Mapbox · window {res.windowMin}m (editable).</div>
+            <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>P = pickup, D = drop · traffic-aware driving times from Mapbox{res.usedWait?" + real restaurant wait times":""} · window {res.windowMin}m (editable).</div>
           </div>
         );
       })()}

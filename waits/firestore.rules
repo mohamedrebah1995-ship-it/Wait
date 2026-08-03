@@ -79,6 +79,17 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // GPS-measured restaurant wait-time samples (Stack Check engine) — create-only, sane duration.
+    match /waitTimeSamples/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.restaurantKey is string
+        && request.resource.data.durationMin is number
+        && request.resource.data.durationMin >= 0
+        && request.resource.data.durationMin <= 60;
+      allow update, delete: if false;
+    }
+
     // Live "waiting now" presence — anyone reads, you only write your own.
     match /activeWaits/{uid} {
       allow read:  if request.auth != null;
