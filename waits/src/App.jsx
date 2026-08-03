@@ -4025,8 +4025,8 @@ function StackScreen({gps,activeOrders}){
   return(
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>STACK CHECK</div>
-      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:10}}>ADMIN TEST · FIT MULTIPLE ORDERS IN THE {windowMin}-MIN WINDOW</div>
-      <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5,marginBottom:10}}>Add each order (pickup + drop-off), pin them on the map, and it finds the best route from where you are and tells you which orders still deliver within {windowMin} minutes.</div>
+      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:10}}>ADMIN TEST · CAN I STACK THESE ORDERS?</div>
+      <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5,marginBottom:10}}>Add each order (pickup + drop-off), pin them on the map, and it finds the best route from where you are and tells you which orders still deliver on time.</div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:10,padding:"8px 12px",marginBottom:14}}>
         <span style={{fontSize:14}}>📊</span>
         <span style={{flex:1,fontSize:11.5,...M,color:"var(--muted)"}}>Wait-time samples collected: <b style={{color:"#00b8a9"}}>{sampleCount===undefined?"…":(sampleCount==null?"—":sampleCount.toLocaleString())}</b></span>
@@ -4056,12 +4056,11 @@ function StackScreen({gps,activeOrders}){
       })}
       {orders.length<6&&<button onClick={addOrder} style={{width:"100%",background:"var(--card)",border:"1px dashed var(--border2)",borderRadius:12,padding:"12px",...B,fontWeight:700,fontSize:13,color:"#00b8a9",cursor:"pointer",marginBottom:12}}>+ Add order ({orders.length}/6)</button>}
 
-      <div style={{marginBottom:12}}><div style={lbl}>DELIVERY WINDOW (MINUTES)</div><input value={windowMin} onChange={e=>setWindowMin(Math.max(1,parseInt(String(e.target.value).replace(/[^0-9]/g,""))||0)||45)} inputMode="numeric" style={fld}/></div>
       {err&&<div style={{fontSize:12,...M,color:"#ef4444",marginBottom:12}}>{err}</div>}
       <button onClick={check} disabled={loading} style={{width:"100%",minHeight:56,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontWeight:800,fontSize:17,letterSpacing:0.5,color:loading?"var(--faint)":"#003",cursor:loading?"default":"pointer"}}>{loading?"WORKING OUT THE ROUTE…":"CHECK THE STACK"}</button>
 
       {res&&(()=>{
-        const v=res.feasible?{t:"✅ You can take them all",c:"#06c167",bg:"var(--tint-green)"}:{t:"❌ Some won't fit in "+res.windowMin+" min",c:"#ef4444",bg:"var(--tint-red)"};
+        const v=res.feasible?{t:"✅ You can take them all",c:"#06c167",bg:"var(--tint-green)"}:{t:"❌ Some won't fit in time",c:"#ef4444",bg:"var(--tint-red)"};
         return(
           <div style={{marginTop:16,background:v.bg,border:"1px solid "+v.c+"55",borderRadius:16,padding:"18px"}}>
             <div style={{...B,fontWeight:800,fontSize:22,color:v.c,letterSpacing:0.5,marginBottom:12}}>{v.t}</div>
@@ -4075,7 +4074,7 @@ function StackScreen({gps,activeOrders}){
             </div>
             <div style={{fontSize:12,...M,color:"var(--muted)",marginBottom:6}}>Whole run: <b style={{color:"var(--ink)"}}>{res.totalMin}m</b> · {res.totalMiles}mi{res.rate!=null?" · £"+res.rate+"/hr":""}</div>
             <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}><b style={{color:"var(--ink)"}}>Best route:</b> {res.order.join("  →  ")}</div>
-            <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>P = pickup, D = drop · traffic-aware driving times from Mapbox{res.usedWait?" + real restaurant wait times":""} · window {res.windowMin}m (editable).</div>
+            <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>P = pickup, D = drop · traffic-aware driving times from Mapbox{res.usedWait?" + real restaurant wait times":""}.</div>
           </div>
         );
       })()}
