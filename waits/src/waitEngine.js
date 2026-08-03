@@ -8,7 +8,7 @@
 //  - Reuses the app's existing GPS stream; adds no new location prompts.
 
 import { db } from "./firebase";
-import { collection, addDoc, query, where, getDocs, limit } from "firebase/firestore";
+import { collection, addDoc, query, where, getDocs, limit, getCountFromServer } from "firebase/firestore";
 
 export const WAIT_RADIUS_M   = 80;      // arrival/departure radius around a pickup (tunable)
 export const WAIT_MIN_SAMPLES = 2;      // mirrors CFG.MIN_SAMPLES — min samples before we trust an avg
@@ -110,6 +110,12 @@ export async function getWaitAverage(key, hour) {
     const avg = arr.reduce((s, x) => s + x, 0) / arr.length;
     return { avgMin: Math.round(avg * 10) / 10, count: arr.length };
   } catch (e) { return null; }
+}
+
+// Admin readout: total wait-time samples collected so far (cheap count aggregation, no doc reads).
+export async function getSampleCount(){
+  try{ const snap=await getCountFromServer(collection(db,"waitTimeSamples")); return snap.data().count; }
+  catch(e){ return null; }
 }
 
 // TODO (phase 2, NOT in this pass): live per-order risk gauge — how much of the 45-min window is

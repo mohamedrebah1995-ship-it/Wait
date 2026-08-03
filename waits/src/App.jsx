@@ -15,7 +15,7 @@ import {
   onSnapshot, getDocs, increment,
 } from "firebase/firestore";
 import { auth, db, setupPush } from "./firebase";
-import { restaurantKey, trackWait, getWaitAverage } from "./waitEngine";   // passive GPS wait-time engine (additive)
+import { restaurantKey, trackWait, getWaitAverage, getSampleCount } from "./waitEngine";   // passive GPS wait-time engine (additive)
 
 // Chat is the heaviest screen and rarely the landing tab — load it (and firebase/storage)
 // on demand the first time a driver opens CHAT, not on first paint.
@@ -3931,8 +3931,10 @@ function StackScreen({gps,activeOrders}){
   const [loading,setLoading]=useState(false);
   const [res,setRes]=useState(null);
   const [err,setErr]=useState("");
+  const [sampleCount,setSampleCount]=useState(undefined);   // admin readout: waitTimeSamples collected
   const mapEl=useRef(null), mapRef=useRef(null), glRef=useRef(null), markRef=useRef({}), placingRef=useRef(placing), idRef=useRef(1);
   useEffect(()=>{placingRef.current=placing;},[placing]);
+  useEffect(()=>{ let a=true; getSampleCount().then(c=>{if(a)setSampleCount(c);}); return ()=>{a=false;}; },[]);
   const fld={width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 12px",color:"var(--ink)",fontSize:13,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
   const lbl={fontSize:10,...M,fontWeight:700,color:"var(--muted)",letterSpacing:0.5,marginBottom:5};
   const upd=(id,patch)=>setOrders(os=>os.map(o=>o.id===id?{...o,...patch}:o));
@@ -4024,7 +4026,12 @@ function StackScreen({gps,activeOrders}){
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>STACK CHECK</div>
       <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:10}}>ADMIN TEST · FIT MULTIPLE ORDERS IN THE {windowMin}-MIN WINDOW</div>
-      <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5,marginBottom:12}}>Add each order (pickup + drop-off), pin them on the map, and it finds the best route from where you are and tells you which orders still deliver within {windowMin} minutes.</div>
+      <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5,marginBottom:10}}>Add each order (pickup + drop-off), pin them on the map, and it finds the best route from where you are and tells you which orders still deliver within {windowMin} minutes.</div>
+      <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:10,padding:"8px 12px",marginBottom:14}}>
+        <span style={{fontSize:14}}>📊</span>
+        <span style={{flex:1,fontSize:11.5,...M,color:"var(--muted)"}}>Wait-time samples collected: <b style={{color:"#00b8a9"}}>{sampleCount===undefined?"…":(sampleCount==null?"—":sampleCount.toLocaleString())}</b></span>
+        <button onClick={()=>{setSampleCount(undefined);getSampleCount().then(setSampleCount);}} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",...B,fontSize:14}}>↻</button>
+      </div>
 
       <div style={{fontSize:10,...M,color:"var(--muted2)",marginBottom:8}}>{activeIdx>=0?<>Tap the map to set <b style={{color:placing.kind==="pickup"?"#06c167":"#ef4444"}}>Order {activeIdx+1} {placing.kind==="pickup"?"pickup":"drop-off"}</b> · drag to fine-tune. Use ⌖ for your location.</>:"Add an order below to start."}</div>
       <div ref={mapEl} style={{height:300,borderRadius:14,overflow:"hidden",border:"1px solid var(--border)",marginBottom:12,background:"var(--border3)"}}/>
