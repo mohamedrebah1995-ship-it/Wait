@@ -39,6 +39,10 @@ const isOwner = u => !!u?.email && OWNER_EMAILS.includes(u.email.toLowerCase());
 // Delegated admins: see real driver names in the live activity + get premium perks.
 const ADMIN_PERK_EMAILS = ["contact.morebah@gmail.com"];
 const hasAdminPerks = u => !!u?.email && ADMIN_PERK_EMAILS.includes(u.email.toLowerCase());
+// Stack Check (STACK tab) early access — ONLY the Stack feature, none of the other admin perks
+// (no name-reveal, moderation, premium, or uncapped feed). Admins get it too.
+const STACK_FEATURE_EMAILS = ["insafbelhadi2909@gmail.com"];
+const canUseStack = u => hasAdminPerks(u) || (!!u?.email && STACK_FEATURE_EMAILS.includes(u.email.toLowerCase()));
 const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 1 };
 
 // Curated chains always shown first (in this order), then Google nearby for the rest.
@@ -5115,7 +5119,7 @@ export default function App() {
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts} accountLogs={user?.logCount||0}/>
           ):screen==="stats"?(
             <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftsLog={shiftsLog} activeShift={activeShift} myName={user.name}/>
-          ):screen==="stack"&&hasAdminPerks(user)?(
+          ):screen==="stack"&&canUseStack(user)?(
             <StackScreen gps={gps} activeOrders={activeOrders}/>
           ):(
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)} isAdmin={hasAdminPerks(user)}/>
@@ -5150,7 +5154,7 @@ export default function App() {
         )}
         {/* First-login notification opt-in (wait reminders only) */}
         {showNotifPrompt&&<NotifPrompt onAllow={allowNotifs} onSkip={skipNotifs}/>}
-        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat} isAdmin={hasAdminPerks(user)}/>}
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat} isAdmin={canUseStack(user)}/>}
       </div>
     </div>
   );
