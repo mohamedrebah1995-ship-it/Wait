@@ -1063,14 +1063,18 @@ function planStack(m, orders, dwell){
   const detourEnforced = basePickupIdx!=null && !detourAwayFromBase;
   const pickupSet=new Set(orders.filter(o=>o.pickupIdx!=null).map(o=>o.pickupIdx));
   const detourWarnings=[];
-  if(detourEnforced){
-    let prev=0;                                                              // 0 = "You" (current position)
+  const legs=[];                                                            // full leg-by-leg breakdown of the optimized route (diagnostic)
+  { let prev=0;                                                             // 0 = "You" (current position)
     for(const s of best.seq){
-      if(pickupSet.has(s) && D[prev][s]>MAX_STACK_DETOUR_MIN*60)             // this leg ENDS at a pickup and is over the cap
-        detourWarnings.push({from:prev===0?"You":label[prev], to:label[s], mins:Math.round(D[prev][s]/60)});
+      const secs=D[prev][s], endsAtPickup=pickupSet.has(s);                 // a leg is CHECKED only when it ends at a pickup
+      const overCap=endsAtPickup && secs!=null && secs>MAX_STACK_DETOUR_MIN*60;
+      legs.push({from:prev===0?"You":label[prev], to:label[s], mins:secs!=null?Math.round(secs/60*10)/10:null, checked:endsAtPickup, overCap});
+      if(detourEnforced && overCap)                                         // only raise a warning when the cap is actually enforced
+        detourWarnings.push({from:prev===0?"You":label[prev], to:label[s], mins:Math.round(secs/60)});
       prev=s;
     }
   }
+  const baseInfo=basePickupIdx!=null?{label:label[basePickupIdx], youToBaseMin:D[0][basePickupIdx]!=null?Math.round(D[0][basePickupIdx]/60*10)/10:null}:null;
 
   let d=0,last=0; for(const s of best.seq){ d+=X[last][s]; last=s; }
   const totalPay=orders.reduce((s,o)=>s+(o.pay||0),0);
@@ -1084,6 +1088,8 @@ function planStack(m, orders, dwell){
     detourWarnings,                                                          // [{from,to,mins}] optimized-route legs over the pickup cap
     detourEnforced,                                                          // false when there are no pickups or the driver is away from base
     detourAwayFromBase,                                                      // true → cap disabled because You is already >cap from the first pickup
+    legs,                                                                    // [{from,to,mins,checked,overCap}] every leg of the optimized route
+    baseInfo,                                                                // {label, youToBaseMin} — the base pickup + its drive time from You
   };
 }
 
@@ -4116,6 +4122,26 @@ function StackScreen({gps,activeOrders}){
             <div style={{fontSize:12,...M,color:"var(--muted)",marginBottom:6}}>Whole run: <b style={{color:"var(--ink)"}}>{res.totalMin}m</b> · {res.totalMiles}mi{res.rate!=null?" · £"+res.rate+"/hr":""}</div>
             <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}><b style={{color:"var(--ink)"}}>Best route:</b> {res.order.join("  →  ")}</div>
             <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>P = pickup, D = drop · traffic-aware driving times from Mapbox{res.usedWait?" + real restaurant wait times":""}.</div>
+
+            {/* Detour-cap diagnostic — every leg of the optimized route, what the cap checks vs skips. */}
+            {res.legs&&res.legs.length>0&&(
+              <div style={{marginTop:12,paddingTop:10,borderTop:"1px dashed var(--border2)"}}>
+                <div style={{fontSize:9,...B,letterSpacing:1,color:"var(--muted2)",marginBottom:6}}>🔧 DETOUR-CAP DIAGNOSTIC · {MAX_STACK_DETOUR_MIN}min</div>
+                <div style={{fontSize:10,...M,color:"var(--muted)",marginBottom:8,lineHeight:1.5}}>
+                  Cap <b style={{color:res.detourEnforced?"#06c167":"#f5a623"}}>{res.detourEnforced?"ENFORCED":"OFF"}</b>
+                  {res.baseInfo&&<> · base {res.baseInfo.label} · You→base <b style={{color:"var(--ink)"}}>{res.baseInfo.youToBaseMin}m</b></>}
+                  {res.detourAwayFromBase&&<> (&gt;{MAX_STACK_DETOUR_MIN}m ⇒ whole cap disabled)</>}
+                </div>
+                {res.legs.map((l,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:11,...M,padding:"3px 0",borderBottom:i<res.legs.length-1?"1px solid var(--border3)":"none",color:l.overCap?"#ef4444":l.checked?"var(--ink)":"var(--faint)"}}>
+                    <span style={{flexShrink:0,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{l.from} → {l.to}</span>
+                    <span style={{flex:1,textAlign:"right",fontSize:9,color:l.overCap?"#ef4444":"var(--faint)"}}>{l.checked?"pickup · CHECKED":"drop · skipped"}</span>
+                    <span style={{flexShrink:0,minWidth:70,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{l.mins==null?"—":l.mins+"m"}{l.overCap?" ⚠":""}</span>
+                  </div>
+                ))}
+                <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,lineHeight:1.5}}>Only legs ending at a pickup are capped. Drive time = Mapbox leg time, excludes dwell. Legs {'>'}{MAX_STACK_DETOUR_MIN}m show ⚠ (and warn above only when the cap is ENFORCED).</div>
+              </div>
+            )}
           </div>
         );
       })()}
