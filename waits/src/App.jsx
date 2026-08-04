@@ -980,7 +980,7 @@ const PICKUP_DWELL_MIN  = 5;                 // per pickup: parking + walking in
 const DROPOFF_DWELL_MIN = 2;                 // per drop-off: parking + walking to the door + handover
 const SAME_PLATFORM_STACK_BONUS_MIN = 45;    // extra window for the LAST order of a same-platform group of 2+ (capped at 45)
 const STACK_PLATFORMS = ["Deliveroo","Uber Eats","Just Eat","Other"];
-const MAX_STACK_DETOUR_MIN = 15;             // cap on drive time of any single optimized-route leg that ENDS at a pickup; disabled when already away from base
+const MAX_STACK_DETOUR_MIN = 15;             // cap on the cumulative drive time from your start (You) to REACH any pickup along the optimized route; disabled when already away from base
 
 // Geocode a typed address / place → {lat,lng,label}. Mapbox forward search (biased to the driver).
 async function geocodeText(q,lat,lng){
@@ -1054,23 +1054,27 @@ function planStack(m, orders, dwell){
   const label={}; orders.forEach((o,i)=>{ if(o.pickupIdx!=null)label[o.pickupIdx]="P"+(i+1); label[o.dropIdx]="D"+(i+1); });
 
   // Max-pickup-detour guard — evaluated on the FINAL optimized sequence (best.seq), not the add order.
-  // Base/normal working area = the FIRST pickup added this session. If the driver's current position (You)
-  // is already > MAX_STACK_DETOUR_MIN drive-time from that base, the cap is switched OFF entirely (they're
-  // out of their usual area, so a long hop to a pickup is expected and shouldn't be flagged).
+  // The cap is on the CUMULATIVE drive time from You (the start) FOLLOWING the route to REACH each pickup:
+  // if getting to a pickup takes more than MAX_STACK_DETOUR_MIN of driving from your start, that pickup is
+  // too deep a detour and is flagged (dwell excluded — pure drive time).
+  // Exception: base/normal working area = the FIRST pickup added this session; if You is already
+  // > MAX_STACK_DETOUR_MIN from that base, the whole cap is switched OFF (you're out of your usual area).
   const firstPickup=orders.find(o=>o.pickupIdx!=null);
   const basePickupIdx=firstPickup?firstPickup.pickupIdx:null;
   const detourAwayFromBase = basePickupIdx!=null && D[0][basePickupIdx]>MAX_STACK_DETOUR_MIN*60;
   const detourEnforced = basePickupIdx!=null && !detourAwayFromBase;
   const pickupSet=new Set(orders.filter(o=>o.pickupIdx!=null).map(o=>o.pickupIdx));
   const detourWarnings=[];
-  const legs=[];                                                            // full leg-by-leg breakdown of the optimized route (diagnostic)
-  { let prev=0;                                                             // 0 = "You" (current position)
+  const legs=[];                                                            // leg-by-leg breakdown of the optimized route (diagnostic)
+  { let prev=0, cum=0;                                                      // cum = cumulative DRIVE time from You (start) along the route, dwell excluded
     for(const s of best.seq){
-      const secs=D[prev][s], endsAtPickup=pickupSet.has(s);                 // a leg is CHECKED only when it ends at a pickup
-      const overCap=endsAtPickup && secs!=null && secs>MAX_STACK_DETOUR_MIN*60;
-      legs.push({from:prev===0?"You":label[prev], to:label[s], mins:secs!=null?Math.round(secs/60*10)/10:null, checked:endsAtPickup, overCap});
-      if(detourEnforced && overCap)                                         // only raise a warning when the cap is actually enforced
-        detourWarnings.push({from:prev===0?"You":label[prev], to:label[s], mins:Math.round(secs/60)});
+      const secs=D[prev][s];
+      cum += (secs!=null?secs:0);                                           // running drive time from the start to this stop
+      const endsAtPickup=pickupSet.has(s);
+      const overCap=endsAtPickup && cum>MAX_STACK_DETOUR_MIN*60;            // a pickup is too far when REACHING it from start exceeds the cap
+      legs.push({from:prev===0?"You":label[prev], to:label[s], legMins:secs!=null?Math.round(secs/60*10)/10:null, cumMins:Math.round(cum/60*10)/10, checked:endsAtPickup, overCap});
+      if(detourEnforced && overCap)
+        detourWarnings.push({to:label[s], mins:Math.round(cum/60)});
       prev=s;
     }
   }
@@ -1085,10 +1089,10 @@ function planStack(m, orders, dwell){
     totalMin:Math.round(best.total/60),
     totalMiles:Math.round(d/1609.34*10)/10,
     rate: totalPay>0&&best.total>0?Math.round(totalPay/(best.total/3600)):null,
-    detourWarnings,                                                          // [{from,to,mins}] optimized-route legs over the pickup cap
+    detourWarnings,                                                          // [{to,mins}] pickups whose cumulative drive time from start exceeds the cap
     detourEnforced,                                                          // false when there are no pickups or the driver is away from base
     detourAwayFromBase,                                                      // true → cap disabled because You is already >cap from the first pickup
-    legs,                                                                    // [{from,to,mins,checked,overCap}] every leg of the optimized route
+    legs,                                                                    // [{from,to,legMins,cumMins,checked,overCap}] every leg of the optimized route
     baseInfo,                                                                // {label, youToBaseMin} — the base pickup + its drive time from You
   };
 }
@@ -4109,7 +4113,7 @@ function StackScreen({gps,activeOrders}){
                 <div style={{...B,fontWeight:800,fontSize:11,letterSpacing:1,color:"#ef4444",marginBottom:6}}>⚠ PICKUP DETOUR OVER {MAX_STACK_DETOUR_MIN}MIN</div>
                 {res.detourWarnings.map((w,i)=>(
                   <div key={i} style={{...M,fontSize:12,color:"var(--ink)",padding:"2px 0"}}>
-                    <b style={{fontWeight:700}}>{w.from} → {w.to}</b>: {w.mins}m — exceeds {MAX_STACK_DETOUR_MIN}min pickup cap
+                    <b style={{fontWeight:700}}>{w.to}</b>: {w.mins}m from start to reach — exceeds {MAX_STACK_DETOUR_MIN}min pickup cap
                   </div>
                 ))}
               </div>
@@ -4135,11 +4139,11 @@ function StackScreen({gps,activeOrders}){
                 {res.legs.map((l,i)=>(
                   <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:11,...M,padding:"3px 0",borderBottom:i<res.legs.length-1?"1px solid var(--border3)":"none",color:l.overCap?"#ef4444":l.checked?"var(--ink)":"var(--faint)"}}>
                     <span style={{flexShrink:0,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{l.from} → {l.to}</span>
-                    <span style={{flex:1,textAlign:"right",fontSize:9,color:l.overCap?"#ef4444":"var(--faint)"}}>{l.checked?"pickup · CHECKED":"drop · skipped"}</span>
-                    <span style={{flexShrink:0,minWidth:70,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{l.mins==null?"—":l.mins+"m"}{l.overCap?" ⚠":""}</span>
+                    <span style={{flex:1,textAlign:"right",fontSize:9,color:"var(--faint)"}}>+{l.legMins==null?"—":l.legMins}m leg{l.checked?" · pickup":""}</span>
+                    <span style={{flexShrink:0,minWidth:104,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{l.cumMins}m from start{l.overCap?" ⚠":""}</span>
                   </div>
                 ))}
-                <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,lineHeight:1.5}}>Only legs ending at a pickup are capped. Drive time = Mapbox leg time, excludes dwell. Legs {'>'}{MAX_STACK_DETOUR_MIN}m show ⚠ (and warn above only when the cap is ENFORCED).</div>
+                <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,lineHeight:1.5}}>Cap = cumulative drive time from You (start) to REACH each pickup, following the route (dwell excluded). A pickup whose "from start" total {'>'}{MAX_STACK_DETOUR_MIN}m shows ⚠ (and warns above only when the cap is ENFORCED). Drops aren't capped.</div>
               </div>
             )}
           </div>
