@@ -970,16 +970,17 @@ async function geocodeBranch(lat,lng,name) {
   }catch(e){return null;}
 }
 
-// ── STACK CHECK (admin test) — "can I fit another order in my 45-min window?" ──
-// windowMin = the delivery deadline most platforms give (pickup → drop within 45 min).
-// minRate is only used for a soft "low pay" note; the real verdict is whether it FITS in time.
-const STACK_CFG = { windowMin:45, minRate:10 };
+// ── STACK CHECK (admin test) — "can I fit another order in its 45-min window?" ──
+// Every order gets ONE flat 45-min window; its verdict is a single colour = the WORSE of two checks:
+//  (1) time to deliver = total drive+dwell from now to the drop  (<TIME_ORANGE_MIN green · –45 orange · >45 red)
+//  (2) pickup drive    = cumulative drive from start to its pickup (<PICKUP_ORANGE_MIN green · –15 orange · >15 red)
+const WINDOW_MIN = 45;                        // flat delivery window; total drive+dwell over this fails (red)
+const TIME_ORANGE_MIN = 40;                   // time-to-deliver orange band: TIME_ORANGE_MIN..WINDOW_MIN
+const PICKUP_ORANGE_MIN = 10;                 // pickup-drive orange band: PICKUP_ORANGE_MIN..MAX_STACK_DETOUR_MIN
 // Stack Check time-budget assumptions. TEMPORARY flat values — once waitEngine.js has enough
 // real samples for a restaurant+hour, that average OVERRIDES the flat PICKUP_DWELL_MIN below.
 const PICKUP_DWELL_MIN  = 5;                 // per pickup: parking + walking in + waiting if not ready + walking back
 const DROPOFF_DWELL_MIN = 2;                 // per drop-off: parking + walking to the door + handover
-const SAME_PLATFORM_STACK_BONUS_MIN = 45;    // extra window for the LAST order of a same-platform group of 2+ (capped at 45)
-const STACK_PLATFORMS = ["Deliveroo","Uber Eats","Just Eat","Other"];
 const MAX_STACK_DETOUR_MIN = 15;             // cap on the cumulative drive time from your start (You) to REACH any pickup along the optimized route; disabled when already away from base
 
 // Geocode a typed address / place → {lat,lng,label}. Mapbox forward search (biased to the driver).
@@ -1026,7 +1027,7 @@ function planStack(m, orders, dwell){
   dwell=dwell||{};                                                          // {stopIdx: seconds spent at that stop} — pickup dwell (real wait or flat) + drop dwell (flat)
   const stopIdxs=[]; orders.forEach(o=>{ if(o.pickupIdx!=null)stopIdxs.push(o.pickupIdx); stopIdxs.push(o.dropIdx); });
   const dropToPickup={}; orders.forEach(o=>{ if(o.pickupIdx!=null)dropToPickup[o.dropIdx]=o.pickupIdx; });
-  const windowsOK=arr=>orders.every(o=>{ const pt=o.pickupIdx!=null?arr[o.pickupIdx]:0; return (arr[o.dropIdx]-pt)<=o.windowSec; });   // per-order window (incl. same-platform bonus)
+  const windowsOK=arr=>orders.every(o=> arr[o.dropIdx] <= o.windowSec );   // total drive+dwell from now to each drop must fit the flat window
   let best=null, count=0; const CAP=300000;
   (function rec(seq,used,time,arr){
     if(count>CAP)return;
@@ -1050,7 +1051,6 @@ function planStack(m, orders, dwell){
   })([],new Set(),0,{});
   if(!best)return null;
   const arr=best.arr;
-  const perOrder=orders.map((o,i)=>{ const pt=o.pickupIdx!=null?arr[o.pickupIdx]:0; const dur=arr[o.dropIdx]-pt; return {n:i+1, mins:Math.round(dur/60), fits:dur<=o.windowSec, hasPickup:o.pickupIdx!=null, bonus:!!o.bonus, platform:o.platform||null}; });
   const label={}; orders.forEach((o,i)=>{ if(o.pickupIdx!=null)label[o.pickupIdx]="P"+(i+1); label[o.dropIdx]="D"+(i+1); });
 
   // Max-pickup-detour guard — evaluated on the FINAL optimized sequence (best.seq), not the add order.
@@ -1066,11 +1066,13 @@ function planStack(m, orders, dwell){
   const pickupSet=new Set(orders.filter(o=>o.pickupIdx!=null).map(o=>o.pickupIdx));
   const detourWarnings=[];
   const legs=[];                                                            // leg-by-leg breakdown of the optimized route (diagnostic)
+  const cumDriveToPickup={};                                               // {pickupIdx: cumulative DRIVE time from start to reach it} — feeds check (2)
   { let prev=0, cum=0;                                                      // cum = cumulative DRIVE time from You (start) along the route, dwell excluded
     for(const s of best.seq){
       const secs=D[prev][s];
       cum += (secs!=null?secs:0);                                           // running drive time from the start to this stop
       const endsAtPickup=pickupSet.has(s);
+      if(endsAtPickup) cumDriveToPickup[s]=cum;
       const overCap=endsAtPickup && cum>MAX_STACK_DETOUR_MIN*60;            // a pickup is too far when REACHING it from start exceeds the cap
       legs.push({from:prev===0?"You":label[prev], to:label[s], legMins:secs!=null?Math.round(secs/60*10)/10:null, cumMins:Math.round(cum/60*10)/10, checked:endsAtPickup, overCap});
       if(detourEnforced && overCap)
@@ -1080,10 +1082,25 @@ function planStack(m, orders, dwell){
   }
   const baseInfo=basePickupIdx!=null?{label:label[basePickupIdx], youToBaseMin:D[0][basePickupIdx]!=null?Math.round(D[0][basePickupIdx]/60*10)/10:null}:null;
 
+  // Per-order verdict — one colour = the WORSE of two checks. Pickup check is neutral (green) for
+  // in-hand orders and when the away-from-base exception has disabled the detour cap (detourEnforced=false).
+  const RANK={green:0,orange:1,red:2}, worseColor=(a,b)=>RANK[a]>=RANK[b]?a:b;
+  const timeColor=m=> m<TIME_ORANGE_MIN?"green" : m<=WINDOW_MIN?"orange" : "red";               // <40 g · 40–45 o · >45 r
+  const pickColor=m=> m==null?"green" : m<PICKUP_ORANGE_MIN?"green" : m<=MAX_STACK_DETOUR_MIN?"orange" : "red";  // <10 g · 10–15 o · >15 r
+  const perOrder=orders.map((o,i)=>{
+    const deliverMin=arr[o.dropIdx]/60;                                     // total drive+dwell from now to this drop
+    const cm=(o.pickupIdx!=null && detourEnforced)?cumDriveToPickup[o.pickupIdx]:null;
+    const pickupMin=cm!=null?cm/60:null;                                    // cumulative drive from start to this pickup
+    const tC=timeColor(deliverMin), pC=pickColor(pickupMin);
+    return {n:i+1, hasPickup:o.pickupIdx!=null, color:worseColor(tC,pC), timeColor:tC, pickColor:pC, deliverMin:Math.round(deliverMin), pickupMin:pickupMin!=null?Math.round(pickupMin*10)/10:null};
+  });
+  const bannerColor=perOrder.reduce((w,o)=>worseColor(w,o.color),"green");  // whole stack = worst order colour
+
   let d=0,last=0; for(const s of best.seq){ d+=X[last][s]; last=s; }
   const totalPay=orders.reduce((s,o)=>s+(o.pay||0),0);
   return {
     feasible:best.ok,
+    bannerColor,                                                            // "green" | "orange" | "red" — worst order colour across the stack
     perOrder,
     order:["You",...best.seq.map(i=>label[i])],
     totalMin:Math.round(best.total/60),
@@ -3941,9 +3958,9 @@ function HelpScreen({lang,onBack}){
 
 // ── STACK CHECK SCREEN (admin test) ───────────────────────────────────────────
 function StackScreen({gps,activeOrders}){
-  const [orders,setOrders]=useState([{id:0,pickup:null,drop:null,pText:"",dText:"",pay:"",platform:null}]);
+  const [orders,setOrders]=useState([{id:0,pickup:null,drop:null,pText:"",dText:"",pay:""}]);
   const [placing,setPlacing]=useState({id:0,kind:"pickup"});
-  const [windowMin,setWindowMin]=useState(STACK_CFG.windowMin);
+  const [showDetails,setShowDetails]=useState(false);   // full diagnostic view — off by default (drivers just see the colour verdict)
   const [myPos,setMyPos]=useState(gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null);
   const [loading,setLoading]=useState(false);
   const [res,setRes]=useState(null);
@@ -4008,7 +4025,7 @@ function StackScreen({gps,activeOrders}){
     trackWait(gps,pickups);
   },[gps.lat,gps.lng,orders]);
 
-  function addOrder(){ if(orders.length>=6)return; const id=idRef.current++; setOrders(os=>[...os,{id,pickup:null,drop:null,pText:"",dText:"",pay:"",platform:null}]); setPlacing({id,kind:"pickup"}); }
+  function addOrder(){ if(orders.length>=6)return; const id=idRef.current++; setOrders(os=>[...os,{id,pickup:null,drop:null,pText:"",dText:"",pay:""}]); setPlacing({id,kind:"pickup"}); }
   function removeOrder(id){ setOrders(os=>os.filter(o=>o.id!==id)); setPlacing(p=>p.id===id?{id:(orders.find(o=>o.id!==id)||{}).id??0,kind:"pickup"}:p); setRes(null); }
 
   async function check(){
@@ -4023,7 +4040,7 @@ function StackScreen({gps,activeOrders}){
         const dp=o.drop||(o.dText.trim()?await geocodeText(o.dText,start.lat,start.lng):null);
         if(!dp){setErr("Every order needs a drop-off (pin or address).");setLoading(false);return;}
         let pIdx=null, pKey=null; if(pk){points.push(pk);pIdx=points.length-1;pKey=restaurantKey(o.pText||"",pk.lat,pk.lng);}
-        points.push(dp); ord.push({pickupIdx:pIdx,dropIdx:points.length-1,pay:o.pay?parseFloat(String(o.pay).replace(/[^0-9.]/g,"")):0,pKey,platform:o.platform||null});
+        points.push(dp); ord.push({pickupIdx:pIdx,dropIdx:points.length-1,pay:o.pay?parseFloat(String(o.pay).replace(/[^0-9.]/g,"")):0,pKey});
       }
       if(points.length>25){setErr("Too many stops — keep it to about 6 orders.");setLoading(false);return;}
       const m=await mapboxMatrix(points);
@@ -4039,11 +4056,8 @@ function StackScreen({gps,activeOrders}){
         }
         dwell[o.dropIdx]=DROPOFF_DWELL_MIN*60;
       }));
-      // Same-platform stacking bonus: the LAST order (in list order) of each known-platform group of
-      // 2+ gets the extra window. Different platforms / single / "Other" → no bonus (independent).
-      const byPlat={}; ord.forEach((o,i)=>{ if(o.platform&&o.platform!=="Other")(byPlat[o.platform]=byPlat[o.platform]||[]).push(i); });
-      const bonusIdx=new Set(); for(const p in byPlat){ if(byPlat[p].length>=2)bonusIdx.add(byPlat[p][byPlat[p].length-1]); }
-      ord.forEach((o,i)=>{ o.bonus=bonusIdx.has(i); o.windowSec=(windowMin+(o.bonus?SAME_PLATFORM_STACK_BONUS_MIN:0))*60; });
+      // One flat 45-min window for every order.
+      ord.forEach(o=>{ o.windowSec=WINDOW_MIN*60; });
       const plan=planStack(m,ord,dwell);
       if(!plan){setErr("Couldn't work out a route — try again.");setLoading(false);return;}
       setRes({...plan,usedWait});
@@ -4080,12 +4094,7 @@ function StackScreen({gps,activeOrders}){
             </div>
             <input value={o.pText} onChange={e=>upd(o.id,{pText:e.target.value})} placeholder={o.pickup?"📍 pinned · or type pickup":"Pickup address (blank = already collected)"} style={{...fld,marginBottom:6}}/>
             <input value={o.dText} onChange={e=>upd(o.id,{dText:e.target.value})} placeholder={o.drop?"📍 pinned · or type drop-off":"Drop-off address"} style={{...fld,marginBottom:6}}/>
-            <input value={o.pay} onChange={e=>upd(o.id,{pay:e.target.value})} inputMode="decimal" placeholder="Pay £ (optional)" style={{...fld,marginBottom:6}}/>
-            <div style={{display:"flex",gap:4}}>
-              {STACK_PLATFORMS.map(p=>{ const on=o.platform===p; return(
-                <button key={p} onClick={()=>upd(o.id,{platform:on?null:p})} style={{flex:1,background:on?"#00b8a9":"var(--bg)",border:"1px solid "+(on?"#00b8a9":"var(--border2)"),borderRadius:8,padding:"7px 2px",...B,fontWeight:700,fontSize:9.5,color:on?"#fff":"var(--muted)",cursor:"pointer"}}>{p}</button>
-              );})}
-            </div>
+            <input value={o.pay} onChange={e=>upd(o.id,{pay:e.target.value})} inputMode="decimal" placeholder="Pay £ (optional)" style={fld}/>
           </div>
         );
       })}
@@ -4095,55 +4104,77 @@ function StackScreen({gps,activeOrders}){
       <button onClick={check} disabled={loading} style={{width:"100%",minHeight:56,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontWeight:800,fontSize:17,letterSpacing:0.5,color:loading?"var(--faint)":"#003",cursor:loading?"default":"pointer"}}>{loading?"WORKING OUT THE ROUTE…":"CHECK THE STACK"}</button>
 
       {res&&(()=>{
-        const v=res.feasible?{t:"✅ You can take them all",c:"#06c167",bg:"var(--tint-green)"}:{t:"❌ Some won't fit in time",c:"#ef4444",bg:"var(--tint-red)"};
+        const n=res.perOrder.length;
+        const CV={
+          green:{c:"#06c167", bg:"var(--tint-green)", banner:"✅ You can take "+(n>1?"them all":"it"), row:"Good to go"},
+          orange:{c:"#f5a623", bg:"var(--tint-amber)", banner:"🟠 It's on you",                        row:"Tight — your call"},
+          red:{c:"#ef4444", bg:"var(--tint-red)",   banner:"❌ You can't take "+(n>1?"them all":"it"), row:"Won't make it"},
+        };
+        const bv=CV[res.bannerColor]||CV.green;
         return(
-          <div style={{marginTop:16,background:v.bg,border:"1px solid "+v.c+"55",borderRadius:16,padding:"18px"}}>
-            <div style={{...B,fontWeight:800,fontSize:22,color:v.c,letterSpacing:0.5,marginBottom:12}}>{v.t}</div>
-            <div style={{marginBottom:10}}>
-              {res.perOrder.map(o=>(
-                <div key={o.n} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid var(--border3)"}}>
-                  <span style={{...M,fontSize:13,color:"var(--ink)",flexShrink:0}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
-                  <span style={{flex:1,textAlign:"right",fontSize:9.5,...M,fontWeight:700,color:o.bonus?"#00b8a9":"var(--faint)"}}>{o.bonus?"🔗 stacked +"+SAME_PLATFORM_STACK_BONUS_MIN:"independent"}</span>
-                  <span style={{...B,fontWeight:800,fontSize:14,color:o.fits?"#06c167":"#ef4444",flexShrink:0,minWidth:56,textAlign:"right"}}>{o.mins}m {o.fits?"✓":"✗ over"}</span>
+          <div style={{marginTop:16}}>
+            {/* Default driver view: one colour banner + one colour row per order. Nothing else. */}
+            <div style={{background:bv.bg,border:"1px solid "+bv.c+"55",borderRadius:16,padding:"18px"}}>
+              <div style={{...B,fontWeight:800,fontSize:22,color:bv.c,letterSpacing:0.3,marginBottom:n>1?10:0}}>{bv.banner}</div>
+              {n>1&&res.perOrder.map(o=>{ const c=CV[o.color]||CV.green; return(
+                <div key={o.n} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:"1px solid var(--border3)"}}>
+                  <span style={{width:11,height:11,borderRadius:"50%",background:c.c,flexShrink:0}}/>
+                  <span style={{...M,fontSize:13,color:"var(--ink)",flex:1}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
+                  <span style={{...B,fontWeight:700,fontSize:12,color:c.c}}>{c.row}</span>
                 </div>
-              ))}
+              );})}
             </div>
-            {res.detourWarnings&&res.detourWarnings.length>0&&(
-              <div style={{marginBottom:10,background:"var(--tint-red)",border:"1px solid #ef444455",borderRadius:12,padding:"10px 12px"}}>
-                <div style={{...B,fontWeight:800,fontSize:11,letterSpacing:1,color:"#ef4444",marginBottom:6}}>⚠ PICKUP DETOUR OVER {MAX_STACK_DETOUR_MIN}MIN</div>
-                {res.detourWarnings.map((w,i)=>(
-                  <div key={i} style={{...M,fontSize:12,color:"var(--ink)",padding:"2px 0"}}>
-                    <b style={{fontWeight:700}}>{w.to}</b>: {w.mins}m from start to reach — exceeds {MAX_STACK_DETOUR_MIN}min pickup cap
-                  </div>
-                ))}
-              </div>
-            )}
-            {res.detourAwayFromBase&&(
-              <div style={{marginBottom:10,fontSize:10.5,...M,color:"var(--muted)",lineHeight:1.5,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"8px 12px"}}>
-                ℹ Pickup-detour cap off — you're already more than {MAX_STACK_DETOUR_MIN}min from base (your first pickup this session), so long hops to a pickup aren't flagged.
-              </div>
-            )}
-            <div style={{fontSize:12,...M,color:"var(--muted)",marginBottom:6}}>Whole run: <b style={{color:"var(--ink)"}}>{res.totalMin}m</b> · {res.totalMiles}mi{res.rate!=null?" · £"+res.rate+"/hr":""}</div>
-            <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}><b style={{color:"var(--ink)"}}>Best route:</b> {res.order.join("  →  ")}</div>
-            <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>P = pickup, D = drop · traffic-aware driving times from Mapbox{res.usedWait?" + real restaurant wait times":""}.</div>
+            <button onClick={()=>setShowDetails(s=>!s)} style={{width:"100%",marginTop:8,background:"none",border:"1px solid var(--border2)",borderRadius:10,padding:"9px",...B,fontWeight:700,fontSize:10,letterSpacing:1.5,color:"var(--muted)",cursor:"pointer"}}>{showDetails?"HIDE DETAILS ▴":"DETAILS ▾"}</button>
 
-            {/* Detour-cap diagnostic — every leg of the optimized route, what the cap checks vs skips. */}
-            {res.legs&&res.legs.length>0&&(
-              <div style={{marginTop:12,paddingTop:10,borderTop:"1px dashed var(--border2)"}}>
-                <div style={{fontSize:9,...B,letterSpacing:1,color:"var(--muted2)",marginBottom:6}}>🔧 DETOUR-CAP DIAGNOSTIC · {MAX_STACK_DETOUR_MIN}min</div>
-                <div style={{fontSize:10,...M,color:"var(--muted)",marginBottom:8,lineHeight:1.5}}>
-                  Cap <b style={{color:res.detourEnforced?"#06c167":"#f5a623"}}>{res.detourEnforced?"ENFORCED":"OFF"}</b>
-                  {res.baseInfo&&<> · base {res.baseInfo.label} · You→base <b style={{color:"var(--ink)"}}>{res.baseInfo.youToBaseMin}m</b></>}
-                  {res.detourAwayFromBase&&<> (&gt;{MAX_STACK_DETOUR_MIN}m ⇒ whole cap disabled)</>}
+            {showDetails&&(
+              <div style={{marginTop:8,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px"}}>
+                <div style={{marginBottom:10}}>
+                  {res.perOrder.map(o=>{ const c=CV[o.color]||CV.green; return(
+                    <div key={o.n} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid var(--border3)"}}>
+                      <span style={{...M,fontSize:13,color:"var(--ink)",flexShrink:0}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
+                      <span style={{flex:1,textAlign:"right",fontSize:10,...M,color:"var(--muted)"}}>deliver {o.deliverMin}m{o.pickupMin!=null?" · pickup "+o.pickupMin+"m":""}</span>
+                      <span style={{...B,fontWeight:800,fontSize:11,letterSpacing:0.5,color:c.c,minWidth:52,textAlign:"right"}}>{o.color.toUpperCase()}</span>
+                    </div>
+                  );})}
                 </div>
-                {res.legs.map((l,i)=>(
-                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:11,...M,padding:"3px 0",borderBottom:i<res.legs.length-1?"1px solid var(--border3)":"none",color:l.overCap?"#ef4444":l.checked?"var(--ink)":"var(--faint)"}}>
-                    <span style={{flexShrink:0,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{l.from} → {l.to}</span>
-                    <span style={{flex:1,textAlign:"right",fontSize:9,color:"var(--faint)"}}>+{l.legMins==null?"—":l.legMins}m leg{l.checked?" · pickup":""}</span>
-                    <span style={{flexShrink:0,minWidth:104,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{l.cumMins}m from start{l.overCap?" ⚠":""}</span>
+                {res.detourWarnings&&res.detourWarnings.length>0&&(
+                  <div style={{marginBottom:10,background:"var(--tint-red)",border:"1px solid #ef444455",borderRadius:12,padding:"10px 12px"}}>
+                    <div style={{...B,fontWeight:800,fontSize:11,letterSpacing:1,color:"#ef4444",marginBottom:6}}>⚠ PICKUP DETOUR OVER {MAX_STACK_DETOUR_MIN}MIN</div>
+                    {res.detourWarnings.map((w,i)=>(
+                      <div key={i} style={{...M,fontSize:12,color:"var(--ink)",padding:"2px 0"}}>
+                        <b style={{fontWeight:700}}>{w.to}</b>: {w.mins}m from start to reach — exceeds {MAX_STACK_DETOUR_MIN}min pickup cap
+                      </div>
+                    ))}
                   </div>
-                ))}
-                <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,lineHeight:1.5}}>Cap = cumulative drive time from You (start) to REACH each pickup, following the route (dwell excluded). A pickup whose "from start" total {'>'}{MAX_STACK_DETOUR_MIN}m shows ⚠ (and warns above only when the cap is ENFORCED). Drops aren't capped.</div>
+                )}
+                {res.detourAwayFromBase&&(
+                  <div style={{marginBottom:10,fontSize:10.5,...M,color:"var(--muted)",lineHeight:1.5,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:10,padding:"8px 12px"}}>
+                    ℹ Pickup-detour cap off — you're already more than {MAX_STACK_DETOUR_MIN}min from base (your first pickup this session), so long hops to a pickup aren't flagged.
+                  </div>
+                )}
+                <div style={{fontSize:12,...M,color:"var(--muted)",marginBottom:6}}>Whole run: <b style={{color:"var(--ink)"}}>{res.totalMin}m</b> · {res.totalMiles}mi{res.rate!=null?" · £"+res.rate+"/hr":""}</div>
+                <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}><b style={{color:"var(--ink)"}}>Best route:</b> {res.order.join("  →  ")}</div>
+                <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>P = pickup, D = drop · traffic-aware driving times from Mapbox{res.usedWait?" + real restaurant wait times":""}.</div>
+
+                {/* Detour-cap diagnostic — every leg of the optimized route, what the cap checks vs skips. */}
+                {res.legs&&res.legs.length>0&&(
+                  <div style={{marginTop:12,paddingTop:10,borderTop:"1px dashed var(--border2)"}}>
+                    <div style={{fontSize:9,...B,letterSpacing:1,color:"var(--muted2)",marginBottom:6}}>🔧 DETOUR-CAP DIAGNOSTIC · {MAX_STACK_DETOUR_MIN}min</div>
+                    <div style={{fontSize:10,...M,color:"var(--muted)",marginBottom:8,lineHeight:1.5}}>
+                      Cap <b style={{color:res.detourEnforced?"#06c167":"#f5a623"}}>{res.detourEnforced?"ENFORCED":"OFF"}</b>
+                      {res.baseInfo&&<> · base {res.baseInfo.label} · You→base <b style={{color:"var(--ink)"}}>{res.baseInfo.youToBaseMin}m</b></>}
+                      {res.detourAwayFromBase&&<> (&gt;{MAX_STACK_DETOUR_MIN}m ⇒ whole cap disabled)</>}
+                    </div>
+                    {res.legs.map((l,i)=>(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:11,...M,padding:"3px 0",borderBottom:i<res.legs.length-1?"1px solid var(--border3)":"none",color:l.overCap?"#ef4444":l.checked?"var(--ink)":"var(--faint)"}}>
+                        <span style={{flexShrink:0,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{l.from} → {l.to}</span>
+                        <span style={{flex:1,textAlign:"right",fontSize:9,color:"var(--faint)"}}>+{l.legMins==null?"—":l.legMins}m leg{l.checked?" · pickup":""}</span>
+                        <span style={{flexShrink:0,minWidth:104,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{l.cumMins}m from start{l.overCap?" ⚠":""}</span>
+                      </div>
+                    ))}
+                    <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,lineHeight:1.5}}>Cap = cumulative drive time from You (start) to REACH each pickup, following the route (dwell excluded). A pickup whose "from start" total {'>'}{MAX_STACK_DETOUR_MIN}m shows ⚠ (and warns above only when the cap is ENFORCED). Drops aren't capped.</div>
+                  </div>
+                )}
               </div>
             )}
           </div>
