@@ -3112,7 +3112,7 @@ function LiveFeed({activeWaitsList,communityLogs,contribCounts,onOpen,myName,rev
   const events=[
     ...activeWaitsList.map(w=>({kind:"arrived",user:w.username||"A driver",rest:w.restaurantName||"a restaurant",ts:w.startedAt})),
     ...communityLogs.map(l=>({kind:"picked",user:l.username||"A driver",rest:l.restaurantName||"a restaurant",waitMins:l.waitMins,ts:l.ts})),
-  ].sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,3);   // 3 most recent on main screen
+  ].sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,1);   // 1 most recent by default — full history via "View all"
 
   return(
     <div onClick={onOpen} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px",marginBottom:14,cursor:"pointer"}}>
@@ -3224,9 +3224,9 @@ function fmtHM(mins){ const m=Math.max(0,Math.floor(mins)); return Math.floor(m/
 function ShiftTimer({activeShift,completedToday,onStart,onStop,onGoCheck}){
   const [,tick]=useState(0);
   useEffect(()=>{ if(!activeShift)return; const id=setInterval(()=>tick(x=>x+1),1000); return ()=>clearInterval(id); },[!!activeShift]);
-  // CHECK lives next to START as a matching circle (always visible, on or off shift).
-  const checkBtn=(
-    <button onClick={onGoCheck} aria-label="Check a restaurant" style={{flexShrink:0,width:108,height:108,borderRadius:"50%",background:"var(--tint-blue)",border:"2px solid #2b8fff66",boxShadow:"0 6px 18px #2b8fff33, inset 0 1px 0 #ffffff22",...B,fontWeight:800,fontSize:21,letterSpacing:2,color:"#2b8fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>CHECK</button>
+  // CHECK sits next to START/STOP as a matching compact pill (always visible, on or off shift).
+  const checkPill=(
+    <button onClick={onGoCheck} aria-label="Check a restaurant" style={{flex:1,minHeight:52,borderRadius:14,background:"var(--tint-blue)",border:"1px solid #2b8fff44",...B,fontWeight:800,fontSize:16,letterSpacing:2,color:"#2b8fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>CHECK</button>
   );
   if(activeShift){
     const startMs=new Date(activeShift.startedAt).getTime();
@@ -3234,29 +3234,30 @@ function ShiftTimer({activeShift,completedToday,onStart,onStop,onGoCheck}){
     const todayPortion=(Date.now()-Math.max(startMs,startOfDayMs(new Date())))/60000;    // this segment within today
     const dayTotal=completedToday+todayPortion;                                          // every segment today added up
     return(
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-        <div style={{flex:1,minWidth:0,background:"linear-gradient(135deg,var(--tint-green),var(--tint-teal))",border:"1px solid #06c16744",borderRadius:14,padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{marginBottom:14}}>
+        {/* Neutral card + a small pulse dot — the shift is a persistent state, not a bright block. */}
+        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+          <span style={{width:8,height:8,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 8px #06c167",animation:"criticalPulse 1.5s ease-in-out infinite",flexShrink:0}}/>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{width:8,height:8,borderRadius:"50%",background:"#06c167",boxShadow:"0 0 8px #06c167",animation:"criticalPulse 1.5s ease-in-out infinite",display:"block"}}/>
-              <span style={{fontSize:9,...B,color:"#06c167",letterSpacing:2}}>ON SHIFT · TODAY</span>
-            </div>
-            <div style={{...B,fontSize:24,color:"var(--ink)",letterSpacing:1,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{fmtHM(dayTotal)}</div>
-            <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:1}}>{"This shift: "+fmtHM(elapsed)}</div>
+            <div style={{fontSize:9,...B,color:"#06c167",letterSpacing:2}}>ON SHIFT · TODAY</div>
+            <div style={{...B,fontSize:22,color:"var(--ink)",letterSpacing:1,marginTop:1,fontVariantNumeric:"tabular-nums"}}>{fmtHM(dayTotal)}</div>
           </div>
-          <button onClick={()=>onStop()} style={{flexShrink:0,background:"#ef4444",border:"none",borderRadius:10,...B,fontSize:13,letterSpacing:1,color:"#fff",padding:"12px 16px",cursor:"pointer"}}>STOP SHIFT</button>
+          <div style={{fontSize:10,...M,color:"var(--muted)",flexShrink:0,textAlign:"right",lineHeight:1.3}}>This shift<br/>{fmtHM(elapsed)}</div>
         </div>
-        {checkBtn}
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>onStop()} style={{flex:1,minHeight:52,borderRadius:14,background:"var(--tint-red)",border:"1px solid #ef444444",...B,fontWeight:800,fontSize:15,letterSpacing:1,color:"#ef4444",cursor:"pointer"}}>STOP SHIFT</button>
+          {checkPill}
+        </div>
       </div>
     );
   }
   return(
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,marginBottom:14}}>
-      <button onClick={onStart} aria-label="Start shift" style={{flexShrink:0,width:108,height:108,borderRadius:"50%",background:"var(--tint-green)",border:"2px solid #06c16766",boxShadow:"0 6px 18px #06c16733, inset 0 1px 0 #ffffff22",...B,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-        <span style={{fontWeight:800,fontSize:23,letterSpacing:2.5,color:"#06c167"}}>START</span>
-        {completedToday>0&&<span style={{fontSize:11,...M,fontWeight:700,color:"#0a8f4f",letterSpacing:1,marginTop:3}}>{fmtHM(completedToday)}</span>}
+    <div style={{display:"flex",alignItems:"stretch",gap:10,marginBottom:14}}>
+      <button onClick={onStart} aria-label="Start shift" style={{flex:1,minHeight:52,borderRadius:14,background:"var(--tint-green)",border:"1px solid #06c16744",...B,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",lineHeight:1.15}}>
+        <span style={{fontWeight:800,fontSize:16,letterSpacing:2,color:"#06c167"}}>START</span>
+        {completedToday>0&&<span style={{fontSize:10,...M,fontWeight:700,color:"var(--muted)",letterSpacing:0.5,marginTop:2}}>{fmtHM(completedToday)} today</span>}
       </button>
-      {checkBtn}
+      {checkPill}
     </div>
   );
 }
@@ -3602,43 +3603,16 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
                   <div style={{height:4,borderRadius:4,width:Math.min(100,(realAvg/40)*100)+"%",background:riskColor}}/>
                 </div>
               )}
-              <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",marginTop:hasReal&&!closed?0:8}}>
-                {usePersonal?(
-                  <div style={{flex:1,minWidth:80,background:"var(--tint-green)",border:"1px solid #06c16733",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"#06c167",letterSpacing:2,marginBottom:2}}>{t("w_yourData")}</div>
-                    <div style={{...B,fontSize:17,color:"#06c167",letterSpacing:1}}>{personal.avg}m</div>
-                    <div style={{fontSize:8,color:"#0a8f4f",marginTop:1}}>{personal.bucketCount}v · {personal.context}</div>
-                  </div>
-                ):personal?(
-                  <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid #00b8a933",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"#00b8a9",letterSpacing:2,marginBottom:2}}>{t("w_yourData")}</div>
-                    <div style={{...B,fontSize:17,color:"#00b8a9",letterSpacing:1}}>{personal.avg}m</div>
-                    <div style={{fontSize:8,color:"var(--muted2)",marginTop:1}}>1 visit</div>
-                  </div>
-                ):(
-                  <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"var(--faint)",letterSpacing:2,marginBottom:2}}>{t("w_yourData")}</div>
-                    <div style={{...B,fontSize:14,color:"var(--faint2)",letterSpacing:1}}>NONE YET</div>
-                  </div>
-                )}
-                {community?(
-                  <div style={{flex:1,minWidth:80,background:"var(--tint-blue)",border:"1px solid #2b8fff33",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"#2b8fff",letterSpacing:2,marginBottom:2}}>{t("w_community")}</div>
-                    <div style={{...B,fontSize:17,color:"#2b8fff",letterSpacing:1}}>{community.avg}m</div>
-                    <div style={{fontSize:8,color:"#1c6fd0",marginTop:1}}>{community.count} logs · {community.drivers}d</div>
-                  </div>
-                ):(
-                  <div style={{flex:1,minWidth:80,background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"7px 10px"}}>
-                    <div style={{fontSize:8,color:"var(--border2)",letterSpacing:2,marginBottom:2}}>{t("w_community")}</div>
-                    <div style={{...B,fontSize:14,color:"var(--border)",letterSpacing:1}}>NO DATA</div>
-                  </div>
-                )}
-                <div style={{minWidth:72,background:waitingNow>0?"var(--tint-green)":"var(--card)",border:"1px solid "+(waitingNow>0?"#06c16744":"var(--border)"),borderRadius:8,padding:"7px 10px"}}>
-                  <div style={{fontSize:8,color:waitingNow>0?"#06c167":"var(--faint)",letterSpacing:2,marginBottom:2}}>{t("w_waitingNow")}</div>
-                  <div style={{...B,fontSize:17,color:waitingNow>0?"#06c167":"var(--faint2)",letterSpacing:1}}>{waitingNow}</div>
-                  <div style={{fontSize:8,color:waitingNow>0?"#0a8f4f":"var(--faint2)",marginTop:1}}>{t("w_liveNow")}</div>
+              {/* Secondary stats — one muted line under the single hero number (no colored boxes). */}
+              {!closed&&(
+                <div style={{fontSize:11,...M,color:"var(--muted)",marginBottom:8,marginTop:hasReal?0:8,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                  {personal
+                    ? <>{t("w_yourData").toLowerCase()} <b style={{color:"var(--ink)",fontWeight:700}}>{personal.avg}m</b>{usePersonal?" · "+personal.bucketCount+"v":""}</>
+                    : <span style={{color:"var(--faint)"}}>{t("w_yourData").toLowerCase()} —</span>}
+                  {community&&<><span style={{color:"var(--faint2)"}}>{"   ·   "}</span>{t("w_community").toLowerCase()} <b style={{color:"var(--ink)",fontWeight:700}}>{community.avg}m</b> · {community.count} log{community.count!==1?"s":""}</>}
+                  {waitingNow>0&&<><span style={{color:"var(--faint2)"}}>{"   ·   "}</span>{waitingNow} {t("w_waitingNow").toLowerCase()}</>}
                 </div>
-              </div>
+              )}
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 {closed?(
                   <span style={{fontSize:9,background:"var(--border)",color:"var(--muted2)",border:"1px solid var(--faint2)",borderRadius:5,padding:"3px 8px"}}>CLOSED</span>
