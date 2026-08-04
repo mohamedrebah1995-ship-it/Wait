@@ -973,17 +973,16 @@ async function geocodeBranch(lat,lng,name) {
 // ── STACK CHECK (admin test) — "does stacking still deliver on time?" ──
 // Only meaningful with 2+ orders. Each order is judged RELATIVE to its own SOLO baseline (the time to do
 // that order alone), never a flat window — so a lone far order is never penalised (a single order gets no
-// verdict at all). Verdict per order = the WORSE of two relative checks:
-//  (1) completion vs baseline = actual stacked completion − solo completion (<5 green · 5–15 orange · >15 red)
-//  (2) pickup detour          = extra driving stacking adds to reach the pickup (<10 green · 10–15 orange · >15 red)
-const STACK_TIME_ORANGE_MIN = 5;             // completion minutes OVER the solo baseline: <5 green · 5–15 orange
-const STACK_TIME_RED_MIN    = 15;            // ...over STACK_TIME_RED_MIN → red
-const PICKUP_ORANGE_MIN = 10;                // pickup-detour orange band: PICKUP_ORANGE_MIN..MAX_STACK_DETOUR_MIN
+// verdict at all). Verdict per order = the WORSE of two relative checks, BOTH on one shared tolerance:
+//  (1) completion vs baseline = actual stacked completion − solo completion
+//  (2) pickup detour          = extra driving stacking adds to reach the pickup
+// Shared bands (minutes OVER baseline): ≤12 green · 13–17 orange · >17 red.
+const STACK_GREEN_MAX_MIN  = 12;             // at/under baseline up to +12 over → green (both checks)
+const STACK_ORANGE_MAX_MIN = 17;             // +13..+17 → orange; over +17 → red (both checks; also the detour ⚠ line)
 // Stack Check time-budget assumptions. TEMPORARY flat values — once waitEngine.js has enough
 // real samples for a restaurant+hour, that average OVERRIDES the flat PICKUP_DWELL_MIN below.
 const PICKUP_DWELL_MIN  = 5;                 // per pickup: parking + walking in + waiting if not ready + walking back
 const DROPOFF_DWELL_MIN = 2;                 // per drop-off: parking + walking to the door + handover
-const MAX_STACK_DETOUR_MIN = 15;             // detour cap: EXTRA driving stacking adds to reach a pickup (via-route − solo direct)
 
 // Geocode a typed address / place → {lat,lng,label}. Mapbox forward search (biased to the driver).
 async function geocodeText(q,lat,lng){
@@ -1058,7 +1057,7 @@ function planStack(m, orders, dwell){
   // Stacking-detour guard — measures the EXTRA driving that STACKING imposes, not raw distance.
   // For each pickup: (a) solo = drive straight from You to it alone; (b) via route = cumulative drive
   // from You along the optimized sequence to reach it. added = (b − a). Only when 2+ orders are stacked,
-  // and only added > MAX_STACK_DETOUR_MIN flags — a lone far pickup adds nothing, so it never triggers.
+  // and only added > STACK_ORANGE_MAX_MIN flags — a lone far pickup adds nothing, so it never triggers.
   const stacked = orders.length >= 2;                                      // no stacking ⇒ no detour to check
   const pickupSet=new Set(orders.filter(o=>o.pickupIdx!=null).map(o=>o.pickupIdx));
   const detourWarnings=[];
@@ -1074,7 +1073,7 @@ function planStack(m, orders, dwell){
         const solo=D[0][s];                                                 // (a) direct You → this pickup, alone
         added = (solo!=null) ? (cum-solo) : null;                          // (b − a): extra driving stacking adds to reach it
         addedDetour[s]=added;
-        overCap = stacked && added!=null && added>MAX_STACK_DETOUR_MIN*60;  // >15 EXTRA minutes ⇒ over the detour cap
+        overCap = stacked && added!=null && added>STACK_ORANGE_MAX_MIN*60;  // >17 EXTRA minutes ⇒ detour is red-level
         if(overCap) detourWarnings.push({to:label[s], mins:Math.round(added/60)});
       }
       legs.push({from:prev===0?"You":label[prev], to:label[s], legMins:secs!=null?Math.round(secs/60*10)/10:null, cumMins:Math.round(cum/60*10)/10, soloMins:endsAtPickup&&D[0][s]!=null?Math.round(D[0][s]/60*10)/10:null, addedMins:added!=null?Math.round(added/60*10)/10:null, checked:endsAtPickup, overCap});
@@ -1086,8 +1085,8 @@ function planStack(m, orders, dwell){
   // checks: (1) completion time OVER its own solo baseline, (2) extra driving stacking adds to its pickup.
   // A single order gets no verdict at all (colours/banner = null).
   const RANK={green:0,orange:1,red:2}, worseColor=(a,b)=>RANK[a]>=RANK[b]?a:b;
-  const timeColor=m=> m<STACK_TIME_ORANGE_MIN?"green" : m<=STACK_TIME_RED_MIN?"orange" : "red";               // mins OVER baseline: <5 g · 5–15 o · >15 r
-  const pickColor=m=> m==null?"green" : m<PICKUP_ORANGE_MIN?"green" : m<=MAX_STACK_DETOUR_MIN?"orange" : "red"; // ADDED detour mins: <10 g · 10–15 o · >15 r
+  const timeColor=m=> m<=STACK_GREEN_MAX_MIN?"green" : m<=STACK_ORANGE_MAX_MIN?"orange" : "red";               // mins OVER baseline: ≤12 g · 13–17 o · >17 r
+  const pickColor=m=> m==null?"green" : m<=STACK_GREEN_MAX_MIN?"green" : m<=STACK_ORANGE_MAX_MIN?"orange" : "red"; // ADDED detour mins: ≤12 g · 13–17 o · >17 r
   const perOrder=orders.map((o,i)=>{
     const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0, dwellD=dwell[o.dropIdx]||0;
     const baseline=o.pickupIdx!=null                                       // time to do THIS order alone (solo completion)
@@ -4170,10 +4169,10 @@ function StackScreen({gps,activeOrders}){
                 </div>
                 {res.detourWarnings&&res.detourWarnings.length>0&&(
                   <div style={{marginBottom:10,background:"var(--tint-red)",border:"1px solid #ef444455",borderRadius:12,padding:"10px 12px"}}>
-                    <div style={{...B,fontWeight:800,fontSize:11,letterSpacing:1,color:"#ef4444",marginBottom:6}}>⚠ STACKING DETOUR OVER {MAX_STACK_DETOUR_MIN}MIN</div>
+                    <div style={{...B,fontWeight:800,fontSize:11,letterSpacing:1,color:"#ef4444",marginBottom:6}}>⚠ STACKING DETOUR OVER {STACK_ORANGE_MAX_MIN}MIN</div>
                     {res.detourWarnings.map((w,i)=>(
                       <div key={i} style={{...M,fontSize:12,color:"var(--ink)",padding:"2px 0"}}>
-                        <b style={{fontWeight:700}}>{w.to}</b>: +{w.mins}m extra from stacking — over the {MAX_STACK_DETOUR_MIN}min detour cap
+                        <b style={{fontWeight:700}}>{w.to}</b>: +{w.mins}m extra from stacking — over the {STACK_ORANGE_MAX_MIN}min detour cap
                       </div>
                     ))}
                   </div>
@@ -4185,7 +4184,7 @@ function StackScreen({gps,activeOrders}){
                 {/* Stacking-detour diagnostic — per pickup: solo vs via-route drive, and the extra it adds. */}
                 {res.legs&&res.legs.length>0&&(
                   <div style={{marginTop:12,paddingTop:10,borderTop:"1px dashed var(--border2)"}}>
-                    <div style={{fontSize:9,...B,letterSpacing:1,color:"var(--muted2)",marginBottom:6}}>🔧 STACKING-DETOUR DIAGNOSTIC · cap {MAX_STACK_DETOUR_MIN}min</div>
+                    <div style={{fontSize:9,...B,letterSpacing:1,color:"var(--muted2)",marginBottom:6}}>🔧 STACKING-DETOUR DIAGNOSTIC · cap {STACK_ORANGE_MAX_MIN}min</div>
                     <div style={{fontSize:10,...M,color:"var(--muted)",marginBottom:8,lineHeight:1.5}}>
                       Detour check <b style={{color:res.stacked?"#06c167":"#f5a623"}}>{res.stacked?"ACTIVE":"OFF · single order"}</b> — added = via-route drive − solo direct drive to each pickup.
                     </div>
@@ -4196,7 +4195,7 @@ function StackScreen({gps,activeOrders}){
                         <span style={{flexShrink:0,minWidth:96,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{l.checked?(l.addedMins==null?"—":"+"+l.addedMins+"m detour"):""}{l.overCap?" ⚠":""}</span>
                       </div>
                     ))}
-                    <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,lineHeight:1.5}}>Detour = extra driving stacking adds vs going straight to a pickup (via-route − solo, dwell excluded). Over {MAX_STACK_DETOUR_MIN}m added shows ⚠. A single order has no stacking, so the check is off. Drops aren't checked.</div>
+                    <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,lineHeight:1.5}}>Detour = extra driving stacking adds vs going straight to a pickup (via-route − solo, dwell excluded). Over {STACK_ORANGE_MAX_MIN}m added shows ⚠. A single order has no stacking, so the check is off. Drops aren't checked.</div>
                   </div>
                 )}
               </div>
