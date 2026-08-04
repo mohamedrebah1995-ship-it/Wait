@@ -1053,46 +1053,44 @@ function planStack(m, orders, dwell){
   const arr=best.arr;
   const label={}; orders.forEach((o,i)=>{ if(o.pickupIdx!=null)label[o.pickupIdx]="P"+(i+1); label[o.dropIdx]="D"+(i+1); });
 
-  // Max-pickup-detour guard — evaluated on the FINAL optimized sequence (best.seq), not the add order.
-  // The cap is on the CUMULATIVE drive time from You (the start) FOLLOWING the route to REACH each pickup:
-  // if getting to a pickup takes more than MAX_STACK_DETOUR_MIN of driving from your start, that pickup is
-  // too deep a detour and is flagged (dwell excluded — pure drive time).
-  // Exception: base/normal working area = the FIRST pickup added this session; if You is already
-  // > MAX_STACK_DETOUR_MIN from that base, the whole cap is switched OFF (you're out of your usual area).
-  const firstPickup=orders.find(o=>o.pickupIdx!=null);
-  const basePickupIdx=firstPickup?firstPickup.pickupIdx:null;
-  const detourAwayFromBase = basePickupIdx!=null && D[0][basePickupIdx]>MAX_STACK_DETOUR_MIN*60;
-  const detourEnforced = basePickupIdx!=null && !detourAwayFromBase;
+  // Stacking-detour guard — measures the EXTRA driving that STACKING imposes, not raw distance.
+  // For each pickup: (a) solo = drive straight from You to it alone; (b) via route = cumulative drive
+  // from You along the optimized sequence to reach it. added = (b − a). Only when 2+ orders are stacked,
+  // and only added > MAX_STACK_DETOUR_MIN flags — a lone far pickup adds nothing, so it never triggers.
+  const stacked = orders.length >= 2;                                      // no stacking ⇒ no detour to check
   const pickupSet=new Set(orders.filter(o=>o.pickupIdx!=null).map(o=>o.pickupIdx));
   const detourWarnings=[];
   const legs=[];                                                            // leg-by-leg breakdown of the optimized route (diagnostic)
-  const cumDriveToPickup={};                                               // {pickupIdx: cumulative DRIVE time from start to reach it} — feeds check (2)
+  const addedDetour={};                                                    // {pickupIdx: EXTRA drive seconds stacking adds vs going straight there}
   { let prev=0, cum=0;                                                      // cum = cumulative DRIVE time from You (start) along the route, dwell excluded
     for(const s of best.seq){
       const secs=D[prev][s];
-      cum += (secs!=null?secs:0);                                           // running drive time from the start to this stop
+      cum += (secs!=null?secs:0);                                           // (b) running drive time from the start to this stop
       const endsAtPickup=pickupSet.has(s);
-      if(endsAtPickup) cumDriveToPickup[s]=cum;
-      const overCap=endsAtPickup && cum>MAX_STACK_DETOUR_MIN*60;            // a pickup is too far when REACHING it from start exceeds the cap
-      legs.push({from:prev===0?"You":label[prev], to:label[s], legMins:secs!=null?Math.round(secs/60*10)/10:null, cumMins:Math.round(cum/60*10)/10, checked:endsAtPickup, overCap});
-      if(detourEnforced && overCap)
-        detourWarnings.push({to:label[s], mins:Math.round(cum/60)});
+      let added=null, overCap=false;
+      if(endsAtPickup){
+        const solo=D[0][s];                                                 // (a) direct You → this pickup, alone
+        added = (solo!=null) ? (cum-solo) : null;                          // (b − a): extra driving stacking adds to reach it
+        addedDetour[s]=added;
+        overCap = stacked && added!=null && added>MAX_STACK_DETOUR_MIN*60;  // >15 EXTRA minutes ⇒ over the detour cap
+        if(overCap) detourWarnings.push({to:label[s], mins:Math.round(added/60)});
+      }
+      legs.push({from:prev===0?"You":label[prev], to:label[s], legMins:secs!=null?Math.round(secs/60*10)/10:null, cumMins:Math.round(cum/60*10)/10, soloMins:endsAtPickup&&D[0][s]!=null?Math.round(D[0][s]/60*10)/10:null, addedMins:added!=null?Math.round(added/60*10)/10:null, checked:endsAtPickup, overCap});
       prev=s;
     }
   }
-  const baseInfo=basePickupIdx!=null?{label:label[basePickupIdx], youToBaseMin:D[0][basePickupIdx]!=null?Math.round(D[0][basePickupIdx]/60*10)/10:null}:null;
 
-  // Per-order verdict — one colour = the WORSE of two checks. Pickup check is neutral (green) for
-  // in-hand orders and when the away-from-base exception has disabled the detour cap (detourEnforced=false).
+  // Per-order verdict — one colour = the WORSE of two checks. Pickup (detour) check is neutral (green)
+  // for in-hand orders and for a single-order stack (nothing to detour around).
   const RANK={green:0,orange:1,red:2}, worseColor=(a,b)=>RANK[a]>=RANK[b]?a:b;
   const timeColor=m=> m<TIME_ORANGE_MIN?"green" : m<=WINDOW_MIN?"orange" : "red";               // <40 g · 40–45 o · >45 r
-  const pickColor=m=> m==null?"green" : m<PICKUP_ORANGE_MIN?"green" : m<=MAX_STACK_DETOUR_MIN?"orange" : "red";  // <10 g · 10–15 o · >15 r
+  const pickColor=m=> m==null?"green" : m<PICKUP_ORANGE_MIN?"green" : m<=MAX_STACK_DETOUR_MIN?"orange" : "red";  // ADDED detour mins: <10 g · 10–15 o · >15 r
   const perOrder=orders.map((o,i)=>{
     const deliverMin=arr[o.dropIdx]/60;                                     // total drive+dwell from now to this drop
-    const cm=(o.pickupIdx!=null && detourEnforced)?cumDriveToPickup[o.pickupIdx]:null;
-    const pickupMin=cm!=null?cm/60:null;                                    // cumulative drive from start to this pickup
-    const tC=timeColor(deliverMin), pC=pickColor(pickupMin);
-    return {n:i+1, hasPickup:o.pickupIdx!=null, color:worseColor(tC,pC), timeColor:tC, pickColor:pC, deliverMin:Math.round(deliverMin), pickupMin:pickupMin!=null?Math.round(pickupMin*10)/10:null};
+    const ad=(o.pickupIdx!=null && stacked)?addedDetour[o.pickupIdx]:null;  // extra driving stacking adds to reach this pickup
+    const detourMin=ad!=null?ad/60:null;
+    const tC=timeColor(deliverMin), pC=pickColor(detourMin);
+    return {n:i+1, hasPickup:o.pickupIdx!=null, color:worseColor(tC,pC), timeColor:tC, pickColor:pC, deliverMin:Math.round(deliverMin), detourMin:detourMin!=null?Math.round(detourMin*10)/10:null};
   });
   const bannerColor=perOrder.reduce((w,o)=>worseColor(w,o.color),"green");  // whole stack = worst order colour
 
@@ -1106,11 +1104,9 @@ function planStack(m, orders, dwell){
     totalMin:Math.round(best.total/60),
     totalMiles:Math.round(d/1609.34*10)/10,
     rate: totalPay>0&&best.total>0?Math.round(totalPay/(best.total/3600)):null,
-    detourWarnings,                                                          // [{to,mins}] pickups whose cumulative drive time from start exceeds the cap
-    detourEnforced,                                                          // false when there are no pickups or the driver is away from base
-    detourAwayFromBase,                                                      // true → cap disabled because You is already >cap from the first pickup
-    legs,                                                                    // [{from,to,legMins,cumMins,checked,overCap}] every leg of the optimized route
-    baseInfo,                                                                // {label, youToBaseMin} — the base pickup + its drive time from You
+    detourWarnings,                                                          // [{to,mins}] pickups where stacking adds > the cap in EXTRA driving
+    stacked,                                                                 // true when 2+ orders → the detour check is active
+    legs,                                                                    // [{from,to,legMins,cumMins,soloMins,addedMins,checked,overCap}] every leg
   };
 }
 
@@ -4132,47 +4128,40 @@ function StackScreen({gps,activeOrders}){
                   {res.perOrder.map(o=>{ const c=CV[o.color]||CV.green; return(
                     <div key={o.n} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid var(--border3)"}}>
                       <span style={{...M,fontSize:13,color:"var(--ink)",flexShrink:0}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
-                      <span style={{flex:1,textAlign:"right",fontSize:10,...M,color:"var(--muted)"}}>deliver {o.deliverMin}m{o.pickupMin!=null?" · pickup "+o.pickupMin+"m":""}</span>
+                      <span style={{flex:1,textAlign:"right",fontSize:10,...M,color:"var(--muted)"}}>deliver {o.deliverMin}m{o.detourMin!=null?" · +"+o.detourMin+"m detour":""}</span>
                       <span style={{...B,fontWeight:800,fontSize:11,letterSpacing:0.5,color:c.c,minWidth:52,textAlign:"right"}}>{o.color.toUpperCase()}</span>
                     </div>
                   );})}
                 </div>
                 {res.detourWarnings&&res.detourWarnings.length>0&&(
                   <div style={{marginBottom:10,background:"var(--tint-red)",border:"1px solid #ef444455",borderRadius:12,padding:"10px 12px"}}>
-                    <div style={{...B,fontWeight:800,fontSize:11,letterSpacing:1,color:"#ef4444",marginBottom:6}}>⚠ PICKUP DETOUR OVER {MAX_STACK_DETOUR_MIN}MIN</div>
+                    <div style={{...B,fontWeight:800,fontSize:11,letterSpacing:1,color:"#ef4444",marginBottom:6}}>⚠ STACKING DETOUR OVER {MAX_STACK_DETOUR_MIN}MIN</div>
                     {res.detourWarnings.map((w,i)=>(
                       <div key={i} style={{...M,fontSize:12,color:"var(--ink)",padding:"2px 0"}}>
-                        <b style={{fontWeight:700}}>{w.to}</b>: {w.mins}m from start to reach — exceeds {MAX_STACK_DETOUR_MIN}min pickup cap
+                        <b style={{fontWeight:700}}>{w.to}</b>: +{w.mins}m extra from stacking — over the {MAX_STACK_DETOUR_MIN}min detour cap
                       </div>
                     ))}
-                  </div>
-                )}
-                {res.detourAwayFromBase&&(
-                  <div style={{marginBottom:10,fontSize:10.5,...M,color:"var(--muted)",lineHeight:1.5,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:10,padding:"8px 12px"}}>
-                    ℹ Pickup-detour cap off — you're already more than {MAX_STACK_DETOUR_MIN}min from base (your first pickup this session), so long hops to a pickup aren't flagged.
                   </div>
                 )}
                 <div style={{fontSize:12,...M,color:"var(--muted)",marginBottom:6}}>Whole run: <b style={{color:"var(--ink)"}}>{res.totalMin}m</b> · {res.totalMiles}mi{res.rate!=null?" · £"+res.rate+"/hr":""}</div>
                 <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}><b style={{color:"var(--ink)"}}>Best route:</b> {res.order.join("  →  ")}</div>
                 <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:8}}>P = pickup, D = drop · traffic-aware driving times from Mapbox{res.usedWait?" + real restaurant wait times":""}.</div>
 
-                {/* Detour-cap diagnostic — every leg of the optimized route, what the cap checks vs skips. */}
+                {/* Stacking-detour diagnostic — per pickup: solo vs via-route drive, and the extra it adds. */}
                 {res.legs&&res.legs.length>0&&(
                   <div style={{marginTop:12,paddingTop:10,borderTop:"1px dashed var(--border2)"}}>
-                    <div style={{fontSize:9,...B,letterSpacing:1,color:"var(--muted2)",marginBottom:6}}>🔧 DETOUR-CAP DIAGNOSTIC · {MAX_STACK_DETOUR_MIN}min</div>
+                    <div style={{fontSize:9,...B,letterSpacing:1,color:"var(--muted2)",marginBottom:6}}>🔧 STACKING-DETOUR DIAGNOSTIC · cap {MAX_STACK_DETOUR_MIN}min</div>
                     <div style={{fontSize:10,...M,color:"var(--muted)",marginBottom:8,lineHeight:1.5}}>
-                      Cap <b style={{color:res.detourEnforced?"#06c167":"#f5a623"}}>{res.detourEnforced?"ENFORCED":"OFF"}</b>
-                      {res.baseInfo&&<> · base {res.baseInfo.label} · You→base <b style={{color:"var(--ink)"}}>{res.baseInfo.youToBaseMin}m</b></>}
-                      {res.detourAwayFromBase&&<> (&gt;{MAX_STACK_DETOUR_MIN}m ⇒ whole cap disabled)</>}
+                      Detour check <b style={{color:res.stacked?"#06c167":"#f5a623"}}>{res.stacked?"ACTIVE":"OFF · single order"}</b> — added = via-route drive − solo direct drive to each pickup.
                     </div>
                     {res.legs.map((l,i)=>(
                       <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:11,...M,padding:"3px 0",borderBottom:i<res.legs.length-1?"1px solid var(--border3)":"none",color:l.overCap?"#ef4444":l.checked?"var(--ink)":"var(--faint)"}}>
                         <span style={{flexShrink:0,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{l.from} → {l.to}</span>
-                        <span style={{flex:1,textAlign:"right",fontSize:9,color:"var(--faint)"}}>+{l.legMins==null?"—":l.legMins}m leg{l.checked?" · pickup":""}</span>
-                        <span style={{flexShrink:0,minWidth:104,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{l.cumMins}m from start{l.overCap?" ⚠":""}</span>
+                        <span style={{flex:1,textAlign:"right",fontSize:9,color:"var(--faint)"}}>{l.checked?"solo "+(l.soloMins==null?"—":l.soloMins)+"m · route "+l.cumMins+"m":"+"+(l.legMins==null?"—":l.legMins)+"m leg"}</span>
+                        <span style={{flexShrink:0,minWidth:96,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums"}}>{l.checked?(l.addedMins==null?"—":"+"+l.addedMins+"m detour"):""}{l.overCap?" ⚠":""}</span>
                       </div>
                     ))}
-                    <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,lineHeight:1.5}}>Cap = cumulative drive time from You (start) to REACH each pickup, following the route (dwell excluded). A pickup whose "from start" total {'>'}{MAX_STACK_DETOUR_MIN}m shows ⚠ (and warns above only when the cap is ENFORCED). Drops aren't capped.</div>
+                    <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,lineHeight:1.5}}>Detour = extra driving stacking adds vs going straight to a pickup (via-route − solo, dwell excluded). Over {MAX_STACK_DETOUR_MIN}m added shows ⚠. A single order has no stacking, so the check is off. Drops aren't checked.</div>
                   </div>
                 )}
               </div>
