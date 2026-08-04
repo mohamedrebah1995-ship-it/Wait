@@ -970,18 +970,20 @@ async function geocodeBranch(lat,lng,name) {
   }catch(e){return null;}
 }
 
-// ── STACK CHECK (admin test) — "can I fit another order in its 45-min window?" ──
-// Every order gets ONE flat 45-min window; its verdict is a single colour = the WORSE of two checks:
-//  (1) time to deliver = total drive+dwell from now to the drop  (<TIME_ORANGE_MIN green · –45 orange · >45 red)
-//  (2) pickup drive    = cumulative drive from start to its pickup (<PICKUP_ORANGE_MIN green · –15 orange · >15 red)
-const WINDOW_MIN = 45;                        // flat delivery window; total drive+dwell over this fails (red)
-const TIME_ORANGE_MIN = 40;                   // time-to-deliver orange band: TIME_ORANGE_MIN..WINDOW_MIN
-const PICKUP_ORANGE_MIN = 10;                 // pickup-drive orange band: PICKUP_ORANGE_MIN..MAX_STACK_DETOUR_MIN
+// ── STACK CHECK (admin test) — "does stacking still deliver on time?" ──
+// Only meaningful with 2+ orders. Each order is judged RELATIVE to its own SOLO baseline (the time to do
+// that order alone), never a flat window — so a lone far order is never penalised (a single order gets no
+// verdict at all). Verdict per order = the WORSE of two relative checks:
+//  (1) completion vs baseline = actual stacked completion − solo completion (<5 green · 5–15 orange · >15 red)
+//  (2) pickup detour          = extra driving stacking adds to reach the pickup (<10 green · 10–15 orange · >15 red)
+const STACK_TIME_ORANGE_MIN = 5;             // completion minutes OVER the solo baseline: <5 green · 5–15 orange
+const STACK_TIME_RED_MIN    = 15;            // ...over STACK_TIME_RED_MIN → red
+const PICKUP_ORANGE_MIN = 10;                // pickup-detour orange band: PICKUP_ORANGE_MIN..MAX_STACK_DETOUR_MIN
 // Stack Check time-budget assumptions. TEMPORARY flat values — once waitEngine.js has enough
 // real samples for a restaurant+hour, that average OVERRIDES the flat PICKUP_DWELL_MIN below.
 const PICKUP_DWELL_MIN  = 5;                 // per pickup: parking + walking in + waiting if not ready + walking back
 const DROPOFF_DWELL_MIN = 2;                 // per drop-off: parking + walking to the door + handover
-const MAX_STACK_DETOUR_MIN = 15;             // cap on the cumulative drive time from your start (You) to REACH any pickup along the optimized route; disabled when already away from base
+const MAX_STACK_DETOUR_MIN = 15;             // detour cap: EXTRA driving stacking adds to reach a pickup (via-route − solo direct)
 
 // Geocode a typed address / place → {lat,lng,label}. Mapbox forward search (biased to the driver).
 async function geocodeText(q,lat,lng){
@@ -1027,7 +1029,7 @@ function planStack(m, orders, dwell){
   dwell=dwell||{};                                                          // {stopIdx: seconds spent at that stop} — pickup dwell (real wait or flat) + drop dwell (flat)
   const stopIdxs=[]; orders.forEach(o=>{ if(o.pickupIdx!=null)stopIdxs.push(o.pickupIdx); stopIdxs.push(o.dropIdx); });
   const dropToPickup={}; orders.forEach(o=>{ if(o.pickupIdx!=null)dropToPickup[o.dropIdx]=o.pickupIdx; });
-  const windowsOK=arr=>orders.every(o=> arr[o.dropIdx] <= o.windowSec );   // total drive+dwell from now to each drop must fit the flat window
+  const windowsOK=()=>true;   // no flat window gate — pick the fastest stacked route; each order is judged vs its own solo baseline afterwards
   let best=null, count=0; const CAP=300000;
   (function rec(seq,used,time,arr){
     if(count>CAP)return;
@@ -1080,19 +1082,27 @@ function planStack(m, orders, dwell){
     }
   }
 
-  // Per-order verdict — one colour = the WORSE of two checks. Pickup (detour) check is neutral (green)
-  // for in-hand orders and for a single-order stack (nothing to detour around).
+  // Per-order verdict — ONLY for a real stack (2+ orders). Each order's colour = the WORSE of two RELATIVE
+  // checks: (1) completion time OVER its own solo baseline, (2) extra driving stacking adds to its pickup.
+  // A single order gets no verdict at all (colours/banner = null).
   const RANK={green:0,orange:1,red:2}, worseColor=(a,b)=>RANK[a]>=RANK[b]?a:b;
-  const timeColor=m=> m<TIME_ORANGE_MIN?"green" : m<=WINDOW_MIN?"orange" : "red";               // <40 g · 40–45 o · >45 r
-  const pickColor=m=> m==null?"green" : m<PICKUP_ORANGE_MIN?"green" : m<=MAX_STACK_DETOUR_MIN?"orange" : "red";  // ADDED detour mins: <10 g · 10–15 o · >15 r
+  const timeColor=m=> m<STACK_TIME_ORANGE_MIN?"green" : m<=STACK_TIME_RED_MIN?"orange" : "red";               // mins OVER baseline: <5 g · 5–15 o · >15 r
+  const pickColor=m=> m==null?"green" : m<PICKUP_ORANGE_MIN?"green" : m<=MAX_STACK_DETOUR_MIN?"orange" : "red"; // ADDED detour mins: <10 g · 10–15 o · >15 r
   const perOrder=orders.map((o,i)=>{
-    const deliverMin=arr[o.dropIdx]/60;                                     // total drive+dwell from now to this drop
-    const ad=(o.pickupIdx!=null && stacked)?addedDetour[o.pickupIdx]:null;  // extra driving stacking adds to reach this pickup
+    const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0, dwellD=dwell[o.dropIdx]||0;
+    const baseline=o.pickupIdx!=null                                       // time to do THIS order alone (solo completion)
+      ? D[0][o.pickupIdx]+dwellP+D[o.pickupIdx][o.dropIdx]+dwellD           //  You→P + pickup dwell + P→D + drop dwell
+      : D[0][o.dropIdx]+dwellD;                                            //  in-hand: You→D + drop dwell
+    const actual=arr[o.dropIdx]+dwellD;                                    // completion time within the full stacked route
+    const overMin=(actual-baseline)/60;                                   // minutes stacking adds vs doing it solo
+    const ad=o.pickupIdx!=null?addedDetour[o.pickupIdx]:null;             // extra driving stacking adds to reach the pickup
     const detourMin=ad!=null?ad/60:null;
-    const tC=timeColor(deliverMin), pC=pickColor(detourMin);
-    return {n:i+1, hasPickup:o.pickupIdx!=null, color:worseColor(tC,pC), timeColor:tC, pickColor:pC, deliverMin:Math.round(deliverMin), detourMin:detourMin!=null?Math.round(detourMin*10)/10:null};
+    const tC=stacked?timeColor(overMin):null, pC=stacked?pickColor(detourMin):null;
+    return {n:i+1, hasPickup:o.pickupIdx!=null, color:stacked?worseColor(tC,pC):null, timeColor:tC, pickColor:pC,
+            baselineMin:Math.round(baseline/60), actualMin:Math.round(actual/60), overMin:Math.round(overMin*10)/10,
+            detourMin:detourMin!=null?Math.round(detourMin*10)/10:null};
   });
-  const bannerColor=perOrder.reduce((w,o)=>worseColor(w,o.color),"green");  // whole stack = worst order colour
+  const bannerColor=stacked?perOrder.reduce((w,o)=>worseColor(w,o.color),"green"):null;  // no verdict for a single order
 
   let d=0,last=0; for(const s of best.seq){ d+=X[last][s]; last=s; }
   const totalPay=orders.reduce((s,o)=>s+(o.pay||0),0);
@@ -4052,8 +4062,6 @@ function StackScreen({gps,activeOrders}){
         }
         dwell[o.dropIdx]=DROPOFF_DWELL_MIN*60;
       }));
-      // One flat 45-min window for every order.
-      ord.forEach(o=>{ o.windowSec=WINDOW_MIN*60; });
       const plan=planStack(m,ord,dwell);
       if(!plan){setErr("Couldn't work out a route — try again.");setLoading(false);return;}
       setRes({...plan,usedWait});
@@ -4106,13 +4114,40 @@ function StackScreen({gps,activeOrders}){
           orange:{c:"#f5a623", bg:"var(--tint-amber)", banner:"🟠 It's on you",                        row:"Tight — your call"},
           red:{c:"#ef4444", bg:"var(--tint-red)",   banner:"❌ You can't take "+(n>1?"them all":"it"), row:"Won't make it"},
         };
+        const detailsBtn=<button onClick={()=>setShowDetails(s=>!s)} style={{width:"100%",marginTop:8,background:"none",border:"1px solid var(--border2)",borderRadius:10,padding:"9px",...B,fontWeight:700,fontSize:10,letterSpacing:1.5,color:"var(--muted)",cursor:"pointer"}}>{showDetails?"HIDE DETAILS ▴":"DETAILS ▾"}</button>;
+
+        // A single order isn't a stack — no verdict, no colour, no banner, however long it'd take.
+        if(!res.stacked){
+          return(
+            <div style={{marginTop:16}}>
+              <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:"18px"}}>
+                <div style={{...B,fontWeight:800,fontSize:18,color:"var(--ink)",marginBottom:6}}>Single order — nothing to stack</div>
+                <div style={{...M,fontSize:12,color:"var(--muted)",lineHeight:1.5}}>Stack Check compares a stacked route against each order's solo time. Add a second order to get a verdict.</div>
+              </div>
+              {detailsBtn}
+              {showDetails&&(
+                <div style={{marginTop:8,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px"}}>
+                  {res.perOrder.map(o=>(
+                    <div key={o.n} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"7px 0",borderBottom:"1px solid var(--border3)"}}>
+                      <span style={{...M,fontSize:13,color:"var(--ink)"}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
+                      <span style={{...M,fontSize:10,color:"var(--muted)"}}>solo {o.baselineMin}m · route {o.actualMin}m</span>
+                    </div>
+                  ))}
+                  <div style={{fontSize:12,...M,color:"var(--muted)",marginTop:8,marginBottom:6}}>Whole run: <b style={{color:"var(--ink)"}}>{res.totalMin}m</b> · {res.totalMiles}mi{res.rate!=null?" · £"+res.rate+"/hr":""}</div>
+                  <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.6}}><b style={{color:"var(--ink)"}}>Route:</b> {res.order.join("  →  ")}</div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
         const bv=CV[res.bannerColor]||CV.green;
         return(
           <div style={{marginTop:16}}>
             {/* Default driver view: one colour banner + one colour row per order. Nothing else. */}
             <div style={{background:bv.bg,border:"1px solid "+bv.c+"55",borderRadius:16,padding:"18px"}}>
-              <div style={{...B,fontWeight:800,fontSize:22,color:bv.c,letterSpacing:0.3,marginBottom:n>1?10:0}}>{bv.banner}</div>
-              {n>1&&res.perOrder.map(o=>{ const c=CV[o.color]||CV.green; return(
+              <div style={{...B,fontWeight:800,fontSize:22,color:bv.c,letterSpacing:0.3,marginBottom:10}}>{bv.banner}</div>
+              {res.perOrder.map(o=>{ const c=CV[o.color]||CV.green; return(
                 <div key={o.n} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:"1px solid var(--border3)"}}>
                   <span style={{width:11,height:11,borderRadius:"50%",background:c.c,flexShrink:0}}/>
                   <span style={{...M,fontSize:13,color:"var(--ink)",flex:1}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
@@ -4120,7 +4155,7 @@ function StackScreen({gps,activeOrders}){
                 </div>
               );})}
             </div>
-            <button onClick={()=>setShowDetails(s=>!s)} style={{width:"100%",marginTop:8,background:"none",border:"1px solid var(--border2)",borderRadius:10,padding:"9px",...B,fontWeight:700,fontSize:10,letterSpacing:1.5,color:"var(--muted)",cursor:"pointer"}}>{showDetails?"HIDE DETAILS ▴":"DETAILS ▾"}</button>
+            {detailsBtn}
 
             {showDetails&&(
               <div style={{marginTop:8,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px"}}>
@@ -4128,7 +4163,7 @@ function StackScreen({gps,activeOrders}){
                   {res.perOrder.map(o=>{ const c=CV[o.color]||CV.green; return(
                     <div key={o.n} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid var(--border3)"}}>
                       <span style={{...M,fontSize:13,color:"var(--ink)",flexShrink:0}}>Order {o.n}{!o.hasPickup?" · in hand":""}</span>
-                      <span style={{flex:1,textAlign:"right",fontSize:10,...M,color:"var(--muted)"}}>deliver {o.deliverMin}m{o.detourMin!=null?" · +"+o.detourMin+"m detour":""}</span>
+                      <span style={{flex:1,textAlign:"right",fontSize:10,...M,color:"var(--muted)"}}>solo {o.baselineMin}m → {o.actualMin}m ({o.overMin>=0?"+":""}{o.overMin}m){o.detourMin!=null?" · +"+o.detourMin+"m detour":""}</span>
                       <span style={{...B,fontWeight:800,fontSize:11,letterSpacing:0.5,color:c.c,minWidth:52,textAlign:"right"}}>{o.color.toUpperCase()}</span>
                     </div>
                   );})}
