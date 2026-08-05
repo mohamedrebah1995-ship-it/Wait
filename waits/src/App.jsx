@@ -4727,7 +4727,7 @@ export default function App() {
   // Push notifications: on an already-granted device, register/refresh the FCM token; on first
   // login (permission still default) show the explained opt-in prompt (wait reminders only).
   useEffect(()=>{
-    if(!user||typeof Notification==="undefined")return;
+    if(!user||NATIVE||typeof Notification==="undefined")return;   // native push is wired separately (FCM/APNs) — skip web push in the app shell
     if(Notification.permission==="granted"){
       const unsub=onAuthStateChanged(auth,fb=>{ if(fb)setupPush(fb.uid); });
       return unsub;
