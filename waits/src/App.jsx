@@ -17,6 +17,7 @@ import {
 import { auth, db, setupPush } from "./firebase";
 import { restaurantKey, trackWait, getWaitAverage, getSampleCount } from "./waitEngine";   // passive GPS wait-time engine (additive)
 import { Capacitor } from "@capacitor/core";
+import { Geolocation } from "@capacitor/geolocation";
 
 // Chat is the heaviest screen and rarely the landing tab — load it (and firebase/storage)
 // on demand the first time a driver opens CHAT, not on first paint.
@@ -33,6 +34,53 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 // we keep Stripe web-only and just honour the premium flag if the driver subscribed on the web).
 const NATIVE = Capacitor.isNativePlatform();
 const IS_IOS = Capacitor.getPlatform() === "ios";
+
+// iOS/Android WKWebView don't implement the web Geolocation API, so navigator.geolocation.* (and
+// Mapbox's GeolocateControl, which uses it internally) silently fail in the native shell. Bridge the
+// standard web API to the native @capacitor/geolocation plugin ONCE here, so every existing call site
+// keeps working unchanged. Web builds are untouched (NATIVE is false).
+if (NATIVE && typeof navigator !== "undefined" && navigator.geolocation) {
+  const toWebPosition = p => ({
+    coords: {
+      latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy,
+      altitude: p.coords.altitude ?? null, altitudeAccuracy: p.coords.altitudeAccuracy ?? null,
+      heading: p.coords.heading ?? null, speed: p.coords.speed ?? null,
+    },
+    timestamp: p.timestamp ?? Date.now(),
+  });
+  const toWebError = e => { const m = (e && e.message) || ""; const denied = /den|authoriz|permission/i.test(m);
+    return { code: denied ? 1 : 2, message: m || "Position unavailable", PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 }; };
+  const nativeOpts = o => ({ enableHighAccuracy: o?.enableHighAccuracy ?? true, timeout: o?.timeout, maximumAge: o?.maximumAge });
+  const watchers = new Map(); let seq = 1;
+  const shim = {
+    getCurrentPosition(success, error, options) {
+      Geolocation.getCurrentPosition(nativeOpts(options))
+        .then(p => success(toWebPosition(p)))
+        .catch(e => error && error(toWebError(e)));
+    },
+    watchPosition(success, error, options) {
+      const localId = seq++; const entry = { capId: null, cleared: false }; watchers.set(localId, entry);
+      Geolocation.watchPosition(nativeOpts(options), (p, err) => {
+        if (err) { error && error(toWebError(err)); return; }
+        if (p) success(toWebPosition(p));
+      }).then(capId => { if (entry.cleared) Geolocation.clearWatch({ id: capId }); else entry.capId = capId; })
+        .catch(e => error && error(toWebError(e)));
+      return localId;
+    },
+    clearWatch(localId) {
+      const entry = watchers.get(localId); if (!entry) return;
+      if (entry.capId) Geolocation.clearWatch({ id: entry.capId }); else entry.cleared = true;
+      watchers.delete(localId);
+    },
+  };
+  try {
+    navigator.geolocation.getCurrentPosition = shim.getCurrentPosition;
+    navigator.geolocation.watchPosition = shim.watchPosition;
+    navigator.geolocation.clearWatch = shim.clearWatch;
+  } catch (e) {
+    try { Object.defineProperty(navigator, "geolocation", { value: shim, configurable: true }); } catch (e2) {}
+  }
+}
 // Public Mapbox token — all restaurant location lookup runs on Mapbox (50k free req/month).
 // Google Places has been removed entirely (it was running up real cost via many calls).
 const MAPBOX_TOKEN = "pk.eyJ1Ijoia2luZ29mbWFkbmVzcyIsImEiOiJjbXAzZTFoNDYwbGNtMnBzODZuYnNiY3FvIn0.yVEwZEGgiP8gqqOIycdJWA";
