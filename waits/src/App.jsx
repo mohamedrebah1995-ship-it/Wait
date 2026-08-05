@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { auth, db, setupPush } from "./firebase";
 import { restaurantKey, trackWait, getWaitAverage, getSampleCount } from "./waitEngine";   // passive GPS wait-time engine (additive)
+import { Capacitor } from "@capacitor/core";
 
 // Chat is the heaviest screen and rarely the landing tab — load it (and firebase/storage)
 // on demand the first time a driver opens CHAT, not on first paint.
@@ -27,6 +28,11 @@ FL.href = "https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800
 document.head.appendChild(FL);
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+// Running inside the Capacitor native shell? Used to hide web-only bits: AdSense (not allowed in
+// apps) on any native build, and the Premium paywall on iOS (Apple requires IAP for digital subs —
+// we keep Stripe web-only and just honour the premium flag if the driver subscribed on the web).
+const NATIVE = Capacitor.isNativePlatform();
+const IS_IOS = Capacitor.getPlatform() === "ios";
 // Public Mapbox token — all restaurant location lookup runs on Mapbox (50k free req/month).
 // Google Places has been removed entirely (it was running up real cost via many calls).
 const MAPBOX_TOKEN = "pk.eyJ1Ijoia2luZ29mbWFkbmVzcyIsImEiOiJjbXAzZTFoNDYwbGNtMnBzODZuYnNiY3FvIn0.yVEwZEGgiP8gqqOIycdJWA";
@@ -1514,6 +1520,7 @@ function PasswordInput({value,onChange,placeholder}) {
 // Shows a real AdSense unit once ADSENSE_SLOT is set & approved; otherwise a placeholder.
 // Hidden entirely for premium subscribers.
 function AdBanner({premium}) {
+  if(NATIVE)return null;   // AdSense isn't permitted inside native apps — no ads in the Capacitor build
   const ref=useRef(null);
   const pushed=useRef(false);
   useEffect(()=>{
@@ -1729,15 +1736,16 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         </div>
       </div>
 
-      {/* Subscription card */}
-      <button onClick={onUpgrade}
+      {/* Subscription card — hidden on iOS (Apple IAP policy): Premium is sold on the web only, but the
+          premium flag is still honoured in-app if the driver subscribed there. Android keeps the CTA. */}
+      {!IS_IOS && <button onClick={onUpgrade}
         style={{width:"100%",background:premium?"linear-gradient(135deg,var(--tint-green),var(--tint-green))":"linear-gradient(135deg,var(--tint-coral),var(--tint-coral2))",border:"1px solid "+(premium?"#06c16744":"#00b8a966"),borderRadius:14,padding:"16px",marginBottom:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
         <div>
           <div style={{...B,fontSize:18,color:premium?"#06c167":"#00b8a9",letterSpacing:1}}>{premium?t("prof_premiumActive"):t("prof_goPremium")}</div>
           <div style={{fontSize:10,...M,color:"var(--muted)",marginTop:3}}>{premium?"Manage your subscription":"No ads + full data · "+SUB_PRICE+"/mo"}</div>
         </div>
         <span style={{...B,fontSize:24,color:premium?"#06c167":"#00b8a9"}}>›</span>
-      </button>
+      </button>}
 
       {/* Stats */}
       <div style={{display:"flex",gap:8,marginBottom:16}}>

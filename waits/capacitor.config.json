@@ -1,0 +1,15 @@
+{
+  "appId": "app.delivr.mobile",
+  "appName": "Delivr",
+  "webDir": "dist-native",
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "backgroundColor": "#121519",
+      "showSpinner": false
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}

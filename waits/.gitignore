@@ -9,8 +9,19 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-native
 dist-ssr
 *.local
+
+# Capacitor generated native build artifacts (keep ios/ & android/ project dirs, ignore build output)
+ios/App/Pods
+ios/App/App/public
+android/app/src/main/assets/public
+android/.gradle
+android/app/build
+android/build
+android/local.properties
+.DS_Store
 
 # Editor directories and files
 .vscode/*
