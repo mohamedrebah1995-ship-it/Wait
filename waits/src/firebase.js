@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
   apiKey:            "AIzaSyC1JGXIYJQ4KG3Jt0QEPEvgGRnYN-5aqII",
@@ -13,7 +14,12 @@ const firebaseConfig = {
 
 export const fbApp = initializeApp(firebaseConfig);
 export const auth  = getAuth(fbApp);
-export const db    = getFirestore(fbApp);
+// Firestore's default transport (WebChannel streaming) hangs inside the iOS/Android WKWebView, so on
+// native we force long-polling (discrete XHRs) which works reliably. This is why sign-in stuck on
+// "LOADING…" natively (auth REST succeeded, then the users-doc read never resolved). Web keeps the default.
+export const db    = Capacitor.isNativePlatform()
+  ? initializeFirestore(fbApp, { experimentalForceLongPolling: true })
+  : getFirestore(fbApp);
 
 // ── Push notifications (FCM) ───────────────────────────────────────────────────
 // VAPID public key from Firebase Console → Project Settings → Cloud Messaging →

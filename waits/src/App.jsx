@@ -2751,17 +2751,21 @@ function LoginScreen({onLogin,onRegistered,initialMode,lang,onChangeLang}) {
         onRegistered(profile,em);
       }else{
         const cred=await signInWithEmailAndPassword(auth,em,password);
+        console.log("[auth] signIn resolved uid=",cred.user.uid,"hasDisplayName=",!!cred.user.displayName);
         let profile=null;
         if(cred.user.displayName){
           try{ profile=JSON.parse(cred.user.displayName); }catch(e){}
         }
         if(!profile){
           try{
+            console.log("[auth] reading users/"+cred.user.uid+" from Firestore…");
             const snap=await getDoc(doc(db,"users",cred.user.uid));
+            console.log("[auth] users doc read OK, exists=",snap.exists());
             if(snap.exists()){ const p=snap.data(); profile={name:p.username,color:p.color,initial:p.initial,email:p.email}; }
-          }catch(e){}
+          }catch(e){ console.error("[auth] users doc read FAILED:",e); }
         }
         if(!profile){setError("Account not found — please register");return;}
+        console.log("[auth] calling onLogin → hiding LOADING");
         onLogin(profile);
       }
     }catch(err){
