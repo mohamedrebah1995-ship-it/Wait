@@ -2921,7 +2921,7 @@ function LoginScreen({onLogin,onRegistered,initialMode,lang,onChangeLang}) {
       </form>
       <div style={{textAlign:"center",marginTop:28}}>
         <a href="/privacy.html" style={{fontSize:10,...M,color:"var(--muted2)",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>
-        <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,letterSpacing:1}}>build lp2{NATIVE?" · native":""}</div>
+        <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,letterSpacing:1}}>build lp3{NATIVE?" · native":""}</div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, initializeAuth, browserLocalPersistence, inMemoryPersistence } from 'firebase/auth';
 import { getFirestore, initializeFirestore } from 'firebase/firestore';
 import { Capacitor } from '@capacitor/core';
 
@@ -13,7 +13,13 @@ const firebaseConfig = {
 };
 
 export const fbApp = initializeApp(firebaseConfig);
-export const auth  = getAuth(fbApp);
+// Firebase Auth on native (WKWebView): the default IndexedDB persistence write AFTER a successful
+// sign-in hangs — the REST calls (signInWithPassword + lookup) return 200 but the promise never
+// resolves (breadcrumb stuck on "1/4 signing in"). Force localStorage-backed persistence (fallback to
+// in-memory), avoiding IndexedDB entirely. Web keeps the default getAuth().
+export const auth = Capacitor.isNativePlatform()
+  ? initializeAuth(fbApp, { persistence: [browserLocalPersistence, inMemoryPersistence] })
+  : getAuth(fbApp);
 // Firestore's default transport (WebChannel streaming) hangs inside the iOS/Android WKWebView, so on
 // native we force long-polling (discrete XHRs) which works reliably. This is why sign-in stuck on
 // "LOADING…" natively (auth REST succeeded, then the users-doc read never resolved). Web keeps the default.
