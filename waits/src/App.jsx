@@ -2722,7 +2722,6 @@ function LoginScreen({onLogin,onRegistered,initialMode,lang,onChangeLang}) {
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
   const [resetMsg,setResetMsg]=useState("");
-  const [dbg,setDbg]=useState("");   // TEMP on-screen sign-in breadcrumb for native debugging
   const [resetStage,setResetStage]=useState(false);   // showing the code+new-password form
   const [resetCode,setResetCode]=useState("");
   const [resetNewPw,setResetNewPw]=useState("");
@@ -2751,27 +2750,18 @@ function LoginScreen({onLogin,onRegistered,initialMode,lang,onChangeLang}) {
         if(!r.ok){const d=await r.json();setError(d.error||"Could not send verification email");return;}
         onRegistered(profile,em);
       }else{
-        setDbg("1/4 signing in…");
         const cred=await signInWithEmailAndPassword(auth,em,password);
-        setDbg("2/4 auth ok · displayName="+(cred.user.displayName?"yes":"no"));
-        console.log("[auth] signIn resolved uid=",cred.user.uid,"hasDisplayName=",!!cred.user.displayName);
         let profile=null;
         if(cred.user.displayName){
           try{ profile=JSON.parse(cred.user.displayName); }catch(e){}
         }
         if(!profile){
-          setDbg("3/4 reading Firestore users doc…");
           try{
-            const snap=await Promise.race([
-              getDoc(doc(db,"users",cred.user.uid)),
-              new Promise((_,rej)=>setTimeout(()=>rej(new Error("firestore-timeout-8s")),8000)),
-            ]);
-            setDbg("3/4 users doc read ok · exists="+snap.exists());
+            const snap=await getDoc(doc(db,"users",cred.user.uid));
             if(snap.exists()){ const p=snap.data(); profile={name:p.username,color:p.color,initial:p.initial,email:p.email}; }
-          }catch(e){ console.error("[auth] users doc read FAILED:",e); setDbg("✗ Firestore read FAILED: "+(e?.message||e)); }
+          }catch(e){}
         }
         if(!profile){setError("Account not found — please register");return;}
-        setDbg("4/4 onLogin → done");
         onLogin(profile);
       }
     }catch(err){
@@ -2917,11 +2907,9 @@ function LoginScreen({onLogin,onRegistered,initialMode,lang,onChangeLang}) {
           style={{minHeight:64,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontSize:28,letterSpacing:4,color:loading?"var(--faint)":"#000",cursor:loading?"default":"pointer",marginTop:6,boxShadow:loading?"none":"0 0 40px #00b8a940",transition:"all 0.2s"}}>
           {loading?"LOADING...":(mode==="login"?t("signinBtn"):t("createBtn"))}
         </button>
-        {dbg&&<div style={{marginTop:8,fontSize:11,...M,color:"var(--muted)",textAlign:"center",wordBreak:"break-word"}}>🔧 {dbg}</div>}
       </form>
       <div style={{textAlign:"center",marginTop:28}}>
         <a href="/privacy.html" style={{fontSize:10,...M,color:"var(--muted2)",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>
-        <div style={{fontSize:9,...M,color:"var(--faint)",marginTop:6,letterSpacing:1}}>build lp3{NATIVE?" · native":""}</div>
       </div>
     </div>
   );
