@@ -8,6 +8,7 @@ import {
   updatePassword,
   EmailAuthProvider,
   reauthenticateWithCredential,
+  deleteUser,
 } from "firebase/auth";
 import {
   doc, setDoc, getDoc, updateDoc, deleteDoc,
@@ -1710,6 +1711,10 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
   const [newPw,setNewPw]=useState("");
   const [pwMsg,setPwMsg]=useState("");
   const [pwLoading,setPwLoading]=useState(false);
+  const [delMode,setDelMode]=useState(false);   // account-deletion confirm (App Store 5.1.1(v))
+  const [delPw,setDelPw]=useState("");
+  const [delBusy,setDelBusy]=useState(false);
+  const [delErr,setDelErr]=useState("");
 
   const totalLogs=waitLog.length;
   const totalRestaurants=new Set(waitLog.map(l=>l.restaurantId)).size;
@@ -1754,6 +1759,32 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
       setPwMsg(e.code==="auth/wrong-password"||e.code==="auth/invalid-credential"?"Wrong current password":"Could not change password");
     }
     setPwLoading(false);
+  }
+
+  // Permanently delete the account + this driver's personal data, then sign out. Required by
+  // App Store Guideline 5.1.1(v). Reauthenticates first (Firebase requires a recent login to delete).
+  async function deleteAccount(){
+    if(!delPw){setDelErr("Enter your password to confirm");return;}
+    setDelBusy(true);setDelErr("");
+    try{
+      const loginEmail=user.email||auth.currentUser?.email;
+      const cred=EmailAuthProvider.credential(loginEmail,delPw);
+      await reauthenticateWithCredential(auth.currentUser,cred);
+      const uid=auth.currentUser.uid;
+      // Remove personal data first (earnings + shift history, then the profile doc).
+      try{
+        for(const sub of ["earnings","shifts"]){
+          const snap=await getDocs(collection(db,"users",uid,sub));
+          await Promise.all(snap.docs.map(d=>deleteDoc(d.ref)));
+        }
+        await deleteDoc(doc(db,"users",uid));
+      }catch(e){}
+      await deleteUser(auth.currentUser);   // remove the auth account itself
+      onLogout();
+    }catch(e){
+      setDelErr(e.code==="auth/wrong-password"||e.code==="auth/invalid-credential"?"Wrong password":"Could not delete account — try again");
+      setDelBusy(false);
+    }
   }
 
   const stat=(val,label)=>(
@@ -1983,6 +2014,28 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         style={{width:"100%",minHeight:52,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:18,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>
         {t("prof_signout")}
       </button>
+
+      {/* Delete account — required by App Store Guideline 5.1.1(v). Permanently removes the account + data. */}
+      {!delMode ? (
+        <button onClick={()=>{setDelMode(true);setDelErr("");}}
+          style={{width:"100%",minHeight:44,marginTop:10,background:"none",border:"none",...M,fontSize:12,fontWeight:700,letterSpacing:1,color:"#ef4444",cursor:"pointer"}}>
+          Delete account
+        </button>
+      ) : (
+        <div style={{marginTop:12,background:"var(--tint-red)",border:"1px solid #ef444455",borderRadius:12,padding:"14px 16px"}}>
+          <div style={{...B,fontWeight:800,fontSize:14,color:"#ef4444",marginBottom:6}}>Delete your account?</div>
+          <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5,marginBottom:10}}>This permanently deletes your account, profile, earnings and shift history. It can't be undone. Enter your password to confirm.</div>
+          <input type="password" value={delPw} onChange={e=>setDelPw(e.target.value)} placeholder="Your password" autoComplete="current-password"
+            style={{width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:10,padding:"12px 14px",color:"var(--ink)",fontSize:15,...M,outline:"none",boxSizing:"border-box",marginBottom:8}}/>
+          {delErr&&<div style={{fontSize:11,...M,color:"#ef4444",marginBottom:8}}>{delErr}</div>}
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{setDelMode(false);setDelPw("");setDelErr("");}} disabled={delBusy}
+              style={{flex:1,minHeight:46,background:"var(--card)",border:"1px solid var(--border2)",borderRadius:10,...B,fontSize:13,letterSpacing:1,color:"var(--muted2)",cursor:"pointer"}}>Cancel</button>
+            <button onClick={deleteAccount} disabled={delBusy}
+              style={{flex:1.3,minHeight:46,background:delBusy?"var(--border)":"#ef4444",border:"none",borderRadius:10,...B,fontSize:13,letterSpacing:1,color:delBusy?"var(--faint)":"#fff",cursor:delBusy?"default":"pointer"}}>{delBusy?"DELETING…":"DELETE FOREVER"}</button>
+          </div>
+        </div>
+      )}
 
       <div style={{textAlign:"center",marginTop:18}}>
         <a href="/privacy.html" style={{fontSize:10,...M,color:"var(--muted2)",letterSpacing:1,textDecoration:"none"}}>Privacy Policy</a>

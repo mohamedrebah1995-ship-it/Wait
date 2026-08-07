@@ -16,7 +16,8 @@ service cloud.firestore {
       allow update: if request.auth != null && request.auth.uid == userId
         && request.resource.data.get('premium', false) == resource.data.get('premium', false)
         && request.resource.data.get('subscriptionId', null) == resource.data.get('subscriptionId', null);
-      allow delete: if false;
+      // A driver may delete their own profile doc (in-app account deletion — App Store 5.1.1(v)).
+      allow delete: if request.auth != null && request.auth.uid == userId;
       // Personal earnings log — strictly private to that driver
       match /earnings/{earningId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
