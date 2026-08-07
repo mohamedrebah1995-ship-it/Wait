@@ -112,5 +112,11 @@ service cloud.firestore {
     match /messages/{messageId} {
       allow read, write: if request.auth != null;
     }
+
+    // Chat abuse reports — any signed-in driver can file one; only the admin can read/act on them.
+    match /chatReports/{reportId} {
+      allow create: if request.auth != null;
+      allow read, update, delete: if isAdmin();
+    }
   }
 }

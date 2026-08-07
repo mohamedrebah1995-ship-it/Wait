@@ -152,6 +152,21 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
   function startPress(m){ pressTimer.current=setTimeout(()=>setActionMsg(m),500); }
   function endPress(){ clearTimeout(pressTimer.current); }
 
+  // Report + block (App Store Guideline 1.2). Reports go to a Firestore collection admins review;
+  // blocks are a local per-device list that hides all messages from that driver — instant + reversible.
+  const [blocked,setBlocked]=useState(()=>{ try{ return JSON.parse(localStorage.getItem("delivr_blocked_users")||"[]"); }catch(e){ return []; } });
+  const [manageBlocked,setManageBlocked]=useState(false);
+  const [toast,setToast]=useState("");
+  const toastTimer=useRef(null);
+  function flash(msg){ setToast(msg); clearTimeout(toastTimer.current); toastTimer.current=setTimeout(()=>setToast(""),2600); }
+  function saveBlocked(list){ setBlocked(list); try{ localStorage.setItem("delivr_blocked_users",JSON.stringify(list)); }catch(e){} }
+  function blockUser(name){ if(!name||name===user.name)return; if(!blocked.includes(name))saveBlocked([...blocked,name]); flash("Blocked "+name); }
+  function unblockUser(name){ saveBlocked(blocked.filter(n=>n!==name)); }
+  async function reportMsg(m){
+    try{ await addDoc(collection(db,"chatReports"),{room,messageId:m.id,messageText:(m.text||m.type||"").slice(0,500),reportedUser:m.user,reporter:user.name,ts:new Date().toISOString()}); }catch(e){console.error("report error:",e);}
+    flash("Reported — thanks, we'll review it");
+  }
+
   async function toggleReaction(m,emoji){
     const reactions={...(m.reactions||{})};
     const set=new Set(reactions[emoji]||[]);
@@ -171,6 +186,8 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
 
   function onKey(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}
   function fmt(ts){try{return new Date(ts).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});}catch(e){return "";}}
+
+  const visibleMessages = blocked.length ? messages.filter(m=>!blocked.includes(m.user)) : messages;   // hide blocked drivers
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
@@ -199,7 +216,10 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
             This is the {(area||"driver").toString().replace(/_/g," ")} chat. Share live wait times, photos &amp; voice notes, and help each other out. Be kind, keep it useful. 🚗💨
           </div>
         </div>
-        {ready&&messages.length===0&&(
+        {blocked.length>0&&(
+          <button onClick={()=>setManageBlocked(true)} style={{alignSelf:"center",marginBottom:8,background:"var(--card)",border:"1px solid var(--border2)",borderRadius:20,padding:"5px 12px",fontSize:10,...M,fontWeight:700,letterSpacing:0.5,color:"var(--muted)",cursor:"pointer"}}>🚫 {blocked.length} blocked · manage</button>
+        )}
+        {ready&&visibleMessages.length===0&&(
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,paddingBottom:40}}>
             <div style={{fontSize:38,opacity:0.2}}>💬</div>
             <div style={{...B,fontSize:18,color:"var(--border2)",letterSpacing:2}}>NO MESSAGES YET</div>
@@ -211,8 +231,8 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
             <div style={{...B,fontSize:14,color:"#f5a623",letterSpacing:2,animation:"criticalPulse 1.2s ease-in-out infinite"}}>CONNECTING...</div>
           </div>
         )}
-        {messages.map((m,i)=>{
-          const prev=messages[i-1];
+        {visibleMessages.map((m,i)=>{
+          const prev=visibleMessages[i-1];
           const isFirst=!prev||prev.user!==m.user||(new Date(m.ts)-new Date(prev.ts))>120000;
           const isMe=m.user===user.name;
           return(
@@ -275,6 +295,14 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
                 );
               })}
             </div>
+            {actionMsg.user!==user.name&&(
+              <div style={{display:"flex",gap:8,marginTop:12}}>
+                <button onClick={()=>{const m=actionMsg;setActionMsg(null);reportMsg(m);}}
+                  style={{flex:1,background:"var(--tint-amber)",border:"1px solid #f5a62344",borderRadius:12,padding:"11px",...B,fontWeight:700,fontSize:13,letterSpacing:1,color:"#f5a623",cursor:"pointer"}}>🚩 REPORT</button>
+                <button onClick={()=>{const u=actionMsg.user;setActionMsg(null);blockUser(u);}}
+                  style={{flex:1,background:"var(--tint-red)",border:"1px solid #ef444444",borderRadius:12,padding:"11px",...B,fontWeight:700,fontSize:13,letterSpacing:1,color:"#ef4444",cursor:"pointer"}}>🚫 BLOCK</button>
+              </div>
+            )}
             {(actionMsg.user===user.name||isAdmin)&&(
               <button onClick={()=>{const m=actionMsg;setActionMsg(null);deleteMsg(m);}}
                 style={{width:"100%",marginTop:12,background:"var(--tint-red)",border:"1px solid #ef444444",borderRadius:12,padding:"11px",...B,fontWeight:700,fontSize:15,letterSpacing:1,color:"#ef4444",cursor:"pointer"}}>🗑  DELETE MESSAGE</button>
@@ -282,6 +310,26 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
           </div>
         </div>
       )}
+
+      {/* Manage blocked drivers (unblock) */}
+      {manageBlocked&&(
+        <div onClick={()=>setManageBlocked(false)} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:18,padding:"18px",width:"100%",maxWidth:340,boxShadow:"0 10px 36px rgba(0,0,0,0.35)"}}>
+            <div style={{...B,fontWeight:800,fontSize:16,color:"var(--ink)",letterSpacing:0.5,marginBottom:12}}>Blocked drivers</div>
+            {blocked.length===0?(
+              <div style={{fontSize:12,...M,color:"var(--muted)",padding:"8px 0"}}>No one blocked.</div>
+            ):blocked.map(n=>(
+              <div key={n} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid var(--border3)"}}>
+                <span style={{fontSize:14,...M,color:"var(--ink)"}}>{n}</span>
+                <button onClick={()=>unblockUser(n)} style={{background:"none",border:"1px solid var(--border2)",borderRadius:8,padding:"5px 12px",fontSize:11,...B,fontWeight:700,letterSpacing:0.5,color:"#00b8a9",cursor:"pointer"}}>Unblock</button>
+              </div>
+            ))}
+            <button onClick={()=>setManageBlocked(false)} style={{width:"100%",marginTop:14,background:"var(--border3)",border:"none",borderRadius:12,padding:"11px",...B,fontWeight:700,fontSize:13,letterSpacing:1,color:"var(--muted2)",cursor:"pointer"}}>DONE</button>
+          </div>
+        </div>
+      )}
+
+      {toast&&<div style={{position:"fixed",bottom:150,left:"50%",transform:"translateX(-50%)",zIndex:600,maxWidth:"88%",textAlign:"center",background:"var(--ink)",color:"var(--bg)",borderRadius:20,padding:"9px 16px",fontSize:12,...M,fontWeight:700,boxShadow:"0 6px 24px rgba(0,0,0,0.35)"}}>{toast}</div>}
       {sendError&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>Couldn't send — check connection</div>}
       {uploading&&<div style={{padding:"8px 16px",background:"var(--tint-teal)",borderTop:"1px solid #00b8a933",fontSize:11,...M,color:"#00b8a9",textAlign:"center"}}>Uploading…</div>}
       {recording&&<div style={{padding:"8px 16px",background:"var(--tint-red)",borderTop:"1px solid #ef444433",fontSize:11,...M,color:"#ef4444",textAlign:"center"}}>● Recording… release the mic to send (max 60s)</div>}
