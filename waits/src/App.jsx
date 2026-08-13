@@ -1032,8 +1032,9 @@ async function geocodeBranch(lat,lng,name) {
 //  (1) completion vs baseline = actual stacked completion − solo completion
 //  (2) pickup detour          = extra driving stacking adds to reach the pickup
 // Shared bands (minutes OVER baseline): ≤12 green · 13–17 orange · >17 red.
-const STACK_GREEN_MAX_MIN  = 12;             // at/under baseline up to +12 over → green (both checks)
-const STACK_ORANGE_MAX_MIN = 17;             // +13..+17 → orange; over +17 → red (both checks; also the detour ⚠ line)
+const WINDOW_MIN = 45;                        // dropoff window (min): flag only when STACKING pushes completion past max(45, solo journey)
+const STACK_GREEN_MAX_MIN  = 13;             // pickup-detour delta: <13 min = green
+const STACK_ORANGE_MAX_MIN = 17;             // pickup-detour delta: 13–17 = orange, >17 = red; also the far-pickup exempt cutoff + ⚠ line
 // Stack Check time-budget assumptions. TEMPORARY flat values — once waitEngine.js has enough
 // real samples for a restaurant+hour, that average OVERRIDES the flat PICKUP_DWELL_MIN below.
 const PICKUP_DWELL_MIN  = 5;                 // per pickup: parking + walking in + waiting if not ready + walking back
@@ -1128,7 +1129,7 @@ function planStack(m, orders, dwell){
         const solo=D[0][s];                                                 // (a) direct You → this pickup, alone
         added = (solo!=null) ? (cum-solo) : null;                          // (b − a): extra driving stacking adds to reach it
         addedDetour[s]=added;
-        overCap = stacked && added!=null && added>STACK_ORANGE_MAX_MIN*60;  // >17 EXTRA minutes ⇒ detour is red-level
+        overCap = stacked && added!=null && added>STACK_ORANGE_MAX_MIN*60 && (solo==null||solo/60<=STACK_ORANGE_MAX_MIN);  // >17 EXTRA min ⇒ red, UNLESS the pickup is already >17min away (far-pickup exempt)
         if(overCap) detourWarnings.push({to:label[s], mins:Math.round(added/60)});
       }
       legs.push({from:prev===0?"You":label[prev], to:label[s], legMins:secs!=null?Math.round(secs/60*10)/10:null, cumMins:Math.round(cum/60*10)/10, soloMins:endsAtPickup&&D[0][s]!=null?Math.round(D[0][s]/60*10)/10:null, addedMins:added!=null?Math.round(added/60*10)/10:null, checked:endsAtPickup, overCap});
@@ -1136,24 +1137,35 @@ function planStack(m, orders, dwell){
     }
   }
 
-  // Per-order verdict — ONLY for a real stack (2+ orders). Each order's colour = the WORSE of two RELATIVE
-  // checks: (1) completion time OVER its own solo baseline, (2) extra driving stacking adds to its pickup.
+  // Per-order verdict — ONLY for a real stack (2+ orders). TWO SEPARATE checks, never mixed:
+  //   Check 1 — PICKUP DETOUR (13/17): delta = via-route drive to the pickup − direct You→pickup drive.
+  //             <13 green · 13–17 orange · >17 red. PICKUPS ONLY — never drops, never P→D or D→D legs.
+  //             Far-pickup exemption: if You→pickup already exceeds the red cap, the platform accepted
+  //             that distance, so it's shown as info and never flagged.
+  //   Check 2 — 45-MIN DROPOFF WINDOW: flag only when STACKING pushes completion past max(45, solo
+  //             journey). A long solo journey (distance) extends the window and never flags on its own.
   // A single order gets no verdict at all (colours/banner = null).
   const RANK={green:0,orange:1,red:2}, worseColor=(a,b)=>RANK[a]>=RANK[b]?a:b;
-  const timeColor=m=> m<=STACK_GREEN_MAX_MIN?"green" : m<=STACK_ORANGE_MAX_MIN?"orange" : "red";               // mins OVER baseline: ≤12 g · 13–17 o · >17 r
-  const pickColor=m=> m==null?"green" : m<=STACK_GREEN_MAX_MIN?"green" : m<=STACK_ORANGE_MAX_MIN?"orange" : "red"; // ADDED detour mins: ≤12 g · 13–17 o · >17 r
+  const pickupColor=o=>{                                                    // Check 1 — pickup detour only
+    if(o.pickupIdx==null) return "green";                                             // in-hand: no pickup leg
+    if((D[0][o.pickupIdx]||0)/60 > STACK_ORANGE_MAX_MIN) return "green";               // far pickup (>17min away) → exempt, info only
+    const ad=addedDetour[o.pickupIdx]; if(ad==null) return "green";
+    const d=ad/60;                                                                     // detour delta (min): via-route − solo direct
+    return d<STACK_GREEN_MAX_MIN ? "green" : d<=STACK_ORANGE_MAX_MIN ? "orange" : "red";
+  };
+  const windowColor=(baseline,actual)=> actual > Math.max(WINDOW_MIN*60,baseline) ? "red" : "green";   // Check 2 — 45-min dropoff window only
   const perOrder=orders.map((o,i)=>{
     const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0, dwellD=dwell[o.dropIdx]||0;
-    const baseline=o.pickupIdx!=null                                       // time to do THIS order alone (solo completion)
-      ? D[0][o.pickupIdx]+dwellP+D[o.pickupIdx][o.dropIdx]+dwellD           //  You→P + pickup dwell + P→D + drop dwell
+    const baseline=o.pickupIdx!=null                                       // solo journey: You→P + pickup dwell + P→D + drop dwell
+      ? D[0][o.pickupIdx]+dwellP+D[o.pickupIdx][o.dropIdx]+dwellD
       : D[0][o.dropIdx]+dwellD;                                            //  in-hand: You→D + drop dwell
     const actual=arr[o.dropIdx]+dwellD;                                    // completion time within the full stacked route
-    const overMin=(actual-baseline)/60;                                   // minutes stacking adds vs doing it solo
-    const ad=o.pickupIdx!=null?addedDetour[o.pickupIdx]:null;             // extra driving stacking adds to reach the pickup
+    const ad=o.pickupIdx!=null?addedDetour[o.pickupIdx]:null;             // pickup-detour delta (info + Check 1)
     const detourMin=ad!=null?ad/60:null;
-    const tC=stacked?timeColor(overMin):null, pC=stacked?pickColor(detourMin):null;
-    return {n:i+1, hasPickup:o.pickupIdx!=null, color:stacked?worseColor(tC,pC):null, timeColor:tC, pickColor:pC,
-            baselineMin:Math.round(baseline/60), actualMin:Math.round(actual/60), overMin:Math.round(overMin*10)/10,
+    const pC=stacked?pickupColor(o):null;                                  // Check 1 — pickup detour (13/17), pickups only
+    const wC=stacked?windowColor(baseline,actual):null;                   // Check 2 — 45-min dropoff window
+    return {n:i+1, hasPickup:o.pickupIdx!=null, color:stacked?worseColor(pC,wC):null, timeColor:wC, pickColor:pC,
+            baselineMin:Math.round(baseline/60), actualMin:Math.round(actual/60), overMin:Math.round((actual-baseline)/60*10)/10,
             detourMin:detourMin!=null?Math.round(detourMin*10)/10:null};
   });
   const bannerColor=stacked?perOrder.reduce((w,o)=>worseColor(w,o.color),"green"):null;  // no verdict for a single order
