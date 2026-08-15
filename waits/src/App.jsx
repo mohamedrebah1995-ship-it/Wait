@@ -4111,7 +4111,7 @@ function HelpScreen({lang,onBack}){
 function StackScreen({gps,activeOrders}){
   // Persisted Stack Check state — restored on mount so switching tabs never loses anything (saved below).
   const [restored]=useState(()=> store.get("delivr_stack_state")||{});
-  const [orders,setOrders]=useState(()=> (restored.orders&&restored.orders.length) ? restored.orders : [{id:0,pickup:null,drop:null,pText:"",dText:"",pay:""}]);
+  const [orders,setOrders]=useState(()=> (restored.orders&&restored.orders.length) ? restored.orders : [{id:0,pickup:null,drop:null,pText:"",dText:"",pay:"",addedAt:Date.now()}]);
   const [placing,setPlacing]=useState(()=> restored.placing||{id:0,kind:"pickup"});
   const [showDetails,setShowDetails]=useState(()=> !!restored.showDetails);   // full diagnostic view — off by default (drivers just see the colour verdict)
   const [myPos,setMyPos]=useState(()=> restored.myPos || (gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null));
@@ -4127,6 +4127,10 @@ function StackScreen({gps,activeOrders}){
   const saveRef=useRef(()=>{});
   saveRef.current=()=>{ try{ store.set("delivr_stack_state",{orders,res,showDetails,placing,myPos,viewport:viewportRef.current}); }catch(e){} };
   useEffect(()=>{ saveRef.current(); },[orders,res,showDetails,placing,myPos]);   // save immediately on add / pin / check / toggle
+  // Acceptance countdowns tick live off the STORED per-order timestamp (elapsed = now − addedAt), never
+  // from mount — so reopening the app shows the true remaining time, or EXPIRED if 45min already passed.
+  const [,setNowTick]=useState(0);
+  useEffect(()=>{ const id=setInterval(()=>setNowTick(t=>t+1),15000); return ()=>clearInterval(id); },[]);
   useEffect(()=>{placingRef.current=placing;},[placing]);
   useEffect(()=>{ let a=true; getSampleCount().then(c=>{if(a)setSampleCount(c);}); return ()=>{a=false;}; },[]);
   const fld={width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 12px",color:"var(--ink)",fontSize:13,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
@@ -4189,7 +4193,7 @@ function StackScreen({gps,activeOrders}){
     trackWait(gps,pickups);
   },[gps.lat,gps.lng,orders]);
 
-  function addOrder(){ if(orders.length>=6)return; const id=idRef.current++; setOrders(os=>[...os,{id,pickup:null,drop:null,pText:"",dText:"",pay:""}]); setPlacing({id,kind:"pickup"}); }
+  function addOrder(){ if(orders.length>=6)return; const id=idRef.current++; setOrders(os=>[...os,{id,pickup:null,drop:null,pText:"",dText:"",pay:"",addedAt:Date.now()}]); setPlacing({id,kind:"pickup"}); }
   function removeOrder(id){ setOrders(os=>os.filter(o=>o.id!==id)); setPlacing(p=>p.id===id?{id:(orders.find(o=>o.id!==id)||{}).id??0,kind:"pickup"}:p); setRes(null); }
 
   async function check(){
@@ -4247,7 +4251,10 @@ function StackScreen({gps,activeOrders}){
         return(
           <div key={o.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px",marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div style={{...B,fontWeight:800,fontSize:13,color:"var(--ink)",letterSpacing:0.5}}>ORDER {i+1}</div>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{...B,fontWeight:800,fontSize:13,color:"var(--ink)",letterSpacing:0.5}}>ORDER {i+1}</div>
+                {(()=>{ const start=o.addedAt||Date.now(); const remMin=WINDOW_MIN-(Date.now()-start)/60000; const c=remMin<=0?"#ef4444":remMin<=10?"#f5a623":"var(--muted)"; return <span style={{...M,fontSize:10,fontWeight:700,color:c,letterSpacing:0.3}}>⏱ {remMin<=0?"EXPIRED":Math.ceil(remMin)+"m left"}</span>; })()}
+              </div>
               {orders.length>1&&<button onClick={()=>removeOrder(o.id)} style={{background:"none",border:"none",color:"var(--muted2)",fontSize:16,cursor:"pointer",lineHeight:1}}>✕</button>}
             </div>
             <div style={{display:"flex",gap:6,marginBottom:8}}>
