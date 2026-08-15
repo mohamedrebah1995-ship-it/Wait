@@ -4108,6 +4108,8 @@ function HelpScreen({lang,onBack}){
 }
 
 // ── STACK CHECK SCREEN (admin test) ───────────────────────────────────────────
+// Per-order route-line colours (same colour for that order's pickup + dropoff legs): green, blue, orange…
+const STACK_ROUTE_COLORS=["#06c167","#2b8fff","#ff9500","#c471f5","#00d4d4","#ffd23f"];
 function StackScreen({gps,activeOrders}){
   // Persisted Stack Check state — restored on mount so switching tabs never loses anything (saved below).
   const [restored]=useState(()=> store.get("delivr_stack_state")||{});
@@ -4186,6 +4188,25 @@ function StackScreen({gps,activeOrders}){
     Object.keys(markRef.current).forEach(k=>{ if(!wanted.has(k)){markRef.current[k].remove(); delete markRef.current[k];} });
   },[orders,mapReady]);   // mapReady so restored pins get drawn once the map exists
 
+  // Coloured route polylines — drawn from the persisted result's per-leg road geometry (each leg in its
+  // order's colour), on top of the map but BELOW the pin markers (markers are DOM, always above layers).
+  // Redraws on a new result or when the map is ready; clears completely whenever there's no result.
+  useEffect(()=>{
+    const map=mapRef.current; if(!map||!mapReady)return;
+    const apply=()=>{
+      try{ if(map.getLayer("stack-route"))map.removeLayer("stack-route"); if(map.getSource("stack-route"))map.removeSource("stack-route"); }catch(e){}
+      const legs=res&&res.routeLegs;
+      if(!legs||!legs.length)return;
+      const features=legs.filter(l=>l.coords&&l.coords.length>1).map(l=>({type:"Feature",properties:{color:STACK_ROUTE_COLORS[(l.order||0)%STACK_ROUTE_COLORS.length]},geometry:{type:"LineString",coordinates:l.coords}}));
+      if(!features.length)return;
+      try{
+        map.addSource("stack-route",{type:"geojson",data:{type:"FeatureCollection",features}});
+        map.addLayer({id:"stack-route",type:"line",source:"stack-route",layout:{"line-cap":"round","line-join":"round"},paint:{"line-color":["get","color"],"line-width":4.5,"line-opacity":0.9}});
+      }catch(e){}
+    };
+    if(map.isStyleLoaded())apply(); else map.once("load",apply);
+  },[res,mapReady]);
+
   // Passive wait-time capture: while Stack Check is open, watch arrivals/departures at pinned
   // pickups using the existing GPS stream (no new permission). Writes to waitTimeSamples; UI unaffected.
   useEffect(()=>{
@@ -4226,6 +4247,25 @@ function StackScreen({gps,activeOrders}){
       }));
       const plan=planStack(m,ord,dwell);
       if(!plan){setErr("Couldn't work out a route — try again.");setLoading(false);return;}
+      // Coloured route lines: ONE Directions call in the optimizer's order → per-leg road geometry, each
+      // leg tagged with the order it ARRIVES at (its colour). Attached to res so it persists + redraws.
+      try{
+        const labelToIdx={}, stopOrder={};
+        ord.forEach((o,j)=>{ if(o.pickupIdx!=null){labelToIdx["P"+(j+1)]=o.pickupIdx;stopOrder[o.pickupIdx]=j;} labelToIdx["D"+(j+1)]=o.dropIdx;stopOrder[o.dropIdx]=j; });
+        const mapped=plan.order.slice(1).map(lb=>labelToIdx[lb]);   // plan.order[0] = "You"
+        if(!mapped.some(i=>i==null)){
+          const routeIdx=[0,...mapped];
+          const coordStr=routeIdx.map(i=>`${points[i].lng},${points[i].lat}`).join(";");
+          const dr=await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coordStr}?geometries=geojson&overview=full&steps=true&access_token=${MAPBOX_TOKEN}`);
+          const dlegs=(await dr.json())?.routes?.[0]?.legs;
+          if(dlegs&&dlegs.length){
+            plan.routeLegs=dlegs.map((leg,k)=>{
+              const coords=[]; (leg.steps||[]).forEach(st=>{ const c=st.geometry&&st.geometry.coordinates; if(c)coords.push(...c); });
+              return {order:stopOrder[routeIdx[k+1]]??0, coords};   // colour by the order this leg arrives at
+            });
+          }
+        }
+      }catch(e){}
       setRes({...plan,usedWait});
     }catch(e){setErr("Something went wrong — try again.");}
     setLoading(false);
