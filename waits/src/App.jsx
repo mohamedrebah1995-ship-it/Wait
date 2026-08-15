@@ -1153,7 +1153,17 @@ function planStack(m, orders, dwell){
     const d=ad/60;                                                                     // detour delta (min): via-route − solo direct
     return d<STACK_GREEN_MAX_MIN ? "green" : d<=STACK_ORANGE_MAX_MIN ? "orange" : "red";
   };
-  const windowColor=(baseline,actual)=> actual > Math.max(WINDOW_MIN*60,baseline) ? "red" : "green";   // Check 2 — 45-min dropoff window only
+  // Check 2 — SLIDING dropoff window. The SOLO run (You→P + pickup dwell + P→D, to drop arrival) SIZES the
+  // window; only the ACTUAL via-route completion (incl. stacking overhead) is flagged against it. The window
+  // grows +15min for every +15min the solo run exceeds 37min (45·60·75·90…), so a long journey extends the
+  // window rather than flagging — only stacking overhead can push it over.
+  const windowColor=o=>{
+    const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0;
+    const soloSec=o.pickupIdx!=null ? D[0][o.pickupIdx]+dwellP+D[o.pickupIdx][o.dropIdx] : D[0][o.dropIdx];  // solo total run to drop arrival
+    const actualSec=arr[o.dropIdx];                                                                          // via-route completion (drop arrival, incl. overhead)
+    const windowSec=(WINDOW_MIN+15*Math.max(0,Math.ceil((soloSec/60-37)/15)))*60;                            // 45·60·75·90… (+15 per +15 over 37min)
+    return actualSec > windowSec ? "red" : "green";
+  };
   const perOrder=orders.map((o,i)=>{
     const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0, dwellD=dwell[o.dropIdx]||0;
     const baseline=o.pickupIdx!=null                                       // solo journey: You→P + pickup dwell + P→D + drop dwell
@@ -1163,7 +1173,7 @@ function planStack(m, orders, dwell){
     const ad=o.pickupIdx!=null?addedDetour[o.pickupIdx]:null;             // pickup-detour delta (info + Check 1)
     const detourMin=ad!=null?ad/60:null;
     const pC=stacked?pickupColor(o):null;                                  // Check 1 — pickup detour (13/17), pickups only
-    const wC=stacked?windowColor(baseline,actual):null;                   // Check 2 — 45-min dropoff window
+    const wC=stacked?windowColor(o):null;                                 // Check 2 — sliding dropoff window
     return {n:i+1, hasPickup:o.pickupIdx!=null, color:stacked?worseColor(pC,wC):null, timeColor:wC, pickColor:pC,
             baselineMin:Math.round(baseline/60), actualMin:Math.round(actual/60), overMin:Math.round((actual-baseline)/60*10)/10,
             detourMin:detourMin!=null?Math.round(detourMin*10)/10:null};
