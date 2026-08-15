@@ -4803,6 +4803,41 @@ export default function App() {
     try{ deleteDoc(doc(db,"activeWaits",auth.currentUser.uid)); }catch(e){}
   },[now,activeWait]);
 
+  // Stack Check window warnings — SAME method as the wait reminders above (a local browser notification
+  // via new Notification when the app is alive/backgrounded, permission granted). Runs here (always
+  // mounted) so it fires on any tab. All timing is computed from each order's STORED addedAt, so it's
+  // accurate after a reopen, and each escalation fires once (tracked in localStorage). Read-only: it never
+  // touches the sliding-window/verdict calc — it just reads the persisted stack state and reuses the formula.
+  useEffect(()=>{
+    if(typeof Notification==="undefined"||Notification.permission!=="granted")return;
+    const ss=store.get("delivr_stack_state"); const orders=ss&&ss.orders;
+    if(!orders||!orders.length)return;
+    const per=(ss.res&&ss.res.perOrder)||[];
+    const fired=store.get("delivr_stack_notified")||{}; let dirty=false;
+    const notify=msg=>{ try{ new Notification("DELIVR",{body:msg}); }catch(e){} };
+    orders.forEach((o,i)=>{
+      if(o.addedAt==null)return;
+      const elapsed=(Date.now()-o.addedAt)/60000, f=fired[o.id]||{p:0,d:0};
+      // Pickup window — 17-min clock from acceptance, only for orders that have a pickup.
+      if(o.pickup||(o.pText&&o.pText.trim())){
+        const rem=17-elapsed, lvl=rem<=2?2:rem<=5?1:0;
+        if(lvl>f.p){ notify(lvl===2?"You need to be at your pickup right now — move immediately.":"You're running late to your pickup — head there now."); f.p=lvl; dirty=true; }
+      }
+      // Delivery window — the Fix-1 sliding window (read-only formula), only when the last CHECK matches.
+      const po=per[i];
+      if(po&&per.length===orders.length&&po.baselineMin!=null){
+        const soloMin=po.baselineMin-DROPOFF_DWELL_MIN;                        // strip drop dwell → the sliding-window input
+        const win=WINDOW_MIN+15*Math.max(0,Math.ceil((soloMin-37)/15));       // identical formula to Fix 1, not modified
+        const rem=win-elapsed, lvl=rem<0?3:rem<=5?2:rem<=10?1:0;
+        if(lvl>f.d){ notify(lvl===3?"Your delivery is running very late — contact rider support and let them know there has been a delay.":lvl===2?"Contact your customer now and let them know you are on your way. Be polite and apologise for the wait.":"You're running late — consider contacting your customer to let them know."); f.d=lvl; dirty=true; }
+      }
+      fired[o.id]=f;
+    });
+    const ids=new Set(orders.map(o=>o.id));
+    Object.keys(fired).forEach(k=>{ if(!ids.has(Number(k))){ delete fired[k]; dirty=true; } });
+    if(dirty)store.set("delivr_stack_notified",fired);
+  },[now]);
+
   // After returning from Stripe Checkout, verify payment and flip premium on
   useEffect(()=>{
     if(!user)return;
