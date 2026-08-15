@@ -96,7 +96,7 @@ const ADMIN_PERK_EMAILS = ["contact.morebah@gmail.com"];
 const hasAdminPerks = u => !!u?.email && ADMIN_PERK_EMAILS.includes(u.email.toLowerCase());
 // Stack Check (STACK tab) early access — ONLY the Stack feature, none of the other admin perks
 // (no name-reveal, moderation, premium, or uncapped feed). Admins get it too.
-const STACK_FEATURE_EMAILS = ["insafbelhadi2909@gmail.com","totolino1990@gmail.com"];
+const STACK_FEATURE_EMAILS = ["insafbelhadi2909@gmail.com","totolino1990@gmail.com","darko_adrian@yahoo.com"];
 const canUseStack = u => hasAdminPerks(u) || (!!u?.email && STACK_FEATURE_EMAILS.includes(u.email.toLowerCase()));
 const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 1 };
 
