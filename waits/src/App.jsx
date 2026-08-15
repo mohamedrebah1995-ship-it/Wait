@@ -1153,32 +1153,47 @@ function planStack(m, orders, dwell){
     const d=ad/60;                                                                     // detour delta (min): via-route − solo direct
     return d<STACK_GREEN_MAX_MIN ? "green" : d<=STACK_ORANGE_MAX_MIN ? "orange" : "red";
   };
-  // Check 2 — SLIDING dropoff window. The SOLO run (You→P + pickup dwell + P→D, to drop arrival) SIZES the
-  // window; only the ACTUAL via-route completion (incl. stacking overhead) is flagged against it. The window
-  // grows +15min for every +15min the solo run exceeds 37min (45·60·75·90…), so a long journey extends the
-  // window rather than flagging — only stacking overhead can push it over.
-  const windowColor=o=>{
+  // Check 2 — SLIDING dropoff window (formula + thresholds UNCHANGED). windowSecOf() exposes the sized
+  // window so the incoming-order check below can read each EXISTING order's remaining slack. Window = the
+  // SOLO run (You→P + pickup dwell + P→D) sized 45·60·75·90… (+15min per +15min the solo run exceeds 37).
+  const windowSecOf=o=>{
     const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0;
     const soloSec=o.pickupIdx!=null ? D[0][o.pickupIdx]+dwellP+D[o.pickupIdx][o.dropIdx] : D[0][o.dropIdx];  // solo total run to drop arrival
-    const actualSec=arr[o.dropIdx];                                                                          // via-route completion (drop arrival, incl. overhead)
-    const windowSec=(WINDOW_MIN+15*Math.max(0,Math.ceil((soloSec/60-37)/15)))*60;                            // 45·60·75·90… (+15 per +15 over 37min)
-    return actualSec > windowSec ? "red" : "green";
+    return (WINDOW_MIN+15*Math.max(0,Math.ceil((soloSec/60-37)/15)))*60;
   };
+  const windowColor=o=> arr[o.dropIdx] > windowSecOf(o) ? "red" : "green";                                  // over its own window (diagnostic only)
+
+  // ── INCOMING-ORDER VERDICT ────────────────────────────────────────────────────────────────────
+  // The driver has already committed to the EXISTING chain (every order except the most recently added),
+  // so those are never judged — always green. Only the INCOMING order (last added) gets a verdict, based
+  // purely on how taking it affects the existing orders' delivery windows in the optimized route:
+  //   green  = no existing order is affected
+  //   orange = it brings an existing order within EXISTING_TIGHT_MIN of its window (tight but possible)
+  //   red    = it pushes an existing order past its window (would break a committed order)
+  const incomingIdx=orders.length-1;                                     // most recently added = the order being evaluated
+  const EXISTING_TIGHT_MIN=10;                                           // within 10min of an existing order's window ⇒ orange
+  let incomingColor="green";
+  orders.forEach((eo,i)=>{
+    if(i===incomingIdx) return;                                          // existing chain only
+    const slackMin=(windowSecOf(eo)-arr[eo.dropIdx])/60;                 // room this committed order still has in the stacked route
+    incomingColor=worseColor(incomingColor, slackMin<0 ? "red" : slackMin<=EXISTING_TIGHT_MIN ? "orange" : "green");
+  });
+
   const perOrder=orders.map((o,i)=>{
     const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0, dwellD=dwell[o.dropIdx]||0;
     const baseline=o.pickupIdx!=null                                       // solo journey: You→P + pickup dwell + P→D + drop dwell
       ? D[0][o.pickupIdx]+dwellP+D[o.pickupIdx][o.dropIdx]+dwellD
       : D[0][o.dropIdx]+dwellD;                                            //  in-hand: You→D + drop dwell
     const actual=arr[o.dropIdx]+dwellD;                                    // completion time within the full stacked route
-    const ad=o.pickupIdx!=null?addedDetour[o.pickupIdx]:null;             // pickup-detour delta (info + Check 1)
+    const ad=o.pickupIdx!=null?addedDetour[o.pickupIdx]:null;             // pickup-detour delta (info)
     const detourMin=ad!=null?ad/60:null;
-    const pC=stacked?pickupColor(o):null;                                  // Check 1 — pickup detour (13/17), pickups only
-    const wC=stacked?windowColor(o):null;                                 // Check 2 — sliding dropoff window
-    return {n:i+1, hasPickup:o.pickupIdx!=null, color:stacked?worseColor(pC,wC):null, timeColor:wC, pickColor:pC,
+    // Existing chain = always green (already committed). Incoming order = its impact on the chain.
+    const color=stacked ? (i===incomingIdx ? incomingColor : "green") : null;
+    return {n:i+1, incoming:i===incomingIdx, hasPickup:o.pickupIdx!=null, color, timeColor:windowColor(o), pickColor:pickupColor(o),
             baselineMin:Math.round(baseline/60), actualMin:Math.round(actual/60), overMin:Math.round((actual-baseline)/60*10)/10,
             detourMin:detourMin!=null?Math.round(detourMin*10)/10:null};
   });
-  const bannerColor=stacked?perOrder.reduce((w,o)=>worseColor(w,o.color),"green"):null;  // no verdict for a single order
+  const bannerColor=stacked?incomingColor:null;                          // the whole stack's verdict = the incoming order's verdict
 
   let d=0,last=0; for(const s of best.seq){ d+=X[last][s]; last=s; }
   const totalPay=orders.reduce((s,o)=>s+(o.pay||0),0);
@@ -4240,9 +4255,9 @@ function StackScreen({gps,activeOrders}){
       {res&&(()=>{
         const n=res.perOrder.length;
         const CV={
-          green:{c:"#06c167", bg:"var(--tint-green)", banner:"✅ You can take "+(n>1?"them all":"it"), row:"Good to go"},
-          orange:{c:"#f5a623", bg:"var(--tint-amber)", banner:"🟠 It's on you",                        row:"Tight — your call"},
-          red:{c:"#ef4444", bg:"var(--tint-red)",   banner:"❌ You can't take "+(n>1?"them all":"it"), row:"Won't make it"},
+          green:{c:"#06c167", bg:"var(--tint-green)", banner:"✅ You can take this order",  row:"Good to go"},
+          orange:{c:"#f5a623", bg:"var(--tint-amber)", banner:"🟠 It's tight but possible", row:"Tight — your call"},
+          red:{c:"#ef4444", bg:"var(--tint-red)",   banner:"❌ Don't take this order",      row:"Won't make it"},
         };
         const detailsBtn=<button onClick={()=>setShowDetails(s=>!s)} style={{width:"100%",marginTop:8,background:"none",border:"1px solid var(--border2)",borderRadius:10,padding:"9px",...B,fontWeight:700,fontSize:10,letterSpacing:1.5,color:"var(--muted)",cursor:"pointer"}}>{showDetails?"HIDE DETAILS ▴":"DETAILS ▾"}</button>;
 
