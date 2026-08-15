@@ -4109,15 +4109,24 @@ function HelpScreen({lang,onBack}){
 
 // ── STACK CHECK SCREEN (admin test) ───────────────────────────────────────────
 function StackScreen({gps,activeOrders}){
-  const [orders,setOrders]=useState([{id:0,pickup:null,drop:null,pText:"",dText:"",pay:""}]);
-  const [placing,setPlacing]=useState({id:0,kind:"pickup"});
-  const [showDetails,setShowDetails]=useState(false);   // full diagnostic view — off by default (drivers just see the colour verdict)
-  const [myPos,setMyPos]=useState(gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null);
+  // Persisted Stack Check state — restored on mount so switching tabs never loses anything (saved below).
+  const [restored]=useState(()=> store.get("delivr_stack_state")||{});
+  const [orders,setOrders]=useState(()=> (restored.orders&&restored.orders.length) ? restored.orders : [{id:0,pickup:null,drop:null,pText:"",dText:"",pay:""}]);
+  const [placing,setPlacing]=useState(()=> restored.placing||{id:0,kind:"pickup"});
+  const [showDetails,setShowDetails]=useState(()=> !!restored.showDetails);   // full diagnostic view — off by default (drivers just see the colour verdict)
+  const [myPos,setMyPos]=useState(()=> restored.myPos || (gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null));
   const [loading,setLoading]=useState(false);
-  const [res,setRes]=useState(null);
+  const [res,setRes]=useState(()=> restored.res||null);
   const [err,setErr]=useState("");
   const [sampleCount,setSampleCount]=useState(undefined);   // admin readout: waitTimeSamples collected
-  const mapEl=useRef(null), mapRef=useRef(null), glRef=useRef(null), markRef=useRef({}), placingRef=useRef(placing), idRef=useRef(1);
+  const [mapReady,setMapReady]=useState(false);             // flips true once the map exists, so restored pins get drawn
+  const mapEl=useRef(null), mapRef=useRef(null), glRef=useRef(null), markRef=useRef({}), placingRef=useRef(placing), idRef=useRef((restored.orders&&restored.orders.length)?Math.max(...restored.orders.map(o=>o.id))+1:1);
+  const viewportRef=useRef(restored.viewport||null);
+  // Persist the whole screen (orders + coords + payout, last result, map viewport, details panel) on every
+  // change. Ref keeps a latest-state saver the map's moveend handler can call without a stale closure.
+  const saveRef=useRef(()=>{});
+  saveRef.current=()=>{ try{ store.set("delivr_stack_state",{orders,res,showDetails,placing,myPos,viewport:viewportRef.current}); }catch(e){} };
+  useEffect(()=>{ saveRef.current(); },[orders,res,showDetails,placing,myPos]);   // save immediately on add / pin / check / toggle
   useEffect(()=>{placingRef.current=placing;},[placing]);
   useEffect(()=>{ let a=true; getSampleCount().then(c=>{if(a)setSampleCount(c);}); return ()=>{a=false;}; },[]);
   const fld={width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 12px",color:"var(--ink)",fontSize:13,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
@@ -4134,15 +4143,19 @@ function StackScreen({gps,activeOrders}){
         if(cancelled||!mapEl.current)return;
         mapboxgl.accessToken=MAPBOX_TOKEN;
         const dark=document.documentElement.getAttribute("data-theme")==="dark"||(!document.documentElement.getAttribute("data-theme")&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);
-        const center=myPos?[myPos.lng,myPos.lat]:[-0.12,51.5];
-        map=new mapboxgl.Map({container:mapEl.current,style:dark?"mapbox://styles/mapbox/dark-v11":"mapbox://styles/mapbox/streets-v12",center,zoom:13,attributionControl:false});
-        mapRef.current=map; glRef.current=mapboxgl;
+        const vp=viewportRef.current;                                          // restore the saved map viewport if we have one
+        const center=vp?.center||(myPos?[myPos.lng,myPos.lat]:[-0.12,51.5]);
+        const zoom=vp?.zoom??13;
+        map=new mapboxgl.Map({container:mapEl.current,style:dark?"mapbox://styles/mapbox/dark-v11":"mapbox://styles/mapbox/streets-v12",center,zoom,attributionControl:false});
+        mapRef.current=map; glRef.current=mapboxgl; setMapReady(true);
         map.addControl(new mapboxgl.NavigationControl({showCompass:false}),"top-right");
         // Live location: shows the blue dot, centres on you, and gives the route's start point.
         const geo=new mapboxgl.GeolocateControl({positionOptions:{enableHighAccuracy:true},trackUserLocation:true,showUserHeading:true});
         map.addControl(geo,"top-right");
         geo.on("geolocate",e=>{ if(!cancelled)setMyPos({lat:e.coords.latitude,lng:e.coords.longitude}); });
-        map.on("load",()=>{ setTimeout(()=>{try{geo.trigger();}catch(e){}},400); });
+        map.on("moveend",()=>{ const c=map.getCenter(); viewportRef.current={center:[c.lng,c.lat],zoom:map.getZoom()}; saveRef.current(); });   // persist pan/zoom
+        // Auto-centre on the driver only for a FRESH session — a restored session keeps its saved viewport.
+        map.on("load",()=>{ if(!vp)setTimeout(()=>{try{geo.trigger();}catch(e){}},400); });
         map.on("click",e=>{
           const {id,kind}=placingRef.current, c={lat:e.lngLat.lat,lng:e.lngLat.lng};
           setOrders(os=>os.map(o=>o.id===id?{...o,[kind]:c}:o));
@@ -4167,7 +4180,7 @@ function StackScreen({gps,activeOrders}){
       });
     });
     Object.keys(markRef.current).forEach(k=>{ if(!wanted.has(k)){markRef.current[k].remove(); delete markRef.current[k];} });
-  },[orders]);
+  },[orders,mapReady]);   // mapReady so restored pins get drawn once the map exists
 
   // Passive wait-time capture: while Stack Check is open, watch arrivals/departures at pinned
   // pickups using the existing GPS stream (no new permission). Writes to waitTimeSamples; UI unaffected.
