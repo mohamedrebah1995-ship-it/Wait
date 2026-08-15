@@ -4110,7 +4110,7 @@ function HelpScreen({lang,onBack}){
 // ── STACK CHECK SCREEN (admin test) ───────────────────────────────────────────
 // Per-order route-line colours (same colour for that order's pickup + dropoff legs): green, blue, orange…
 const STACK_ROUTE_COLORS=["#06c167","#2b8fff","#ff9500","#c471f5","#00d4d4","#ffd23f"];
-function StackScreen({gps,activeOrders}){
+function StackScreen({gps,activeOrders,isAdmin}){
   // Persisted Stack Check state — restored on mount so switching tabs never loses anything (saved below).
   const [restored]=useState(()=> store.get("delivr_stack_state")||{});
   const [orders,setOrders]=useState(()=> (restored.orders&&restored.orders.length) ? restored.orders : [{id:0,pickup:null,drop:null,pText:"",dText:"",pay:"",addedAt:Date.now()}]);
@@ -4293,7 +4293,7 @@ function StackScreen({gps,activeOrders}){
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <div style={{...B,fontWeight:800,fontSize:13,color:"var(--ink)",letterSpacing:0.5}}>ORDER {i+1}</div>
-                {(()=>{ const start=o.addedAt||Date.now(); const remMin=WINDOW_MIN-(Date.now()-start)/60000; const c=remMin<=0?"#ef4444":remMin<=10?"#f5a623":"var(--muted)"; return <span style={{...M,fontSize:10,fontWeight:700,color:c,letterSpacing:0.3}}>⏱ {remMin<=0?"EXPIRED":Math.ceil(remMin)+"m left"}</span>; })()}
+                {isAdmin&&(()=>{ const start=o.addedAt||Date.now(); const remMin=WINDOW_MIN-(Date.now()-start)/60000; const c=remMin<=0?"#ef4444":remMin<=10?"#f5a623":"var(--muted)"; return <span style={{...M,fontSize:10,fontWeight:700,color:c,letterSpacing:0.3}}>⏱ {remMin<=0?"EXPIRED":Math.ceil(remMin)+"m left"}</span>; })()}
               </div>
               {orders.length>1&&<button onClick={()=>removeOrder(o.id)} style={{background:"none",border:"none",color:"var(--muted2)",fontSize:16,cursor:"pointer",lineHeight:1}}>✕</button>}
             </div>
@@ -4319,7 +4319,7 @@ function StackScreen({gps,activeOrders}){
           orange:{c:"#f5a623", bg:"var(--tint-amber)", banner:"🟠 It's tight but possible", row:"Tight — your call"},
           red:{c:"#ef4444", bg:"var(--tint-red)",   banner:"❌ Don't take this order",      row:"Won't make it"},
         };
-        const detailsBtn=<button onClick={()=>setShowDetails(s=>!s)} style={{width:"100%",marginTop:8,background:"none",border:"1px solid var(--border2)",borderRadius:10,padding:"9px",...B,fontWeight:700,fontSize:10,letterSpacing:1.5,color:"var(--muted)",cursor:"pointer"}}>{showDetails?"HIDE DETAILS ▴":"DETAILS ▾"}</button>;
+        const detailsBtn=isAdmin?<button onClick={()=>setShowDetails(s=>!s)} style={{width:"100%",marginTop:8,background:"none",border:"1px solid var(--border2)",borderRadius:10,padding:"9px",...B,fontWeight:700,fontSize:10,letterSpacing:1.5,color:"var(--muted)",cursor:"pointer"}}>{showDetails?"HIDE DETAILS ▴":"DETAILS ▾"}</button>:null;   // numbers/diagnostics are admin-only
 
         // A single order isn't a stack — no verdict, no colour, no banner, however long it'd take.
         if(!res.stacked){
@@ -4330,7 +4330,7 @@ function StackScreen({gps,activeOrders}){
                 <div style={{...M,fontSize:12,color:"var(--muted)",lineHeight:1.5}}>Stack Check compares a stacked route against each order's solo time. Add a second order to get a verdict.</div>
               </div>
               {detailsBtn}
-              {showDetails&&(
+              {isAdmin&&showDetails&&(
                 <div style={{marginTop:8,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px"}}>
                   {res.perOrder.map(o=>(
                     <div key={o.n} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"7px 0",borderBottom:"1px solid var(--border3)"}}>
@@ -4362,7 +4362,7 @@ function StackScreen({gps,activeOrders}){
             </div>
             {detailsBtn}
 
-            {showDetails&&(
+            {isAdmin&&showDetails&&(
               <div style={{marginTop:8,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px"}}>
                 <div style={{marginBottom:10}}>
                   {res.perOrder.map(o=>{ const c=CV[o.color]||CV.green; return(
@@ -5445,7 +5445,7 @@ export default function App() {
           ):screen==="stats"?(
             <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftsLog={shiftsLog} activeShift={activeShift} myName={user.name}/>
           ):screen==="stack"&&canUseStack(user)?(
-            <StackScreen gps={gps} activeOrders={activeOrders}/>
+            <StackScreen gps={gps} activeOrders={activeOrders} isAdmin={hasAdminPerks(user)}/>
           ):(
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)} isAdmin={hasAdminPerks(user)}/>
           )}
