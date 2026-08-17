@@ -4275,13 +4275,13 @@ function StackScreen({gps,activeOrders,isAdmin}){
   return(
     <div style={{padding:"20px 16px 100px"}}>
       <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>STACK CHECK</div>
-      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:10}}>ADMIN TEST · CAN I STACK THESE ORDERS?</div>
+      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:10}}>CAN I STACK THESE ORDERS?</div>
       <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5,marginBottom:10}}>Add each order (pickup + drop-off), pin them on the map, and it finds the best route from where you are and tells you which orders still deliver on time.</div>
-      <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:10,padding:"8px 12px",marginBottom:14}}>
+      {isAdmin&&<div style={{display:"flex",alignItems:"center",gap:8,background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:10,padding:"8px 12px",marginBottom:14}}>
         <span style={{fontSize:14}}>📊</span>
         <span style={{flex:1,fontSize:11.5,...M,color:"var(--muted)"}}>Wait-time samples collected: <b style={{color:"#00b8a9"}}>{sampleCount===undefined?"…":(sampleCount==null?"—":sampleCount.toLocaleString())}</b></span>
         <button onClick={()=>{setSampleCount(undefined);getSampleCount().then(setSampleCount);}} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",...B,fontSize:14}}>↻</button>
-      </div>
+      </div>}
 
       <div style={{fontSize:10,...M,color:"var(--muted2)",marginBottom:8}}>{activeIdx>=0?<>Tap the map to set <b style={{color:placing.kind==="pickup"?"#06c167":"#ef4444"}}>Order {activeIdx+1} {placing.kind==="pickup"?"pickup":"drop-off"}</b> · drag to fine-tune. Use ⌖ for your location.</>:"Add an order below to start."}</div>
       <div ref={mapEl} style={{height:300,borderRadius:14,overflow:"hidden",border:"1px solid var(--border)",marginBottom:12,background:"var(--border3)"}}/>
@@ -4419,7 +4419,7 @@ function BottomNav({screen,onNav,activeWait,unreadChat,isAdmin}) {
     {id:"waits",icon:"⏱",label:t("nav_waits"),dot:activeWait,  color:"#00b8a9"},
     {id:"stats",icon:"📊",label:t("nav_stats"),dot:false,       color:"#f5a623"},
     {id:"chat", icon:"💬",label:t("nav_chat"), dot:unreadChat,  color:"#06c167"},
-    ...(isAdmin?[{id:"stack",icon:"📦",label:"STACK",dot:false,color:"#2b8fff"}]:[]),   // admin-only test tab
+    {id:"stack",icon:"📦",label:"STACK",dot:false,color:"#2b8fff"},   // live for all users (numbers stay admin-only)
   ];
   // Floating circles instead of a flat bar — stay fixed (always visible), merged onto the page.
   // pointerEvents:none on the strip + auto on the circles keeps swipes/taps in the gaps passing through.
@@ -5444,7 +5444,7 @@ export default function App() {
             <CheckScreen restaurants={resolvedRestaurants} communityPatterns={communityPatterns} communityLogs={communityLogs} waitLog={waitLog} now={now} gps={gps} activeCounts={activeCounts} reportedCounts={reportedCounts} accountLogs={user?.logCount||0}/>
           ):screen==="stats"?(
             <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftsLog={shiftsLog} activeShift={activeShift} myName={user.name}/>
-          ):screen==="stack"&&canUseStack(user)?(
+          ):screen==="stack"?(
             <StackScreen gps={gps} activeOrders={activeOrders} isAdmin={hasAdminPerks(user)}/>
           ):(
             <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)} isAdmin={hasAdminPerks(user)}/>
