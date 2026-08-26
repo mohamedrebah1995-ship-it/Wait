@@ -97,13 +97,39 @@ async function tickWaitReminders() {
 }
 setInterval(tickWaitReminders, 30000);
 
+// ── ONE-TIME CODES (signup verification + password reset) ─────────────────────
+// These used to live in ./delivr-db.json. That file sits on Railway's EPHEMERAL filesystem and is
+// committed to the repo, so every deploy, restart or sleep/wake reset it to the June snapshot and
+// silently threw away every pending code — the driver got the email, typed the right code, and was
+// told "No active code — request a new one". It would also break outright behind more than one
+// replica, since a code written on one instance is invisible to the other.
+//
+// Firestore is already the real database, is persistent, and is shared across instances. Written
+// with the Admin SDK, so no client security rules are involved and drivers can't read their own
+// codes. Doc id is the email, which also keeps the "one active code per address" behaviour.
+const codeDoc = (kind, email) => admin.firestore().collection(kind).doc(email.toLowerCase());
+
+async function putCode(kind, email, code, expiresAt) {
+  await codeDoc(kind, email).set({ code, expiresAt, used: false, createdAt: Date.now() });
+}
+// Returns null when there's nothing usable, else the stored entry.
+async function getCode(kind, email) {
+  const snap = await codeDoc(kind, email).get();
+  if (!snap.exists) return null;
+  const d = snap.data();
+  return d && !d.used ? d : null;
+}
+async function burnCode(kind, email) {
+  try { await codeDoc(kind, email).set({ used: true }, { merge: true }); } catch { /* best effort */ }
+}
+
 // Shared Brevo sender (used by sign-up verification AND password reset)
 async function sendBrevoEmail(to, subject, htmlContent) {
   if (!BREVO_KEY) throw new Error('BREVO_KEY not set');
   const r = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: { 'api-key': BREVO_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sender: { name: 'Delivr', email: BREVO_FROM }, to: [{ email: to }], subject, htmlContent }),
+    body: JSON.stringify({ sender: { name: 'MOdelivr', email: BREVO_FROM }, to: [{ email: to }], subject, htmlContent }),
   });
   if (!r.ok) { const txt = await r.text(); throw new Error('Brevo: ' + txt); }
   return true;
@@ -115,6 +141,21 @@ function codeEmailHtml(title, code, note) {
 const STRIPE_SECRET = (process.env.STRIPE_SECRET || '').trim();
 const STRIPE_PRICE  = (process.env.STRIPE_PRICE  || '').trim();   // price_... for £4.99/mo
 const STRIPE_WEBHOOK_SECRET = (process.env.STRIPE_WEBHOOK_SECRET || '').trim();   // whsec_... for the webhook
+
+// One Stripe price per plan in src/plans.js. Each is its own Railway variable so prices can be
+// rotated without a deploy; any left unset simply won't be offered (checkout falls back to
+// STRIPE_PRICE). Keep these ids in step with PLANS — the daily call caps live in src/plans.js.
+const PLAN_PRICES = {
+  basic:    (process.env.STRIPE_PRICE_BASIC     || STRIPE_PRICE).trim(),  // £4.99/mo  — 8 checks/day
+  week:     (process.env.STRIPE_PRICE_WEEK      || '').trim(),            // £6.99/wk  — 30/day
+  month:    (process.env.STRIPE_PRICE_MONTH     || '').trim(),            // £24.99/mo — 1,000/mo (33/day)
+  year:     (process.env.STRIPE_PRICE_YEAR      || '').trim(),            // £249/yr   — 15,000/yr (41/day)
+  weekPro:  (process.env.STRIPE_PRICE_WEEK_PRO  || '').trim(),            // £9.99/wk  — 50/day
+  monthPro: (process.env.STRIPE_PRICE_MONTH_PRO || '').trim(),            // £29.99/mo — 2,000/mo (66/day)
+  yearPro:  (process.env.STRIPE_PRICE_YEAR_PRO  || '').trim(),            // £299/yr   — 30,000/yr (82/day)
+};
+// Reverse lookup so a webhook can tell which plan a subscription's price belongs to.
+const planFromPriceId = id => Object.keys(PLAN_PRICES).find(k => PLAN_PRICES[k] && PLAN_PRICES[k] === id) || null;
 const APP_URL       = (process.env.APP_URL       || 'https://drivers-eyes.web.app').trim();
 const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
 
@@ -237,29 +278,31 @@ app.post('/auth/send-code', async (req, res) => {
   if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required' });
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
-  db.verificationCodes = db.verificationCodes.filter(c => c.email !== email);
-  db.verificationCodes.push({ email, code, expiresAt, used: false });
-  saveDB();
+  if (!adminReady) return res.status(500).json({ error: 'Verification not configured on server' });
+  try { await putCode('verificationCodes', email, code, expiresAt); }
+  catch (e) { console.error('verification code store failed:', e.message); return res.status(500).json({ error: 'Could not start verification' }); }
   try {
     await sendBrevoEmail(email, 'Your Delivr verification code',
       codeEmailHtml('YOUR VERIFICATION CODE', code, "Expires in 10 minutes.<br>If you didn't create a Delivr account, ignore this email."));
     res.json({ ok: true });
   } catch (e) {
     console.error('Email error:', e.message);
-    res.status(500).json({ error: 'Email send failed — check Brevo sender is verified' });
+    res.status(500).json({ error: 'Email send failed — check Brevo sender is verified', detail: String(e.message).slice(0, 300) });
   }
 });
 
 // Verify the code the driver typed in
-app.post('/auth/verify-code', (req, res) => {
+app.post('/auth/verify-code', async (req, res) => {
   const { email, code } = req.body || {};
   if (!email || !code) return res.status(400).json({ error: 'Email and code required' });
-  const entry = db.verificationCodes.find(c => c.email === email && !c.used);
+  if (!adminReady) return res.status(500).json({ error: 'Verification not configured on server' });
+  let entry;
+  try { entry = await getCode('verificationCodes', email); }
+  catch (e) { console.error('verification read failed:', e.message); return res.status(500).json({ error: 'Could not verify code' }); }
   if (!entry)              return res.status(400).json({ error: 'No active code — tap Resend' });
   if (entry.code !== code) return res.status(400).json({ error: 'Wrong code — try again' });
   if (Date.now() > entry.expiresAt) return res.status(400).json({ error: 'Code expired — tap Resend' });
-  entry.used = true;
-  saveDB();
+  await burnCode('verificationCodes', email);
   res.json({ ok: true });
 });
 
@@ -274,16 +317,17 @@ app.post('/auth/send-reset-code', async (req, res) => {
   catch (e) { return res.status(404).json({ error: 'No account with that email' }); }
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   const expiresAt = Date.now() + 10 * 60 * 1000;
-  db.resetCodes = (db.resetCodes || []).filter(c => c.email !== email);
-  db.resetCodes.push({ email, code, expiresAt, used: false });
-  saveDB();
+  try { await putCode('resetCodes', email, code, expiresAt); }
+  catch (e) { console.error('reset code store failed:', e.message); return res.status(500).json({ error: 'Could not start password reset' }); }
   try {
     await sendBrevoEmail(email, 'Your Delivr password reset code',
       codeEmailHtml('YOUR PASSWORD RESET CODE', code, "Expires in 10 minutes.<br>If you didn't request this, ignore this email."));
     res.json({ ok: true });
   } catch (e) {
+    // The real Brevo reason (unverified sender, bad key, quota) was previously only visible in
+    // the Railway logs, which made this impossible to diagnose from the app.
     console.error('Reset email error:', e.message);
-    res.status(500).json({ error: 'Email send failed — check Brevo sender is verified' });
+    res.status(500).json({ error: 'Email send failed — check Brevo sender is verified', detail: String(e.message).slice(0, 300) });
   }
 });
 
@@ -293,15 +337,16 @@ app.post('/auth/reset-password', async (req, res) => {
   if (!email || !code || !password) return res.status(400).json({ error: 'Missing fields' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   if (!adminAuth) return res.status(500).json({ error: 'Password reset not configured on server' });
-  const entry = (db.resetCodes || []).find(c => c.email === email && !c.used);
+  let entry;
+  try { entry = await getCode('resetCodes', email); }
+  catch (e) { console.error('reset code read failed:', e.message); return res.status(500).json({ error: 'Could not verify code' }); }
   if (!entry)              return res.status(400).json({ error: 'No active code — request a new one' });
   if (entry.code !== code) return res.status(400).json({ error: 'Wrong code — try again' });
   if (Date.now() > entry.expiresAt) return res.status(400).json({ error: 'Code expired — request a new one' });
   try {
     const u = await adminAuth.getUserByEmail(email);
     await adminAuth.updateUser(u.uid, { password });
-    entry.used = true;
-    saveDB();
+    await burnCode('resetCodes', email);
     res.json({ ok: true });
   } catch (e) {
     console.error('reset-password error:', e.message);
@@ -415,15 +460,24 @@ app.get('/debug/chatrooms', async (_req, res) => {
 // Create a Checkout Session and return its URL
 app.post('/stripe/create-checkout-session', async (req, res) => {
   if (!stripe || !STRIPE_PRICE) return res.status(500).json({ error: 'Payments not configured' });
-  const { email, uid } = req.body || {};
+  const { email, uid, planId } = req.body || {};
+  // No planId at all = an older client, which only ever meant the original £4.99 price.
+  // A planId we have no configured price for is REFUSED rather than falling back: falling back
+  // would show a driver "£9.99/week" and then charge them £4.99/month, which is mis-selling.
+  if (planId && !PLAN_PRICES[planId]) {
+    console.error(`No Stripe price configured for plan "${planId}" — refusing checkout`);
+    return res.status(400).json({ error: 'That plan is not available yet' });
+  }
+  const price = planId ? PLAN_PRICES[planId] : STRIPE_PRICE;
+  const plan  = planId || 'basic';
   try {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      line_items: [{ price: STRIPE_PRICE, quantity: 1 }],
+      line_items: [{ price, quantity: 1 }],
       customer_email: email || undefined,
       client_reference_id: uid || email || undefined,
-      metadata: uid ? { uid } : undefined,
-      subscription_data: uid ? { metadata: { uid } } : undefined,   // so subscription.* events carry the uid
+      metadata: uid ? { uid, plan } : { plan },
+      subscription_data: { metadata: uid ? { uid, plan } : { plan } },   // so subscription.* events carry the uid + plan
       success_url: `${APP_URL}/?stripe=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${APP_URL}/?stripe=cancel`,
       allow_promotion_codes: true,
@@ -432,6 +486,67 @@ app.post('/stripe/create-checkout-session', async (req, res) => {
   } catch (e) {
     console.error('Stripe session error:', e.message);
     res.status(500).json({ error: 'Could not start checkout', detail: e.message });
+  }
+});
+
+// Which plans can actually be bought right now — i.e. which have a Stripe price configured. The
+// app shows only these, so a driver can never tap a plan that would fail or charge the wrong price.
+app.get('/plans', (_req, res) => {
+  res.json({ available: Object.keys(PLAN_PRICES).filter(k => PLAN_PRICES[k]) });
+});
+
+// ── Apple StoreKit receipt verification ──────────────────────────────────────
+// The iOS app sends the signed transaction (JWS) from StoreKit 2; the entitlement is granted HERE,
+// never on the device (`plan` is locked in firestore.rules).
+//
+// FAIL-CLOSED BY DESIGN: a JWS is only trustworthy once its x5c certificate chain has been checked
+// against Apple's root CAs. Until that's configured this endpoint grants nothing and returns 503 —
+// because accepting an unverified payload would let anyone POST themselves the £299 plan.
+//
+// To turn it on:
+//   1. npm install @apple/app-store-server-library
+//   2. Download Apple's root CAs (https://www.apple.com/certificateauthority/) into server/apple-certs/
+//   3. Set APPLE_BUNDLE_ID=app.delivr.mobile and APPLE_APP_ID=<your numeric App Store id> on Railway
+const APPLE_BUNDLE_ID = (process.env.APPLE_BUNDLE_ID || '').trim();
+const APPLE_APP_ID    = (process.env.APPLE_APP_ID || '').trim();
+
+let appleVerifier = null, appleVerifierTried = false;
+async function getAppleVerifier() {
+  if (appleVerifierTried) return appleVerifier;
+  appleVerifierTried = true;
+  if (!APPLE_BUNDLE_ID || !APPLE_APP_ID) return null;
+  try {
+    const { SignedDataVerifier, Environment } = await import('@apple/app-store-server-library');
+    const fs = await import('node:fs');
+    const dir = new URL('./apple-certs/', import.meta.url);
+    const roots = fs.readdirSync(dir).filter(f => f.endsWith('.cer')).map(f => fs.readFileSync(new URL(f, dir)));
+    if (!roots.length) return null;
+    appleVerifier = new SignedDataVerifier(roots, true, Environment.PRODUCTION, APPLE_BUNDLE_ID, Number(APPLE_APP_ID));
+  } catch (e) {
+    console.warn('Apple IAP verification not configured:', e.message);
+  }
+  return appleVerifier;
+}
+
+app.post('/iap/verify', async (req, res) => {
+  const { uid, plan, jws } = req.body || {};
+  if (!uid || !plan || !jws) return res.status(400).json({ error: 'Missing uid, plan or jws' });
+  if (!PLAN_PRICES[plan] && plan !== 'basic') return res.status(400).json({ error: 'Unknown plan' });
+
+  const verifier = await getAppleVerifier();
+  if (!verifier) {
+    console.error('/iap/verify called but Apple verification is not configured — refusing to grant');
+    return res.status(503).json({ error: 'Purchase verification is not configured yet' });
+  }
+  try {
+    const tx = await verifier.verifyAndDecodeTransaction(jws);   // throws unless the signature chain is valid
+    const expires = Number(tx.expiresDate || 0);
+    if (expires && expires < Date.now()) return res.status(400).json({ error: 'Subscription already expired' });
+    await setUserPremium(uid, true, tx.originalTransactionId || null, plan);
+    res.json({ ok: true, plan });
+  } catch (e) {
+    console.error('Apple receipt rejected:', e.message);
+    res.status(400).json({ error: 'Could not verify this purchase' });
   }
 });
 
@@ -446,7 +561,7 @@ app.get('/stripe/verify-session', async (req, res) => {
     // Grant premium server-side (Admin SDK) as a reliable fallback to the webhook — clients can't
     // write premium themselves, so this is the safety net if the webhook is delayed/missed.
     const uid = session.client_reference_id || (session.metadata && session.metadata.uid);
-    if (paid && uid) await setUserPremium(uid, true, session.subscription || null);
+    if (paid && uid) await setUserPremium(uid, true, session.subscription || null, (session.metadata && session.metadata.plan) || 'basic');
     res.json({ paid, subscriptionId: session.subscription || null, email: session.customer_email || null });
   } catch (e) {
     console.error('Stripe verify error:', e.message);
@@ -472,15 +587,28 @@ app.post('/stripe/cancel', async (req, res) => {
 // Keeps premium in sync with Stripe so it auto-revokes when a subscription is
 // cancelled, expires or goes unpaid (and re-grants while active). Firestore is the
 // source of truth the app reads premium from.
-async function setUserPremium(uid, premium, subscriptionId) {
+// `plan` rides along with premium so the Stack Check daily cap follows the subscription. It's
+// written here (Admin SDK) and locked in firestore.rules, so a driver can't self-grant a bigger
+// budget. Revoking clears it back to null; a lapsed subscriber falls to no plan, not a free one.
+async function setUserPremium(uid, premium, subscriptionId, plan) {
   if (!adminReady || !uid) return;
   try {
     await admin.firestore().collection('users').doc(uid).set(
-      { premium, subscriptionId: premium ? (subscriptionId || null) : null },
+      {
+        premium,
+        subscriptionId: premium ? (subscriptionId || null) : null,
+        plan: premium ? (plan || 'basic') : null,
+      },
       { merge: true }
     );
-    console.log(`Premium ${premium ? 'granted' : 'revoked'} for ${uid}`);
+    console.log(`Premium ${premium ? `granted (${plan || 'basic'})` : 'revoked'} for ${uid}`);
   } catch (e) { console.error('setUserPremium failed:', e.message); }
+}
+// Which plan a Stripe subscription represents: its own metadata first, else the price it bills.
+function planOfSubscription(sub) {
+  if (sub?.metadata?.plan) return sub.metadata.plan;
+  const priceId = sub?.items?.data?.[0]?.price?.id;
+  return (priceId && planFromPriceId(priceId)) || 'basic';
 }
 // Find the Firebase uid for a subscription: prefer its metadata, else the stored subscriptionId.
 async function uidFromSubscription(sub) {
@@ -507,12 +635,12 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
     if (event.type === 'checkout.session.completed') {
       const uid = obj.client_reference_id || (obj.metadata && obj.metadata.uid);
       if (uid && (obj.payment_status === 'paid' || obj.status === 'complete')) {
-        await setUserPremium(uid, true, obj.subscription || null);
+        await setUserPremium(uid, true, obj.subscription || null, (obj.metadata && obj.metadata.plan) || 'basic');
       }
     } else if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
       const uid = await uidFromSubscription(obj);
       const active = obj.status === 'active' || obj.status === 'trialing';
-      await setUserPremium(uid, active, obj.id);
+      await setUserPremium(uid, active, obj.id, planOfSubscription(obj));
     } else if (event.type === 'customer.subscription.deleted') {
       const uid = await uidFromSubscription(obj);
       await setUserPremium(uid, false, null);
