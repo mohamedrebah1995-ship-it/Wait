@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import { collection, query, orderBy, limitToLast, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from "firebase/firestore";
 import { db, loadStorage } from "./firebase";
 import { B, M, badgeFor, REACTIONS } from "./App.jsx";
+import { track, EV } from "./analytics";
 
 // Downscale + JPEG-compress an image before upload (keeps chat fast & cheap)
 function compressImage(file,maxDim=1280,quality=0.7){
@@ -54,7 +55,7 @@ function VoiceMessage({url,duration,isMe}){
 }
 
 // ── CHAT SCREEN (Firestore real-time) ─────────────────────────────────────────
-function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
+function ChatScreen({user,onLogout,area,contribCounts,isAdmin}) {
   const room="braintree";   // single community room (all historic chat merged here)
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
@@ -98,6 +99,7 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
     if(!text)return;
     setInput("");setSendError(false);
     await postMessage({text});
+    track(EV.chatSent,{type:"text"});
     inputRef.current?.focus();
   }
 
@@ -261,6 +263,15 @@ function ChatScreen({user,onLogout,area,contribCounts,onGoProfile,isAdmin}) {
                     <span style={{fontSize:14,...M,color:isMe?"#000":"var(--ink)",lineHeight:1.55,whiteSpace:"pre-wrap",overflowWrap:"anywhere",wordBreak:"normal"}}>{m.text}</span>
                   )}
                 </div>
+                {/* Visible way into report/block. The long-press still works — this just makes the
+                    same menu findable, since nothing on screen hinted it existed. */}
+                {!isMe&&(
+                  <button type="button" onClick={()=>setActionMsg(m)}
+                    aria-label={"Report or block "+m.user}
+                    style={{flexShrink:0,alignSelf:"flex-end",marginBottom:2,width:26,height:26,borderRadius:"50%",
+                      background:"none",border:"none",color:"var(--faint2)",fontSize:15,lineHeight:1,cursor:"pointer",
+                      display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>⋯</button>
+                )}
               </div>
               {m.reactions&&Object.keys(m.reactions).length>0&&(
                 <div style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap",...(isMe?{justifyContent:"flex-end",marginRight:4}:{marginLeft:40})}}>

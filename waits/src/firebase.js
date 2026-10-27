@@ -10,6 +10,11 @@ const firebaseConfig = {
   storageBucket:     "drivers-eyes.firebasestorage.app",
   messagingSenderId: "927214965437",
   appId:             "1:927214965437:web:6318775a4f7f718ae31dd4",
+  // Google Analytics needs this (G-XXXXXXXXXX). Omitted entirely when unset so the SDK doesn't
+  // half-initialise — see src/analytics.js, which stays a no-op until it's provided.
+  ...(import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+    ? { measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID.trim() }
+    : {}),
 };
 
 export const fbApp = initializeApp(firebaseConfig);

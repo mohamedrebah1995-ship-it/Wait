@@ -17,12 +17,20 @@ import {
 } from "firebase/firestore";
 import { auth, db, setupPush } from "./firebase";
 import { restaurantKey, trackWait, getWaitAverage, getSampleCount } from "./waitEngine";   // passive GPS wait-time engine (additive)
+import { PLANS, PAID_PLAN_IDS, capLabel, quotaState, bumpUsage } from "./plans";
+import { LEARN_LABELS } from "./learnLabels";   // just the profile-card labels; the content itself is lazy   // pricing + Stack Check call budget
+import { iapProducts, iapPurchase, iapRestore } from "./iap";   // iOS StoreKit (Apple forbids Stripe for digital subs)
+import { showStatsBanner, hideStatsBanner, ADMOB_BANNER_SLOT_PX } from "./admob";   // AdMob banner — Stats screen only
+import { track, identify, initAnalytics, EV } from "./analytics";   // usage reporting (inert until Analytics is enabled)
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
+import ScreenReaderButton from "./ScreenReaderButton";   // 1.1 screen reader — small "Start shift" pill next to STACK CHECK (iOS only)
 
 // Chat is the heaviest screen and rarely the landing tab — load it (and firebase/storage)
 // on demand the first time a driver opens CHAT, not on first paint.
 const ChatScreen = lazy(() => import("./ChatScreen.jsx"));
+// Learning Materials: ten languages of training prose — loaded only when a driver opens it.
+const LearnScreen = lazy(() => import("./LearnScreen.jsx"));
 
 const FL = document.createElement("link");
 FL.rel = "stylesheet";
@@ -88,16 +96,16 @@ const MAPBOX_TOKEN = "pk.eyJ1Ijoia2luZ29mbWFkbmVzcyIsImEiOiJjbXAzZTFoNDYwbGNtMnB
 const ADSENSE_CLIENT = "ca-pub-3527173535512943";
 const ADSENSE_SLOT   = "";  // ← paste your AdSense ad-unit slot ID here once AdSense is approved
 const SUB_PRICE = "£4.99";
+// Required on the subscription paywall (Guideline 3.1.2). Apple's standard EULA is acceptable
+// when you don't publish your own terms.
+const TERMS_URL   = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/";
+const PRIVACY_URL = "https://drivers-eyes.web.app/privacy.html";
 // Accounts that can see the admin APP STATS screen (add more emails if needed)
 const OWNER_EMAILS = ["mohamedrebah1995@gmail.com","contact.morebah@gmail.com"];
 const isOwner = u => !!u?.email && OWNER_EMAILS.includes(u.email.toLowerCase());
 // Delegated admins: see real driver names in the live activity + get premium perks.
 const ADMIN_PERK_EMAILS = ["contact.morebah@gmail.com"];
 const hasAdminPerks = u => !!u?.email && ADMIN_PERK_EMAILS.includes(u.email.toLowerCase());
-// Stack Check (STACK tab) early access — ONLY the Stack feature, none of the other admin perks
-// (no name-reveal, moderation, premium, or uncapped feed). Admins get it too.
-const STACK_FEATURE_EMAILS = ["insafbelhadi2909@gmail.com","totolino1990@gmail.com","darko_adrian@yahoo.com"];
-const canUseStack = u => hasAdminPerks(u) || (!!u?.email && STACK_FEATURE_EMAILS.includes(u.email.toLowerCase()));
 const CFG = { MIN_SAMPLES: 2, COMMUNITY_MIN: 1 };
 
 // Curated chains always shown first (in this order), then Google nearby for the rest.
@@ -219,15 +227,15 @@ const LANGS = [
 const T = {
   en:{ chooseLang:"Choose your language", continue:"CONTINUE →", tagline:"DRIVER COMMUNITY",
     next:"NEXT", join:"JOIN THE COMMUNITY →", skip:"Skip",
-    ob1_title:"You've been waiting.\nNow waiting pays.", ob1_body:"Every minute you wait outside a restaurant is data. Delivr turns that wait into live intel that saves you and every driver near you time.",
+    ob1_title:"You've been waiting.\nNow waiting pays.", ob1_body:"Every minute you wait outside a restaurant is data. MOdelivr turns that wait into live intel that saves you and every driver near you time.",
     ob2_title:"Two taps. That's it.", ob2_arrive_t:"Arrive", ob2_arrive_d:"Tap once when you reach the restaurant. The timer starts automatically.", ob2_pickup_t:"Pick up", ob2_pickup_d:"Tap once when you've got the order. That's your wait, logged.", ob2_see_t:"Everyone sees it", ob2_see_d:"Every nearby driver instantly sees the real wait time.",
-    ob3_title:"Help me.\nI help you.", ob3_body:"Delivr only works because drivers share. The more you log, the smarter it gets for everyone. Join the crew.",
+    ob3_title:"Help me.\nI help you.", ob3_body:"MOdelivr only works because drivers share. The more you log, the smarter it gets for everyone. Join the crew.",
     signin:"SIGN IN", create:"CREATE ACCOUNT", drivername:"DRIVER NAME", email:"EMAIL ADDRESS", password:"PASSWORD", confirm:"CONFIRM PASSWORD", colour:"YOUR COLOUR", forgot:"Forgot password?", signinBtn:"SIGN IN →", createBtn:"CREATE ACCOUNT →", changeLang:"🌐 Language" },
   pl:{ chooseLang:"Wybierz swój język", continue:"DALEJ →", tagline:"SPOŁECZNOŚĆ KIEROWCÓW",
     next:"DALEJ", join:"DOŁĄCZ DO SPOŁECZNOŚCI →", skip:"Pomiń",
-    ob1_title:"Czekałeś.\nTeraz czekanie się opłaca.", ob1_body:"Każda minuta czekania pod restauracją to dane. Delivr zamienia to czekanie w informacje na żywo, które oszczędzają czas Tobie i kierowcom obok.",
+    ob1_title:"Czekałeś.\nTeraz czekanie się opłaca.", ob1_body:"Każda minuta czekania pod restauracją to dane. MOdelivr zamienia to czekanie w informacje na żywo, które oszczędzają czas Tobie i kierowcom obok.",
     ob2_title:"Dwa dotknięcia. To wszystko.", ob2_arrive_t:"Przyjazd", ob2_arrive_d:"Dotknij raz po dotarciu do restauracji. Licznik startuje automatycznie.", ob2_pickup_t:"Odbiór", ob2_pickup_d:"Dotknij, gdy masz zamówienie. Twój czas oczekiwania zapisany.", ob2_see_t:"Wszyscy to widzą", ob2_see_d:"Każdy kierowca w pobliżu od razu widzi prawdziwy czas oczekiwania.",
-    ob3_title:"Pomóż mi.\nJa pomogę Tobie.", ob3_body:"Delivr działa dzięki kierowcom. Im więcej zapisujesz, tym mądrzejszy dla wszystkich. Dołącz do ekipy.",
+    ob3_title:"Pomóż mi.\nJa pomogę Tobie.", ob3_body:"MOdelivr działa dzięki kierowcom. Im więcej zapisujesz, tym mądrzejszy dla wszystkich. Dołącz do ekipy.",
     signin:"ZALOGUJ", create:"ZAŁÓŻ KONTO", drivername:"NAZWA KIEROWCY", email:"ADRES E-MAIL", password:"HASŁO", confirm:"POTWIERDŹ HASŁO", colour:"TWÓJ KOLOR", forgot:"Nie pamiętasz hasła?", signinBtn:"ZALOGUJ →", createBtn:"ZAŁÓŻ KONTO →", changeLang:"🌐 Język" },
   ar:{ chooseLang:"اختر لغتك", continue:"متابعة →", tagline:"مجتمع السائقين",
     next:"التالي", join:"انضم إلى المجتمع →", skip:"تخطٍّ",
@@ -237,21 +245,21 @@ const T = {
     signin:"تسجيل الدخول", create:"إنشاء حساب", drivername:"اسم السائق", email:"البريد الإلكتروني", password:"كلمة المرور", confirm:"تأكيد كلمة المرور", colour:"لونك", forgot:"نسيت كلمة المرور؟", signinBtn:"دخول →", createBtn:"إنشاء حساب →", changeLang:"🌐 اللغة" },
   hi:{ chooseLang:"अपनी भाषा चुनें", continue:"जारी रखें →", tagline:"ड्राइवर समुदाय",
     next:"आगे", join:"समुदाय से जुड़ें →", skip:"छोड़ें",
-    ob1_title:"आप इंतज़ार करते रहे।\nअब इंतज़ार का फ़ायदा।", ob1_body:"रेस्टोरेंट के बाहर हर मिनट का इंतज़ार डेटा है। Delivr इसे लाइव जानकारी में बदलता है जो आपका और पास के हर ड्राइवर का समय बचाता है।",
+    ob1_title:"आप इंतज़ार करते रहे।\nअब इंतज़ार का फ़ायदा।", ob1_body:"रेस्टोरेंट के बाहर हर मिनट का इंतज़ार डेटा है। MOdelivr इसे लाइव जानकारी में बदलता है जो आपका और पास के हर ड्राइवर का समय बचाता है।",
     ob2_title:"बस दो टैप।", ob2_arrive_t:"पहुँचे", ob2_arrive_d:"रेस्टोरेंट पहुँचते ही एक बार टैप करें। टाइमर अपने आप शुरू।", ob2_pickup_t:"पिक अप", ob2_pickup_d:"ऑर्डर मिलते ही टैप करें। आपका इंतज़ार दर्ज।", ob2_see_t:"सबको दिखता है", ob2_see_d:"पास का हर ड्राइवर तुरंत असली इंतज़ार समय देखता है।",
-    ob3_title:"मेरी मदद करो।\nमैं तुम्हारी करूँगा।", ob3_body:"Delivr तभी चलता है जब ड्राइवर साझा करते हैं। जितना ज़्यादा लॉग, सबके लिए उतना बेहतर। जुड़ें।",
+    ob3_title:"मेरी मदद करो।\nमैं तुम्हारी करूँगा।", ob3_body:"MOdelivr तभी चलता है जब ड्राइवर साझा करते हैं। जितना ज़्यादा लॉग, सबके लिए उतना बेहतर। जुड़ें।",
     signin:"साइन इन", create:"खाता बनाएँ", drivername:"ड्राइवर नाम", email:"ईमेल पता", password:"पासवर्ड", confirm:"पासवर्ड पुष्टि", colour:"आपका रंग", forgot:"पासवर्ड भूल गए?", signinBtn:"साइन इन →", createBtn:"खाता बनाएँ →", changeLang:"🌐 भाषा" },
   ur:{ chooseLang:"اپنی زبان منتخب کریں", continue:"جاری رکھیں →", tagline:"ڈرائیور کمیونٹی",
     next:"آگے", join:"کمیونٹی میں شامل ہوں →", skip:"چھوڑیں",
-    ob1_title:"آپ انتظار کرتے رہے۔\nاب انتظار کا فائدہ۔", ob1_body:"ریستوران کے باہر ہر منٹ کا انتظار ڈیٹا ہے۔ Delivr اسے لائیو معلومات میں بدل دیتا ہے جو آپ کا اور قریب کے ہر ڈرائیور کا وقت بچاتا ہے۔",
+    ob1_title:"آپ انتظار کرتے رہے۔\nاب انتظار کا فائدہ۔", ob1_body:"ریستوران کے باہر ہر منٹ کا انتظار ڈیٹا ہے۔ MOdelivr اسے لائیو معلومات میں بدل دیتا ہے جو آپ کا اور قریب کے ہر ڈرائیور کا وقت بچاتا ہے۔",
     ob2_title:"بس دو ٹیپ۔", ob2_arrive_t:"پہنچے", ob2_arrive_d:"ریستوران پہنچتے ہی ایک بار ٹیپ کریں۔ ٹائمر خودبخود شروع۔", ob2_pickup_t:"پک اپ", ob2_pickup_d:"آرڈر ملتے ہی ٹیپ کریں۔ آپ کا انتظار درج۔", ob2_see_t:"سب کو نظر آتا ہے", ob2_see_d:"قریب کا ہر ڈرائیور فوراً اصل انتظار وقت دیکھتا ہے۔",
-    ob3_title:"میری مدد کرو۔\nمیں تمہاری کروں گا۔", ob3_body:"Delivr تبھی چلتا ہے جب ڈرائیور شیئر کرتے ہیں۔ جتنا زیادہ لاگ، سب کے لیے اتنا بہتر۔ شامل ہوں۔",
+    ob3_title:"میری مدد کرو۔\nمیں تمہاری کروں گا۔", ob3_body:"MOdelivr تبھی چلتا ہے جب ڈرائیور شیئر کرتے ہیں۔ جتنا زیادہ لاگ، سب کے لیے اتنا بہتر۔ شامل ہوں۔",
     signin:"سائن اِن", create:"اکاؤنٹ بنائیں", drivername:"ڈرائیور نام", email:"ای میل پتہ", password:"پاس ورڈ", confirm:"پاس ورڈ کی تصدیق", colour:"آپ کا رنگ", forgot:"پاس ورڈ بھول گئے؟", signinBtn:"سائن اِن →", createBtn:"اکاؤنٹ بنائیں →", changeLang:"🌐 زبان" },
   pt:{ chooseLang:"Escolha o seu idioma", continue:"CONTINUAR →", tagline:"COMUNIDADE DE MOTORISTAS",
     next:"PRÓXIMO", join:"ENTRAR NA COMUNIDADE →", skip:"Pular",
-    ob1_title:"Você esperou.\nAgora esperar compensa.", ob1_body:"Cada minuto esperando fora do restaurante é dado. O Delivr transforma essa espera em informação ao vivo que poupa tempo seu e de cada motorista perto de você.",
+    ob1_title:"Você esperou.\nAgora esperar compensa.", ob1_body:"Cada minuto esperando fora do restaurante é dado. O MOdelivr transforma essa espera em informação ao vivo que poupa tempo seu e de cada motorista perto de você.",
     ob2_title:"Dois toques. Só isso.", ob2_arrive_t:"Cheguei", ob2_arrive_d:"Toque uma vez ao chegar ao restaurante. O cronômetro começa sozinho.", ob2_pickup_t:"Peguei", ob2_pickup_d:"Toque ao receber o pedido. Sua espera fica registrada.", ob2_see_t:"Todos veem", ob2_see_d:"Cada motorista por perto vê o tempo de espera real na hora.",
-    ob3_title:"Ajude-me.\nEu ajudo você.", ob3_body:"O Delivr só funciona porque os motoristas compartilham. Quanto mais você registra, melhor para todos. Junte-se.",
+    ob3_title:"Ajude-me.\nEu ajudo você.", ob3_body:"O MOdelivr só funciona porque os motoristas compartilham. Quanto mais você registra, melhor para todos. Junte-se.",
     signin:"ENTRAR", create:"CRIAR CONTA", drivername:"NOME DO MOTORISTA", email:"E-MAIL", password:"SENHA", confirm:"CONFIRMAR SENHA", colour:"SUA COR", forgot:"Esqueceu a senha?", signinBtn:"ENTRAR →", createBtn:"CRIAR CONTA →", changeLang:"🌐 Idioma" },
 };
 // Strings used across the rest of the app
@@ -259,12 +267,12 @@ const T2 = {
   en:{ nav_waits:"WAITS",nav_check:"CHECK",nav_stats:"STATS",nav_chat:"CHAT",
     w_title:"RESTAURANT WAITS",w_arrived:"📍 ARRIVED AT RESTAURANT",w_waitingAt:"WAITING AT",w_pickedUp:"✓ PICKED UP",w_gotIt:"✓ GOT IT — PICKED UP",w_delivered:"✓ DELIVERED",w_arrivedShort:"ARRIVED",w_timingNow:"● TIMING NOW",w_noData:"NO DATA YET",w_closed:"CLOSED",w_closedNow:"Closed right now",w_waitingNow:"WAITING NOW",w_noOne:"No one waiting now",w_liveActivity:"LIVE ACTIVITY",w_viewAll:"View all ›",w_communityLive:"COMMUNITY DATA LIVE",w_yourData:"YOUR DATA",w_community:"COMMUNITY",w_recent:"RECENT WAIT LOGS",w_tapHint:"TAP PICKED UP THE MOMENT YOU HAVE THE ORDER",w_liveNow:"live now",
     prof_title:"DRIVER PROFILE",prof_free:"FREE PLAN",prof_premium:"⭐ PREMIUM",prof_goPremium:"GO PREMIUM",prof_premiumActive:"PREMIUM ACTIVE",prof_totalLogs:"TOTAL LOGS",prof_restaurants:"RESTAURANTS",prof_avgWait:"AVG WAIT",prof_rank:"CONTRIBUTOR RANK",prof_noBadge:"NO BADGE YET",prof_qualityLogs:"QUALITY LOGS",prof_name:"DRIVER NAME",prof_phone:"PHONE (OPTIONAL)",prof_area:"YOUR AREA",prof_areaHint:"Sets your chat room and local restaurant list",prof_save:"SAVE CHANGES",prof_saving:"SAVING...",prof_saved:"✓ SAVED",prof_changePw:"CHANGE PASSWORD",prof_appearance:"APPEARANCE",prof_light:"Light mode",prof_dark:"Dark mode",prof_signout:"SIGN OUT",prof_appStats:"📊 APP STATS",
-    up_title:"DELIVR PREMIUM",up_month:"/month",up_cancel:"Cancel anytime",up_noAds:"No ads",up_fullData:"Full community data",up_allChats:"All area chats",up_export:"Export your logs",up_upgradeNow:"UPGRADE NOW →",up_active:"✓ YOU'RE PREMIUM",up_cancelSub:"CANCEL SUBSCRIPTION",
+    up_title:"MOdelivr PREMIUM",up_month:"/month",up_cancel:"Cancel anytime",up_noAds:"No ads",up_fullData:"Full community data",up_allChats:"All area chats",up_export:"Export your logs",up_upgradeNow:"UPGRADE NOW →",up_active:"✓ YOU'RE PREMIUM",up_cancelSub:"CANCEL SUBSCRIPTION",
     chk_title:"CHECK RESTAURANT",chk_nearby:"NEARBY · TAP FOR FULL STATS",chk_results:"SEARCH RESULTS",chk_search:"Search any branch — KFC, Sainsbury's…" },
   pl:{ nav_waits:"CZASY",nav_check:"SPRAWDŹ",nav_stats:"STATY",nav_chat:"CZAT",
     w_title:"CZASY OCZEKIWANIA",w_arrived:"📍 DOTARŁEM DO RESTAURACJI",w_waitingAt:"CZEKASZ W",w_pickedUp:"✓ ODEBRANE",w_gotIt:"✓ MAM — ODEBRANE",w_arrivedShort:"DOTARŁEM",w_timingNow:"● MIERZENIE",w_noData:"BRAK DANYCH",w_closed:"ZAMKNIĘTE",w_closedNow:"Teraz zamknięte",w_waitingNow:"CZEKA TERAZ",w_noOne:"Nikt teraz nie czeka",w_liveActivity:"NA ŻYWO",w_viewAll:"Zobacz wszystko ›",w_communityLive:"DANE SPOŁECZNOŚCI NA ŻYWO",w_yourData:"TWOJE DANE",w_community:"SPOŁECZNOŚĆ",w_recent:"OSTATNIE WPISY",w_tapHint:"KLIKNIJ ODEBRANE GDY MASZ ZAMÓWIENIE",w_liveNow:"na żywo",
     prof_title:"PROFIL KIEROWCY",prof_free:"PLAN DARMOWY",prof_premium:"⭐ PREMIUM",prof_goPremium:"PRZEJDŹ NA PREMIUM",prof_premiumActive:"PREMIUM AKTYWNE",prof_totalLogs:"WSZYSTKIE WPISY",prof_restaurants:"RESTAURACJE",prof_avgWait:"ŚR. CZAS",prof_rank:"RANGA",prof_noBadge:"BRAK ODZNAKI",prof_qualityLogs:"WPISY",prof_name:"NAZWA KIEROWCY",prof_phone:"TELEFON (OPCJON.)",prof_area:"TWÓJ OBSZAR",prof_areaHint:"Ustawia czat i listę lokalnych restauracji",prof_save:"ZAPISZ",prof_saving:"ZAPISYWANIE...",prof_saved:"✓ ZAPISANO",prof_changePw:"ZMIEŃ HASŁO",prof_appearance:"WYGLĄD",prof_light:"Tryb jasny",prof_dark:"Tryb ciemny",prof_signout:"WYLOGUJ",prof_appStats:"📊 STATYSTYKI",
-    up_title:"DELIVR PREMIUM",up_month:"/miesiąc",up_cancel:"Anuluj w każdej chwili",up_noAds:"Bez reklam",up_fullData:"Pełne dane społeczności",up_allChats:"Wszystkie czaty",up_export:"Eksport wpisów",up_upgradeNow:"ULEPSZ TERAZ →",up_active:"✓ MASZ PREMIUM",up_cancelSub:"ANULUJ SUBSKRYPCJĘ",
+    up_title:"MOdelivr PREMIUM",up_month:"/miesiąc",up_cancel:"Anuluj w każdej chwili",up_noAds:"Bez reklam",up_fullData:"Pełne dane społeczności",up_allChats:"Wszystkie czaty",up_export:"Eksport wpisów",up_upgradeNow:"ULEPSZ TERAZ →",up_active:"✓ MASZ PREMIUM",up_cancelSub:"ANULUJ SUBSKRYPCJĘ",
     chk_title:"SPRAWDŹ RESTAURACJĘ",chk_nearby:"W POBLIŻU · DOTKNIJ PO STATYSTYKI",chk_results:"WYNIKI",chk_search:"Szukaj — KFC, Sainsbury's…" },
   ar:{ nav_waits:"الانتظار",nav_check:"تحقّق",nav_stats:"إحصاء",nav_chat:"الدردشة",
     w_title:"أوقات الانتظار",w_arrived:"📍 وصلت إلى المطعم",w_waitingAt:"تنتظر في",w_pickedUp:"✓ تم الاستلام",w_gotIt:"✓ استلمت الطلب",w_arrivedShort:"وصلت",w_timingNow:"● جارٍ القياس",w_noData:"لا بيانات بعد",w_closed:"مغلق",w_closedNow:"مغلق الآن",w_waitingNow:"ينتظر الآن",w_noOne:"لا أحد ينتظر الآن",w_liveActivity:"النشاط المباشر",w_viewAll:"عرض الكل ›",w_communityLive:"بيانات المجتمع مباشرة",w_yourData:"بياناتك",w_community:"المجتمع",w_recent:"آخر السجلات",w_tapHint:"اضغط استلام فور حصولك على الطلب",w_liveNow:"مباشر",
@@ -284,66 +292,66 @@ const T2 = {
   pt:{ nav_waits:"ESPERAS",nav_check:"VERIFICAR",nav_stats:"DADOS",nav_chat:"CHAT",
     w_title:"ESPERAS NOS RESTAURANTES",w_arrived:"📍 CHEGUEI AO RESTAURANTE",w_waitingAt:"ESPERANDO EM",w_pickedUp:"✓ PEGUEI",w_gotIt:"✓ PEGUEI — RETIRADO",w_arrivedShort:"CHEGUEI",w_timingNow:"● CRONOMETRANDO",w_noData:"SEM DADOS AINDA",w_closed:"FECHADO",w_closedNow:"Fechado agora",w_waitingNow:"ESPERANDO AGORA",w_noOne:"Ninguém esperando agora",w_liveActivity:"ATIVIDADE AO VIVO",w_viewAll:"Ver tudo ›",w_communityLive:"DADOS DA COMUNIDADE AO VIVO",w_yourData:"SEUS DADOS",w_community:"COMUNIDADE",w_recent:"REGISTROS RECENTES",w_tapHint:"TOQUE EM PEGUEI ASSIM QUE RECEBER O PEDIDO",w_liveNow:"ao vivo",
     prof_title:"PERFIL DO MOTORISTA",prof_free:"PLANO GRÁTIS",prof_premium:"⭐ PREMIUM",prof_goPremium:"OBTER PREMIUM",prof_premiumActive:"PREMIUM ATIVO",prof_totalLogs:"TOTAL DE REGISTROS",prof_restaurants:"RESTAURANTES",prof_avgWait:"ESPERA MÉDIA",prof_rank:"RANQUE",prof_noBadge:"SEM EMBLEMA AINDA",prof_qualityLogs:"REGISTROS",prof_name:"NOME DO MOTORISTA",prof_phone:"TELEFONE (OPCIONAL)",prof_area:"SUA ÁREA",prof_areaHint:"Define seu chat e lista de restaurantes locais",prof_save:"SALVAR",prof_saving:"SALVANDO...",prof_saved:"✓ SALVO",prof_changePw:"ALTERAR SENHA",prof_appearance:"APARÊNCIA",prof_light:"Modo claro",prof_dark:"Modo escuro",prof_signout:"SAIR",prof_appStats:"📊 ESTATÍSTICAS",
-    up_title:"DELIVR PREMIUM",up_month:"/mês",up_cancel:"Cancele quando quiser",up_noAds:"Sem anúncios",up_fullData:"Dados completos da comunidade",up_allChats:"Todos os chats",up_export:"Exportar registros",up_upgradeNow:"ASSINAR AGORA →",up_active:"✓ VOCÊ É PREMIUM",up_cancelSub:"CANCELAR ASSINATURA",
+    up_title:"MOdelivr PREMIUM",up_month:"/mês",up_cancel:"Cancele quando quiser",up_noAds:"Sem anúncios",up_fullData:"Dados completos da comunidade",up_allChats:"Todos os chats",up_export:"Exportar registros",up_upgradeNow:"ASSINAR AGORA →",up_active:"✓ VOCÊ É PREMIUM",up_cancelSub:"CANCELAR ASSINATURA",
     chk_title:"VERIFICAR RESTAURANTE",chk_nearby:"PRÓXIMOS · TOQUE PARA ESTATÍSTICAS",chk_results:"RESULTADOS",chk_search:"Buscar qualquer filial — KFC…" },
 };
 for(const c of Object.keys(T2)){ Object.assign(T[c],T2[c]); }
 // Disclaimer screen strings
 const T3 = {
-  en:{ disc_title:"BEFORE YOU START", disc_btn:"I UNDERSTAND", disc_body:"WAITS does not connect to Uber Eats, Deliveroo, Just Eat or any other delivery platform. We do not access your delivery app accounts, read your notifications, modify your GPS, or interact with any platform API. We only use your device location to detect nearby restaurants and your local area. Your delivery accounts are completely safe." },
-  pl:{ disc_title:"ZANIM ZACZNIESZ", disc_btn:"ROZUMIEM", disc_body:"WAITS nie łączy się z Uber Eats, Deliveroo, Just Eat ani żadną inną platformą dostawczą. Nie mamy dostępu do Twoich kont w aplikacjach dostawczych, nie czytamy Twoich powiadomień, nie zmieniamy Twojego GPS ani nie korzystamy z żadnego API platform. Używamy lokalizacji Twojego urządzenia wyłącznie do wykrywania pobliskich restauracji i Twojej okolicy. Twoje konta dostawcze są całkowicie bezpieczne." },
-  ar:{ disc_title:"قبل أن تبدأ", disc_btn:"أوافق وأفهم", disc_body:"لا يتصل WAITS بـ Uber Eats أو Deliveroo أو Just Eat أو أي منصة توصيل أخرى. نحن لا نصل إلى حساباتك في تطبيقات التوصيل، ولا نقرأ إشعاراتك، ولا نعدّل نظام تحديد المواقع لديك، ولا نتفاعل مع أي واجهة برمجية لأي منصة. نستخدم موقع جهازك فقط لاكتشاف المطاعم القريبة ومنطقتك المحلية. حساباتك في تطبيقات التوصيل آمنة تماماً." },
-  hi:{ disc_title:"शुरू करने से पहले", disc_btn:"मैं समझ गया", disc_body:"WAITS, Uber Eats, Deliveroo, Just Eat या किसी अन्य डिलीवरी प्लेटफ़ॉर्म से कनेक्ट नहीं होता। हम आपके डिलीवरी ऐप अकाउंट तक नहीं पहुँचते, आपकी सूचनाएँ नहीं पढ़ते, आपका GPS नहीं बदलते, और किसी प्लेटफ़ॉर्म API से इंटरैक्ट नहीं करते। हम आपके डिवाइस की लोकेशन का उपयोग केवल आस-पास के रेस्टोरेंट और आपके क्षेत्र का पता लगाने के लिए करते हैं। आपके डिलीवरी अकाउंट पूरी तरह सुरक्षित हैं।" },
-  ur:{ disc_title:"شروع کرنے سے پہلے", disc_btn:"میں سمجھ گیا", disc_body:"WAITS کا Uber Eats، Deliveroo، Just Eat یا کسی اور ڈیلیوری پلیٹ فارم سے کوئی تعلق نہیں۔ ہم آپ کے ڈیلیوری ایپ اکاؤنٹس تک رسائی نہیں کرتے، آپ کی نوٹیفیکیشنز نہیں پڑھتے، آپ کا GPS تبدیل نہیں کرتے، اور کسی پلیٹ فارم API سے تعامل نہیں کرتے۔ ہم آپ کے ڈیوائس کی لوکیشن صرف قریبی ریستوران اور آپ کے مقامی علاقے کا پتہ لگانے کے لیے استعمال کرتے ہیں۔ آپ کے ڈیلیوری اکاؤنٹس مکمل طور پر محفوظ ہیں۔" },
-  pt:{ disc_title:"ANTES DE COMEÇAR", disc_btn:"ENTENDI", disc_body:"O WAITS não se conecta ao Uber Eats, Deliveroo, Just Eat nem a qualquer outra plataforma de entrega. Não acessamos suas contas dos apps de entrega, não lemos suas notificações, não modificamos seu GPS e não interagimos com nenhuma API de plataforma. Usamos a localização do seu dispositivo apenas para detectar restaurantes próximos e a sua área local. Suas contas de entrega estão completamente seguras." },
+  en:{ disc_title:"BEFORE YOU START", disc_btn:"I UNDERSTAND", disc_body:"MOdelivr does not connect to Uber Eats, Deliveroo, Just Eat or any other delivery platform. We do not access your delivery app accounts, read your notifications, modify your GPS, or interact with any platform API. We only use your device location to detect nearby restaurants and your local area. Your delivery accounts are completely safe." },
+  pl:{ disc_title:"ZANIM ZACZNIESZ", disc_btn:"ROZUMIEM", disc_body:"MOdelivr nie łączy się z Uber Eats, Deliveroo, Just Eat ani żadną inną platformą dostawczą. Nie mamy dostępu do Twoich kont w aplikacjach dostawczych, nie czytamy Twoich powiadomień, nie zmieniamy Twojego GPS ani nie korzystamy z żadnego API platform. Używamy lokalizacji Twojego urządzenia wyłącznie do wykrywania pobliskich restauracji i Twojej okolicy. Twoje konta dostawcze są całkowicie bezpieczne." },
+  ar:{ disc_title:"قبل أن تبدأ", disc_btn:"أوافق وأفهم", disc_body:"لا يتصل MOdelivr بـ Uber Eats أو Deliveroo أو Just Eat أو أي منصة توصيل أخرى. نحن لا نصل إلى حساباتك في تطبيقات التوصيل، ولا نقرأ إشعاراتك، ولا نعدّل نظام تحديد المواقع لديك، ولا نتفاعل مع أي واجهة برمجية لأي منصة. نستخدم موقع جهازك فقط لاكتشاف المطاعم القريبة ومنطقتك المحلية. حساباتك في تطبيقات التوصيل آمنة تماماً." },
+  hi:{ disc_title:"शुरू करने से पहले", disc_btn:"मैं समझ गया", disc_body:"MOdelivr, Uber Eats, Deliveroo, Just Eat या किसी अन्य डिलीवरी प्लेटफ़ॉर्म से कनेक्ट नहीं होता। हम आपके डिलीवरी ऐप अकाउंट तक नहीं पहुँचते, आपकी सूचनाएँ नहीं पढ़ते, आपका GPS नहीं बदलते, और किसी प्लेटफ़ॉर्म API से इंटरैक्ट नहीं करते। हम आपके डिवाइस की लोकेशन का उपयोग केवल आस-पास के रेस्टोरेंट और आपके क्षेत्र का पता लगाने के लिए करते हैं। आपके डिलीवरी अकाउंट पूरी तरह सुरक्षित हैं।" },
+  ur:{ disc_title:"شروع کرنے سے پہلے", disc_btn:"میں سمجھ گیا", disc_body:"MOdelivr کا Uber Eats، Deliveroo، Just Eat یا کسی اور ڈیلیوری پلیٹ فارم سے کوئی تعلق نہیں۔ ہم آپ کے ڈیلیوری ایپ اکاؤنٹس تک رسائی نہیں کرتے، آپ کی نوٹیفیکیشنز نہیں پڑھتے، آپ کا GPS تبدیل نہیں کرتے، اور کسی پلیٹ فارم API سے تعامل نہیں کرتے۔ ہم آپ کے ڈیوائس کی لوکیشن صرف قریبی ریستوران اور آپ کے مقامی علاقے کا پتہ لگانے کے لیے استعمال کرتے ہیں۔ آپ کے ڈیلیوری اکاؤنٹس مکمل طور پر محفوظ ہیں۔" },
+  pt:{ disc_title:"ANTES DE COMEÇAR", disc_btn:"ENTENDI", disc_body:"O MOdelivr não se conecta ao Uber Eats, Deliveroo, Just Eat nem a qualquer outra plataforma de entrega. Não acessamos suas contas dos apps de entrega, não lemos suas notificações, não modificamos seu GPS e não interagimos com nenhuma API de plataforma. Usamos a localização do seu dispositivo apenas para detectar restaurantes próximos e a sua área local. Suas contas de entrega estão completamente seguras." },
 };
 for(const c of Object.keys(T3)){ Object.assign(T[c],T3[c]); }
 // Additional languages — full set
 const T4 = {
   zh:{ chooseLang:"选择您的语言",continue:"继续 →",tagline:"司机社区",next:"下一步",join:"加入社区 →",skip:"跳过",
-    ob1_title:"你一直在等待。\n现在等待有回报。",ob1_body:"你在餐厅外等待的每一分钟都是数据。Delivr 把等待变成实时信息，为你和附近每位司机节省时间。",
+    ob1_title:"你一直在等待。\n现在等待有回报。",ob1_body:"你在餐厅外等待的每一分钟都是数据。MOdelivr 把等待变成实时信息，为你和附近每位司机节省时间。",
     ob2_title:"两次点击，就这么简单。",ob2_arrive_t:"到达",ob2_arrive_d:"到达餐厅时点一下，计时自动开始。",ob2_pickup_t:"取餐",ob2_pickup_d:"拿到订单时点一下，等待即被记录。",ob2_see_t:"所有人都能看到",ob2_see_d:"附近每位司机立即看到真实等待时间。",
-    ob3_title:"帮我。\n我帮你。",ob3_body:"Delivr 因司机分享而强大。你记录得越多，对所有人就越聪明。加入我们吧。",
+    ob3_title:"帮我。\n我帮你。",ob3_body:"MOdelivr 因司机分享而强大。你记录得越多，对所有人就越聪明。加入我们吧。",
     signin:"登录",create:"创建账户",drivername:"司机名称",email:"电子邮箱",password:"密码",confirm:"确认密码",colour:"你的颜色",forgot:"忘记密码？",signinBtn:"登录 →",createBtn:"创建账户 →",changeLang:"🌐 语言",
     nav_waits:"等待",nav_check:"查询",nav_stats:"统计",nav_chat:"聊天",
     w_title:"餐厅等待时间",w_arrived:"📍 已到达餐厅",w_waitingAt:"正在等待",w_pickedUp:"✓ 已取餐",w_gotIt:"✓ 已取餐",w_arrivedShort:"已到达",w_timingNow:"● 计时中",w_noData:"暂无数据",w_closed:"已关闭",w_closedNow:"现在已关闭",w_waitingNow:"正在等待",w_noOne:"现在无人等待",w_liveActivity:"实时动态",w_viewAll:"查看全部 ›",w_communityLive:"社区数据实时更新",w_yourData:"你的数据",w_community:"社区",w_recent:"最近的等待记录",w_tapHint:"拿到订单后立即点“已取餐”",w_liveNow:"实时",
     prof_title:"司机资料",prof_free:"免费版",prof_premium:"⭐ 高级版",prof_goPremium:"升级高级版",prof_premiumActive:"高级版已激活",prof_totalLogs:"总记录",prof_restaurants:"餐厅",prof_avgWait:"平均等待",prof_rank:"贡献等级",prof_noBadge:"暂无徽章",prof_qualityLogs:"记录",prof_name:"司机名称",prof_phone:"电话（可选）",prof_area:"你的区域",prof_areaHint:"设置你的聊天室和本地餐厅列表",prof_save:"保存",prof_saving:"保存中...",prof_saved:"✓ 已保存",prof_changePw:"修改密码",prof_appearance:"外观",prof_light:"浅色模式",prof_dark:"深色模式",prof_signout:"退出登录",prof_appStats:"📊 应用统计",
-    up_title:"DELIVR 高级版",up_month:"/月",up_cancel:"随时取消",up_noAds:"无广告",up_fullData:"完整社区数据",up_allChats:"所有区域聊天",up_export:"导出你的记录",up_upgradeNow:"立即升级 →",up_active:"✓ 你是高级会员",up_cancelSub:"取消订阅",
+    up_title:"MOdelivr 高级版",up_month:"/月",up_cancel:"随时取消",up_noAds:"无广告",up_fullData:"完整社区数据",up_allChats:"所有区域聊天",up_export:"导出你的记录",up_upgradeNow:"立即升级 →",up_active:"✓ 你是高级会员",up_cancelSub:"取消订阅",
     chk_title:"查询餐厅",chk_nearby:"附近 · 点击查看统计",chk_results:"搜索结果",chk_search:"搜索任意分店 — KFC…",
-    disc_title:"开始之前",disc_btn:"我明白了",disc_body:"WAITS 不连接 Uber Eats、Deliveroo、Just Eat 或任何其他配送平台。我们不会访问你的配送应用账户、读取你的通知、修改你的 GPS，也不会与任何平台 API 交互。我们仅使用你设备的位置来检测附近的餐厅和你所在的本地区域。你的配送账户完全安全。" },
+    disc_title:"开始之前",disc_btn:"我明白了",disc_body:"MOdelivr 不连接 Uber Eats、Deliveroo、Just Eat 或任何其他配送平台。我们不会访问你的配送应用账户、读取你的通知、修改你的 GPS，也不会与任何平台 API 交互。我们仅使用你设备的位置来检测附近的餐厅和你所在的本地区域。你的配送账户完全安全。" },
   ro:{ chooseLang:"Alege limba ta",continue:"CONTINUĂ →",tagline:"COMUNITATEA ȘOFERILOR",next:"ÎNAINTE",join:"INTRĂ ÎN COMUNITATE →",skip:"Omite",
-    ob1_title:"Ai tot așteptat.\nAcum așteptarea contează.",ob1_body:"Fiecare minut de așteptare în fața restaurantului înseamnă date. Delivr transformă această așteptare în informații live care îți economisesc timp ție și fiecărui șofer din apropiere.",
+    ob1_title:"Ai tot așteptat.\nAcum așteptarea contează.",ob1_body:"Fiecare minut de așteptare în fața restaurantului înseamnă date. MOdelivr transformă această așteptare în informații live care îți economisesc timp ție și fiecărui șofer din apropiere.",
     ob2_title:"Două atingeri. Atât.",ob2_arrive_t:"Ajuns",ob2_arrive_d:"Atinge o dată când ajungi la restaurant. Cronometrul pornește automat.",ob2_pickup_t:"Preluat",ob2_pickup_d:"Atinge când ai comanda. Așteptarea ta e înregistrată.",ob2_see_t:"Toți văd",ob2_see_d:"Fiecare șofer din apropiere vede instant timpul real de așteptare.",
-    ob3_title:"Ajută-mă.\nTe ajut.",ob3_body:"Delivr funcționează doar pentru că șoferii împărtășesc. Cu cât înregistrezi mai mult, cu atât e mai inteligent pentru toți. Alătură-te.",
+    ob3_title:"Ajută-mă.\nTe ajut.",ob3_body:"MOdelivr funcționează doar pentru că șoferii împărtășesc. Cu cât înregistrezi mai mult, cu atât e mai inteligent pentru toți. Alătură-te.",
     signin:"AUTENTIFICARE",create:"CREEAZĂ CONT",drivername:"NUME ȘOFER",email:"ADRESĂ EMAIL",password:"PAROLĂ",confirm:"CONFIRMĂ PAROLA",colour:"CULOAREA TA",forgot:"Ai uitat parola?",signinBtn:"INTRĂ →",createBtn:"CREEAZĂ CONT →",changeLang:"🌐 Limbă",
     nav_waits:"AȘTEPTĂRI",nav_check:"VERIFICĂ",nav_stats:"STATS",nav_chat:"CHAT",
     w_title:"AȘTEPTĂRI RESTAURANTE",w_arrived:"📍 AM AJUNS LA RESTAURANT",w_waitingAt:"AȘTEPT LA",w_pickedUp:"✓ PRELUAT",w_gotIt:"✓ AM PRELUAT",w_arrivedShort:"AJUNS",w_timingNow:"● SE CRONOMETREAZĂ",w_noData:"ÎNCĂ FĂRĂ DATE",w_closed:"ÎNCHIS",w_closedNow:"Închis acum",w_waitingNow:"AȘTEAPTĂ ACUM",w_noOne:"Nimeni nu așteaptă acum",w_liveActivity:"ACTIVITATE LIVE",w_viewAll:"Vezi tot ›",w_communityLive:"DATE COMUNITARE LIVE",w_yourData:"DATELE TALE",w_community:"COMUNITATE",w_recent:"ÎNREGISTRĂRI RECENTE",w_tapHint:"APASĂ PRELUAT IMEDIAT CE AI COMANDA",w_liveNow:"live",
     prof_title:"PROFIL ȘOFER",prof_free:"PLAN GRATUIT",prof_premium:"⭐ PREMIUM",prof_goPremium:"TRECI LA PREMIUM",prof_premiumActive:"PREMIUM ACTIV",prof_totalLogs:"TOTAL ÎNREGISTRĂRI",prof_restaurants:"RESTAURANTE",prof_avgWait:"AȘTEPTARE MEDIE",prof_rank:"RANG",prof_noBadge:"ÎNCĂ FĂRĂ INSIGNĂ",prof_qualityLogs:"ÎNREGISTRĂRI",prof_name:"NUME ȘOFER",prof_phone:"TELEFON (OPȚIONAL)",prof_area:"ZONA TA",prof_areaHint:"Stabilește chatul și lista de restaurante locale",prof_save:"SALVEAZĂ",prof_saving:"SE SALVEAZĂ...",prof_saved:"✓ SALVAT",prof_changePw:"SCHIMBĂ PAROLA",prof_appearance:"ASPECT",prof_light:"Mod luminos",prof_dark:"Mod întunecat",prof_signout:"DECONECTARE",prof_appStats:"📊 STATISTICI",
-    up_title:"DELIVR PREMIUM",up_month:"/lună",up_cancel:"Anulează oricând",up_noAds:"Fără reclame",up_fullData:"Date complete ale comunității",up_allChats:"Toate chaturile",up_export:"Exportă înregistrările",up_upgradeNow:"TRECI LA PREMIUM →",up_active:"✓ EȘTI PREMIUM",up_cancelSub:"ANULEAZĂ ABONAMENTUL",
+    up_title:"MOdelivr PREMIUM",up_month:"/lună",up_cancel:"Anulează oricând",up_noAds:"Fără reclame",up_fullData:"Date complete ale comunității",up_allChats:"Toate chaturile",up_export:"Exportă înregistrările",up_upgradeNow:"TRECI LA PREMIUM →",up_active:"✓ EȘTI PREMIUM",up_cancelSub:"ANULEAZĂ ABONAMENTUL",
     chk_title:"VERIFICĂ RESTAURANT",chk_nearby:"ÎN APROPIERE · APASĂ PENTRU STATISTICI",chk_results:"REZULTATE",chk_search:"Caută orice locație — KFC…",
-    disc_title:"ÎNAINTE SĂ ÎNCEPI",disc_btn:"AM ÎNȚELES",disc_body:"WAITS nu se conectează la Uber Eats, Deliveroo, Just Eat sau orice altă platformă de livrare. Nu accesăm conturile tale din aplicațiile de livrare, nu îți citim notificările, nu îți modificăm GPS-ul și nu interacționăm cu niciun API de platformă. Folosim locația dispozitivului tău doar pentru a detecta restaurantele din apropiere și zona ta. Conturile tale de livrare sunt complet în siguranță." },
+    disc_title:"ÎNAINTE SĂ ÎNCEPI",disc_btn:"AM ÎNȚELES",disc_body:"MOdelivr nu se conectează la Uber Eats, Deliveroo, Just Eat sau orice altă platformă de livrare. Nu accesăm conturile tale din aplicațiile de livrare, nu îți citim notificările, nu îți modificăm GPS-ul și nu interacționăm cu niciun API de platformă. Folosim locația dispozitivului tău doar pentru a detecta restaurantele din apropiere și zona ta. Conturile tale de livrare sunt complet în siguranță." },
   es:{ chooseLang:"Elige tu idioma",continue:"CONTINUAR →",tagline:"COMUNIDAD DE CONDUCTORES",next:"SIGUIENTE",join:"UNIRME A LA COMUNIDAD →",skip:"Omitir",
-    ob1_title:"Has estado esperando.\nAhora esperar vale la pena.",ob1_body:"Cada minuto que esperas fuera de un restaurante son datos. Delivr convierte esa espera en información en vivo que te ahorra tiempo a ti y a cada conductor cercano.",
+    ob1_title:"Has estado esperando.\nAhora esperar vale la pena.",ob1_body:"Cada minuto que esperas fuera de un restaurante son datos. MOdelivr convierte esa espera en información en vivo que te ahorra tiempo a ti y a cada conductor cercano.",
     ob2_title:"Dos toques. Eso es todo.",ob2_arrive_t:"Llegada",ob2_arrive_d:"Toca una vez al llegar al restaurante. El cronómetro empieza solo.",ob2_pickup_t:"Recogida",ob2_pickup_d:"Toca cuando tengas el pedido. Tu espera queda registrada.",ob2_see_t:"Todos lo ven",ob2_see_d:"Cada conductor cercano ve al instante el tiempo real de espera.",
-    ob3_title:"Ayúdame.\nYo te ayudo.",ob3_body:"Delivr solo funciona porque los conductores comparten. Cuanto más registres, más inteligente es para todos. Únete al equipo.",
+    ob3_title:"Ayúdame.\nYo te ayudo.",ob3_body:"MOdelivr solo funciona porque los conductores comparten. Cuanto más registres, más inteligente es para todos. Únete al equipo.",
     signin:"INICIAR SESIÓN",create:"CREAR CUENTA",drivername:"NOMBRE DEL CONDUCTOR",email:"CORREO ELECTRÓNICO",password:"CONTRASEÑA",confirm:"CONFIRMAR CONTRASEÑA",colour:"TU COLOR",forgot:"¿Olvidaste tu contraseña?",signinBtn:"INICIAR SESIÓN →",createBtn:"CREAR CUENTA →",changeLang:"🌐 Idioma",
     nav_waits:"ESPERAS",nav_check:"CONSULTAR",nav_stats:"DATOS",nav_chat:"CHAT",
     w_title:"ESPERAS EN RESTAURANTES",w_arrived:"📍 LLEGUÉ AL RESTAURANTE",w_waitingAt:"ESPERANDO EN",w_pickedUp:"✓ RECOGIDO",w_gotIt:"✓ YA LO TENGO",w_arrivedShort:"LLEGUÉ",w_timingNow:"● CRONOMETRANDO",w_noData:"SIN DATOS AÚN",w_closed:"CERRADO",w_closedNow:"Cerrado ahora",w_waitingNow:"ESPERANDO AHORA",w_noOne:"Nadie esperando ahora",w_liveActivity:"ACTIVIDAD EN VIVO",w_viewAll:"Ver todo ›",w_communityLive:"DATOS DE LA COMUNIDAD EN VIVO",w_yourData:"TUS DATOS",w_community:"COMUNIDAD",w_recent:"REGISTROS RECIENTES",w_tapHint:"TOCA RECOGIDO EN CUANTO TENGAS EL PEDIDO",w_liveNow:"en vivo",
     prof_title:"PERFIL DEL CONDUCTOR",prof_free:"PLAN GRATIS",prof_premium:"⭐ PREMIUM",prof_goPremium:"OBTENER PREMIUM",prof_premiumActive:"PREMIUM ACTIVO",prof_totalLogs:"TOTAL DE REGISTROS",prof_restaurants:"RESTAURANTES",prof_avgWait:"ESPERA MEDIA",prof_rank:"RANGO",prof_noBadge:"SIN INSIGNIA AÚN",prof_qualityLogs:"REGISTROS",prof_name:"NOMBRE DEL CONDUCTOR",prof_phone:"TELÉFONO (OPCIONAL)",prof_area:"TU ZONA",prof_areaHint:"Define tu chat y lista de restaurantes locales",prof_save:"GUARDAR",prof_saving:"GUARDANDO...",prof_saved:"✓ GUARDADO",prof_changePw:"CAMBIAR CONTRASEÑA",prof_appearance:"APARIENCIA",prof_light:"Modo claro",prof_dark:"Modo oscuro",prof_signout:"CERRAR SESIÓN",prof_appStats:"📊 ESTADÍSTICAS",
-    up_title:"DELIVR PREMIUM",up_month:"/mes",up_cancel:"Cancela cuando quieras",up_noAds:"Sin anuncios",up_fullData:"Datos completos de la comunidad",up_allChats:"Todos los chats",up_export:"Exporta tus registros",up_upgradeNow:"MEJORAR AHORA →",up_active:"✓ ERES PREMIUM",up_cancelSub:"CANCELAR SUSCRIPCIÓN",
+    up_title:"MOdelivr PREMIUM",up_month:"/mes",up_cancel:"Cancela cuando quieras",up_noAds:"Sin anuncios",up_fullData:"Datos completos de la comunidad",up_allChats:"Todos los chats",up_export:"Exporta tus registros",up_upgradeNow:"MEJORAR AHORA →",up_active:"✓ ERES PREMIUM",up_cancelSub:"CANCELAR SUSCRIPCIÓN",
     chk_title:"CONSULTAR RESTAURANTE",chk_nearby:"CERCA · TOCA PARA VER ESTADÍSTICAS",chk_results:"RESULTADOS",chk_search:"Busca cualquier sucursal — KFC…",
-    disc_title:"ANTES DE EMPEZAR",disc_btn:"ENTIENDO",disc_body:"WAITS no se conecta a Uber Eats, Deliveroo, Just Eat ni a ninguna otra plataforma de reparto. No accedemos a tus cuentas de las apps de reparto, no leemos tus notificaciones, no modificamos tu GPS ni interactuamos con ninguna API de plataforma. Solo usamos la ubicación de tu dispositivo para detectar restaurantes cercanos y tu zona local. Tus cuentas de reparto están completamente seguras." },
+    disc_title:"ANTES DE EMPEZAR",disc_btn:"ENTIENDO",disc_body:"MOdelivr no se conecta a Uber Eats, Deliveroo, Just Eat ni a ninguna otra plataforma de reparto. No accedemos a tus cuentas de las apps de reparto, no leemos tus notificaciones, no modificamos tu GPS ni interactuamos con ninguna API de plataforma. Solo usamos la ubicación de tu dispositivo para detectar restaurantes cercanos y tu zona local. Tus cuentas de reparto están completamente seguras." },
   ru:{ chooseLang:"Выберите язык",continue:"ПРОДОЛЖИТЬ →",tagline:"СООБЩЕСТВО ВОДИТЕЛЕЙ",next:"ДАЛЕЕ",join:"ПРИСОЕДИНИТЬСЯ →",skip:"Пропустить",
-    ob1_title:"Вы ждали.\nТеперь ожидание окупается.",ob1_body:"Каждая минута ожидания у ресторана — это данные. Delivr превращает ожидание в живую информацию, экономящую время вам и каждому водителю рядом.",
+    ob1_title:"Вы ждали.\nТеперь ожидание окупается.",ob1_body:"Каждая минута ожидания у ресторана — это данные. MOdelivr превращает ожидание в живую информацию, экономящую время вам и каждому водителю рядом.",
     ob2_title:"Два нажатия. Вот и всё.",ob2_arrive_t:"Прибытие",ob2_arrive_d:"Нажмите один раз по приезде в ресторан. Таймер запустится сам.",ob2_pickup_t:"Забрал",ob2_pickup_d:"Нажмите, когда получите заказ. Ваше ожидание записано.",ob2_see_t:"Все видят",ob2_see_d:"Каждый водитель рядом сразу видит реальное время ожидания.",
-    ob3_title:"Помоги мне.\nЯ помогу тебе.",ob3_body:"Delivr работает только потому, что водители делятся. Чем больше вы записываете, тем умнее он для всех. Присоединяйтесь.",
+    ob3_title:"Помоги мне.\nЯ помогу тебе.",ob3_body:"MOdelivr работает только потому, что водители делятся. Чем больше вы записываете, тем умнее он для всех. Присоединяйтесь.",
     signin:"ВОЙТИ",create:"СОЗДАТЬ АККАУНТ",drivername:"ИМЯ ВОДИТЕЛЯ",email:"ЭЛ. ПОЧТА",password:"ПАРОЛЬ",confirm:"ПОДТВЕРДИТЕ ПАРОЛЬ",colour:"ВАШ ЦВЕТ",forgot:"Забыли пароль?",signinBtn:"ВОЙТИ →",createBtn:"СОЗДАТЬ АККАУНТ →",changeLang:"🌐 Язык",
     nav_waits:"ОЖИДАНИЕ",nav_check:"ПРОВЕРКА",nav_stats:"СТАТЫ",nav_chat:"ЧАТ",
     w_title:"ОЖИДАНИЕ В РЕСТОРАНАХ",w_arrived:"📍 Я В РЕСТОРАНЕ",w_waitingAt:"ОЖИДАНИЕ В",w_pickedUp:"✓ ЗАБРАЛ",w_gotIt:"✓ ЗАБРАЛ ЗАКАЗ",w_arrivedShort:"ПРИБЫЛ",w_timingNow:"● ИДЁТ ОТСЧЁТ",w_noData:"ПОКА НЕТ ДАННЫХ",w_closed:"ЗАКРЫТО",w_closedNow:"Сейчас закрыто",w_waitingNow:"СЕЙЧАС ЖДУТ",w_noOne:"Сейчас никто не ждёт",w_liveActivity:"ЖИВАЯ ЛЕНТА",w_viewAll:"Показать всё ›",w_communityLive:"ДАННЫЕ СООБЩЕСТВА В ЭФИРЕ",w_yourData:"ВАШИ ДАННЫЕ",w_community:"СООБЩЕСТВО",w_recent:"ПОСЛЕДНИЕ ЗАПИСИ",w_tapHint:"НАЖМИТЕ «ЗАБРАЛ», КАК ТОЛЬКО ПОЛУЧИТЕ ЗАКАЗ",w_liveNow:"в эфире",
     prof_title:"ПРОФИЛЬ ВОДИТЕЛЯ",prof_free:"БЕСПЛАТНО",prof_premium:"⭐ ПРЕМИУМ",prof_goPremium:"ПЕРЕЙТИ НА ПРЕМИУМ",prof_premiumActive:"ПРЕМИУМ АКТИВЕН",prof_totalLogs:"ВСЕГО ЗАПИСЕЙ",prof_restaurants:"РЕСТОРАНЫ",prof_avgWait:"СРЕДНЕЕ ОЖИДАНИЕ",prof_rank:"РАНГ",prof_noBadge:"ПОКА НЕТ ЗНАЧКА",prof_qualityLogs:"ЗАПИСИ",prof_name:"ИМЯ ВОДИТЕЛЯ",prof_phone:"ТЕЛЕФОН (НЕОБЯЗ.)",prof_area:"ВАШ РАЙОН",prof_areaHint:"Задаёт ваш чат и список местных ресторанов",prof_save:"СОХРАНИТЬ",prof_saving:"СОХРАНЕНИЕ...",prof_saved:"✓ СОХРАНЕНО",prof_changePw:"СМЕНИТЬ ПАРОЛЬ",prof_appearance:"ВНЕШНИЙ ВИД",prof_light:"Светлая тема",prof_dark:"Тёмная тема",prof_signout:"ВЫЙТИ",prof_appStats:"📊 СТАТИСТИКА",
-    up_title:"DELIVR ПРЕМИУМ",up_month:"/мес",up_cancel:"Отмена в любое время",up_noAds:"Без рекламы",up_fullData:"Полные данные сообщества",up_allChats:"Все чаты районов",up_export:"Экспорт записей",up_upgradeNow:"ОФОРМИТЬ →",up_active:"✓ У ВАС ПРЕМИУМ",up_cancelSub:"ОТМЕНИТЬ ПОДПИСКУ",
+    up_title:"MOdelivr ПРЕМИУМ",up_month:"/мес",up_cancel:"Отмена в любое время",up_noAds:"Без рекламы",up_fullData:"Полные данные сообщества",up_allChats:"Все чаты районов",up_export:"Экспорт записей",up_upgradeNow:"ОФОРМИТЬ →",up_active:"✓ У ВАС ПРЕМИУМ",up_cancelSub:"ОТМЕНИТЬ ПОДПИСКУ",
     chk_title:"ПРОВЕРИТЬ РЕСТОРАН",chk_nearby:"РЯДОМ · НАЖМИТЕ ДЛЯ СТАТИСТИКИ",chk_results:"РЕЗУЛЬТАТЫ",chk_search:"Искать любой филиал — KFC…",
-    disc_title:"ПЕРЕД НАЧАЛОМ",disc_btn:"Я ПОНИМАЮ",disc_body:"WAITS не подключается к Uber Eats, Deliveroo, Just Eat или любой другой платформе доставки. Мы не получаем доступ к вашим аккаунтам в приложениях доставки, не читаем уведомления, не изменяем ваш GPS и не взаимодействуем с API каких-либо платформ. Мы используем местоположение вашего устройства только для определения ближайших ресторанов и вашего района. Ваши аккаунты доставки полностью в безопасности." },
+    disc_title:"ПЕРЕД НАЧАЛОМ",disc_btn:"Я ПОНИМАЮ",disc_body:"MOdelivr не подключается к Uber Eats, Deliveroo, Just Eat или любой другой платформе доставки. Мы не получаем доступ к вашим аккаунтам в приложениях доставки, не читаем уведомления, не изменяем ваш GPS и не взаимодействуем с API каких-либо платформ. Мы используем местоположение вашего устройства только для определения ближайших ресторанов и вашего района. Ваши аккаунты доставки полностью в безопасности." },
 };
 for(const c of Object.keys(T4)){ T[c]=Object.assign({},T.en,T4[c]); }   // base on English so any missing key falls back
 let _lang="en";                                   // current language (set by App on render)
@@ -383,8 +391,8 @@ const HELP = {
   en:{
     title:"Help & guide", faqTitle:"Frequently asked questions",
     faq:[
-      {q:"What is WAITS and how does it work?",a:"WAITS is a community app for delivery drivers. Drivers log how long they wait at restaurants, so everyone can see the real wait times before driving over and skip the long queues."},
-      {q:"Is this app safe to use with my delivery account?",a:"Yes. WAITS is completely separate from Uber Eats, Deliveroo, Just Eat and the rest. It never connects to your delivery accounts, reads your messages or changes your GPS — it only uses your location to find nearby restaurants."},
+      {q:"What is MOdelivr and how does it work?",a:"MOdelivr is a community app for delivery drivers. Drivers log how long they wait at restaurants, so everyone can see the real wait times before driving over and skip the long queues."},
+      {q:"Is this app safe to use with my delivery account?",a:"Yes. MOdelivr is completely separate from Uber Eats, Deliveroo, Just Eat and the rest. It never connects to your delivery accounts, reads your messages or changes your GPS — it only uses your location to find nearby restaurants."},
       {q:"How do I log a wait time?",a:"When you reach a restaurant, tap Arrived. The timer starts on its own. The moment you have the food, tap Got it — that saves your real wait time."},
       {q:"Why should I press Got it when I get my food?",a:"Got it stops the timer and records the exact wait. It keeps your own stats accurate and shares the real time with other drivers. Without it, the wait can't be saved."},
       {q:"What does the community data mean?",a:"Community data is the average wait built from every driver's logs. The more people log, the more accurate it gets for everyone."},
@@ -399,7 +407,7 @@ const HELP = {
     android:{title:"Android (Chrome)",steps:["Open this page in Chrome.","Tap the three-dots menu in the top right.","Tap 'Add to Home screen'.","Tap 'Add'."]},
     manualTitle:"Quick guide",
     manual:[
-      {t:"Using WAITS",d:"The WAITS tab lists nearby restaurants with their live and typical wait times. Places you or the community have logged appear at the top."},
+      {t:"Using MOdelivr",d:"The WAITS tab lists nearby restaurants with their live and typical wait times. Places you or the community have logged appear at the top."},
       {t:"Logging a wait",d:"Tap Arrived when you reach a restaurant to start the timer, then tap Got it when you receive the order to save the wait."},
       {t:"The shift timer",d:"Tap Start to begin a shift, or it starts automatically on your first Arrived. It counts your working hours for the day and powers your £/hour."},
       {t:"Reading community data",d:"Each card shows YOUR average and the COMMUNITY average. Green means a short wait, amber moderate, red a long queue."},
@@ -410,8 +418,8 @@ const HELP = {
   pl:{
     title:"Pomoc i przewodnik", faqTitle:"Najczęściej zadawane pytania",
     faq:[
-      {q:"Czym jest WAITS i jak działa?",a:"WAITS to aplikacja społecznościowa dla kierowców dostaw. Kierowcy zapisują, jak długo czekają w restauracjach, dzięki czemu każdy widzi rzeczywiste czasy oczekiwania, zanim tam pojedzie, i omija długie kolejki."},
-      {q:"Czy aplikacja jest bezpieczna dla mojego konta dostawczego?",a:"Tak. WAITS jest całkowicie niezależna od Uber Eats, Deliveroo, Just Eat i innych. Nigdy nie łączy się z Twoimi kontami, nie czyta wiadomości ani nie zmienia GPS — wykorzystuje lokalizację tylko po to, by znaleźć pobliskie restauracje."},
+      {q:"Czym jest MOdelivr i jak działa?",a:"MOdelivr to aplikacja społecznościowa dla kierowców dostaw. Kierowcy zapisują, jak długo czekają w restauracjach, dzięki czemu każdy widzi rzeczywiste czasy oczekiwania, zanim tam pojedzie, i omija długie kolejki."},
+      {q:"Czy aplikacja jest bezpieczna dla mojego konta dostawczego?",a:"Tak. MOdelivr jest całkowicie niezależna od Uber Eats, Deliveroo, Just Eat i innych. Nigdy nie łączy się z Twoimi kontami, nie czyta wiadomości ani nie zmienia GPS — wykorzystuje lokalizację tylko po to, by znaleźć pobliskie restauracje."},
       {q:"Jak zapisać czas oczekiwania?",a:"Po dotarciu do restauracji dotknij Dotarłem. Licznik ruszy automatycznie. Gdy odbierzesz jedzenie, dotknij Mam — to zapisze Twój rzeczywisty czas oczekiwania."},
       {q:"Dlaczego mam dotknąć Mam, gdy odbiorę jedzenie?",a:"Mam zatrzymuje licznik i zapisuje dokładny czas oczekiwania. Dzięki temu Twoje statystyki są prawdziwe, a inni kierowcy widzą realny czas. Bez tego oczekiwanie nie zostanie zapisane."},
       {q:"Co oznaczają dane społeczności?",a:"Dane społeczności to średni czas oczekiwania zebrany z wpisów wszystkich kierowców. Im więcej osób zapisuje, tym dokładniejsze stają się dla wszystkich."},
@@ -426,7 +434,7 @@ const HELP = {
     android:{title:"Android (Chrome)",steps:["Otwórz tę stronę w Chrome.","Dotknij menu z trzema kropkami w prawym górnym rogu.","Dotknij 'Dodaj do ekranu głównego'.","Dotknij 'Dodaj'."]},
     manualTitle:"Krótki przewodnik",
     manual:[
-      {t:"Korzystanie z WAITS",d:"Zakładka WAITS pokazuje pobliskie restauracje z bieżącym i typowym czasem oczekiwania. Miejsca zapisane przez Ciebie lub społeczność są na górze."},
+      {t:"Korzystanie z MOdelivr",d:"Zakładka MOdelivr pokazuje pobliskie restauracje z bieżącym i typowym czasem oczekiwania. Miejsca zapisane przez Ciebie lub społeczność są na górze."},
       {t:"Zapisywanie oczekiwania",d:"Dotknij Dotarłem po dojechaniu do restauracji, aby uruchomić licznik, a potem Mam po odebraniu zamówienia, aby zapisać czas."},
       {t:"Licznik zmiany",d:"Dotknij Start, aby rozpocząć zmianę, lub ruszy on sam przy pierwszym Dotarłem. Liczy Twoje godziny pracy w ciągu dnia i zasila £/godz."},
       {t:"Odczyt danych społeczności",d:"Każda karta pokazuje TWOJĄ średnią i średnią SPOŁECZNOŚCI. Zielony to krótkie oczekiwanie, pomarańczowy umiarkowane, czerwony długa kolejka."},
@@ -437,8 +445,8 @@ const HELP = {
   ar:{
     title:"المساعدة والدليل", faqTitle:"الأسئلة الشائعة",
     faq:[
-      {q:"ما هو تطبيق WAITS وكيف يعمل؟",a:"WAITS تطبيق مجتمعي لسائقي التوصيل. يسجّل السائقون مدة انتظارهم في المطاعم، فيرى الجميع أوقات الانتظار الحقيقية قبل التوجّه إليها ويتجنّبون الطوابير الطويلة."},
-      {q:"هل التطبيق آمن مع حساب التوصيل الخاص بي؟",a:"نعم. WAITS منفصل تمامًا عن Uber Eats وDeliveroo وJust Eat وغيرها. لا يتصل أبدًا بحسابات التوصيل، ولا يقرأ رسائلك، ولا يغيّر موقعك — يستخدم موقعك فقط للعثور على المطاعم القريبة."},
+      {q:"ما هو تطبيق MOdelivr وكيف يعمل؟",a:"MOdelivr تطبيق مجتمعي لسائقي التوصيل. يسجّل السائقون مدة انتظارهم في المطاعم، فيرى الجميع أوقات الانتظار الحقيقية قبل التوجّه إليها ويتجنّبون الطوابير الطويلة."},
+      {q:"هل التطبيق آمن مع حساب التوصيل الخاص بي؟",a:"نعم. MOdelivr منفصل تمامًا عن Uber Eats وDeliveroo وJust Eat وغيرها. لا يتصل أبدًا بحسابات التوصيل، ولا يقرأ رسائلك، ولا يغيّر موقعك — يستخدم موقعك فقط للعثور على المطاعم القريبة."},
       {q:"كيف أسجّل وقت الانتظار؟",a:"عند وصولك إلى المطعم اضغط وصلت، فيبدأ المؤقّت تلقائيًا. وفور استلامك الطلب اضغط استلمت — وبذلك يُحفظ وقت انتظارك الحقيقي."},
       {q:"لماذا أضغط استلمت عند استلام الطعام؟",a:"زر استلمت يوقف المؤقّت ويسجّل مدة الانتظار بدقة. هذا يبقي إحصاءاتك صحيحة ويشارك الوقت الحقيقي مع بقية السائقين. وبدونه لا يُحفظ الانتظار."},
       {q:"ماذا تعني بيانات المجتمع؟",a:"بيانات المجتمع هي متوسط الانتظار المبني على تسجيلات جميع السائقين. كلما سجّل عدد أكبر، أصبحت أدق للجميع."},
@@ -453,7 +461,7 @@ const HELP = {
     android:{title:"أندرويد (Chrome)",steps:["افتح هذه الصفحة في Chrome.","اضغط قائمة النقاط الثلاث في الأعلى.","اضغط 'إضافة إلى الشاشة الرئيسية'.","اضغط 'إضافة'."]},
     manualTitle:"دليل سريع",
     manual:[
-      {t:"استخدام WAITS",d:"تعرض علامة WAITS المطاعم القريبة مع أوقات الانتظار الحالية والمعتادة. تظهر الأماكن التي سجّلتها أنت أو المجتمع في الأعلى."},
+      {t:"استخدام MOdelivr",d:"تعرض علامة MOdelivr المطاعم القريبة مع أوقات الانتظار الحالية والمعتادة. تظهر الأماكن التي سجّلتها أنت أو المجتمع في الأعلى."},
       {t:"تسجيل الانتظار",d:"اضغط وصلت عند وصولك إلى المطعم لبدء المؤقّت، ثم اضغط استلمت عند استلام الطلب لحفظ مدة الانتظار."},
       {t:"مؤقّت المناوبة",d:"اضغط ابدأ لبدء المناوبة، أو يبدأ تلقائيًا عند أول ضغطة وصلت. يحسب ساعات عملك خلال اليوم ويغذّي معدّل الجنيه/الساعة."},
       {t:"قراءة بيانات المجتمع",d:"تعرض كل بطاقة متوسطك أنت ومتوسط المجتمع. الأخضر انتظار قصير، البرتقالي متوسط، الأحمر طابور طويل."},
@@ -464,8 +472,8 @@ const HELP = {
   hi:{
     title:"मदद और गाइड", faqTitle:"अक्सर पूछे जाने वाले सवाल",
     faq:[
-      {q:"WAITS क्या है और यह कैसे काम करता है?",a:"WAITS डिलीवरी ड्राइवरों के लिए एक कम्युनिटी ऐप है। ड्राइवर रेस्टोरेंट में अपना इंतज़ार दर्ज करते हैं, ताकि वहाँ जाने से पहले हर कोई असली इंतज़ार का समय देख सके और लंबी कतारों से बच सके।"},
-      {q:"क्या यह ऐप मेरे डिलीवरी अकाउंट के साथ सुरक्षित है?",a:"हाँ। WAITS, Uber Eats, Deliveroo, Just Eat आदि से पूरी तरह अलग है। यह कभी आपके डिलीवरी अकाउंट से नहीं जुड़ता, आपके मैसेज नहीं पढ़ता और आपका GPS नहीं बदलता — यह सिर्फ़ पास के रेस्टोरेंट ढूँढने के लिए आपकी लोकेशन इस्तेमाल करता है।"},
+      {q:"MOdelivr क्या है और यह कैसे काम करता है?",a:"MOdelivr डिलीवरी ड्राइवरों के लिए एक कम्युनिटी ऐप है। ड्राइवर रेस्टोरेंट में अपना इंतज़ार दर्ज करते हैं, ताकि वहाँ जाने से पहले हर कोई असली इंतज़ार का समय देख सके और लंबी कतारों से बच सके।"},
+      {q:"क्या यह ऐप मेरे डिलीवरी अकाउंट के साथ सुरक्षित है?",a:"हाँ। MOdelivr, Uber Eats, Deliveroo, Just Eat आदि से पूरी तरह अलग है। यह कभी आपके डिलीवरी अकाउंट से नहीं जुड़ता, आपके मैसेज नहीं पढ़ता और आपका GPS नहीं बदलता — यह सिर्फ़ पास के रेस्टोरेंट ढूँढने के लिए आपकी लोकेशन इस्तेमाल करता है।"},
       {q:"मैं इंतज़ार का समय कैसे दर्ज करूँ?",a:"रेस्टोरेंट पहुँचते ही पहुँचे पर टैप करें। टाइमर अपने आप शुरू हो जाएगा। जैसे ही खाना मिले, मिल गया पर टैप करें — इससे आपका असली इंतज़ार सेव हो जाता है।"},
       {q:"खाना मिलने पर मिल गया क्यों दबाऊँ?",a:"मिल गया टाइमर रोककर सटीक इंतज़ार दर्ज करता है। इससे आपके आँकड़े सही रहते हैं और असली समय दूसरे ड्राइवरों के साथ साझा होता है। इसके बिना इंतज़ार सेव नहीं होगा।"},
       {q:"कम्युनिटी डेटा का क्या मतलब है?",a:"कम्युनिटी डेटा सभी ड्राइवरों के दर्ज किए गए समय से बना औसत इंतज़ार है। जितने ज़्यादा लोग दर्ज करेंगे, यह सबके लिए उतना ही सटीक होगा।"},
@@ -480,7 +488,7 @@ const HELP = {
     android:{title:"एंड्रॉइड (Chrome)",steps:["इस पेज को Chrome में खोलें।","ऊपर दाईं ओर तीन-बिंदु मेन्यू पर टैप करें।","'Add to Home screen' पर टैप करें।","'Add' पर टैप करें।"]},
     manualTitle:"त्वरित गाइड",
     manual:[
-      {t:"WAITS का उपयोग",d:"WAITS टैब पास के रेस्टोरेंट उनके लाइव और सामान्य इंतज़ार समय के साथ दिखाता है। आपके या कम्युनिटी के दर्ज किए स्थान सबसे ऊपर आते हैं।"},
+      {t:"MOdelivr का उपयोग",d:"MOdelivr टैब पास के रेस्टोरेंट उनके लाइव और सामान्य इंतज़ार समय के साथ दिखाता है। आपके या कम्युनिटी के दर्ज किए स्थान सबसे ऊपर आते हैं।"},
       {t:"इंतज़ार दर्ज करना",d:"रेस्टोरेंट पहुँचने पर टाइमर शुरू करने के लिए पहुँचे पर टैप करें, फिर ऑर्डर मिलने पर इंतज़ार सेव करने के लिए मिल गया पर टैप करें।"},
       {t:"शिफ्ट टाइमर",d:"शिफ्ट शुरू करने के लिए स्टार्ट पर टैप करें, या यह पहले पहुँचे पर अपने आप शुरू हो जाता है। यह दिन भर के काम के घंटे गिनता है और £/घंटा चलाता है।"},
       {t:"कम्युनिटी डेटा पढ़ना",d:"हर कार्ड आपका औसत और कम्युनिटी औसत दिखाता है। हरा मतलब छोटा इंतज़ार, पीला मध्यम, लाल लंबी कतार।"},
@@ -491,8 +499,8 @@ const HELP = {
   ur:{
     title:"مدد اور گائیڈ", faqTitle:"اکثر پوچھے جانے والے سوالات",
     faq:[
-      {q:"WAITS کیا ہے اور یہ کیسے کام کرتا ہے؟",a:"WAITS ڈیلیوری ڈرائیوروں کے لیے ایک کمیونٹی ایپ ہے۔ ڈرائیور ریستوران میں اپنا انتظار درج کرتے ہیں، تاکہ وہاں جانے سے پہلے ہر کوئی اصل انتظار کا وقت دیکھ سکے اور لمبی قطاروں سے بچ سکے۔"},
-      {q:"کیا یہ ایپ میرے ڈیلیوری اکاؤنٹ کے ساتھ محفوظ ہے؟",a:"جی ہاں۔ WAITS، Uber Eats، Deliveroo، Just Eat وغیرہ سے مکمل طور پر الگ ہے۔ یہ کبھی آپ کے ڈیلیوری اکاؤنٹس سے منسلک نہیں ہوتا، آپ کے پیغامات نہیں پڑھتا اور آپ کا GPS نہیں بدلتا — یہ صرف قریبی ریستوران ڈھونڈنے کے لیے آپ کی لوکیشن استعمال کرتا ہے۔"},
+      {q:"MOdelivr کیا ہے اور یہ کیسے کام کرتا ہے؟",a:"MOdelivr ڈیلیوری ڈرائیوروں کے لیے ایک کمیونٹی ایپ ہے۔ ڈرائیور ریستوران میں اپنا انتظار درج کرتے ہیں، تاکہ وہاں جانے سے پہلے ہر کوئی اصل انتظار کا وقت دیکھ سکے اور لمبی قطاروں سے بچ سکے۔"},
+      {q:"کیا یہ ایپ میرے ڈیلیوری اکاؤنٹ کے ساتھ محفوظ ہے؟",a:"جی ہاں۔ MOdelivr، Uber Eats، Deliveroo، Just Eat وغیرہ سے مکمل طور پر الگ ہے۔ یہ کبھی آپ کے ڈیلیوری اکاؤنٹس سے منسلک نہیں ہوتا، آپ کے پیغامات نہیں پڑھتا اور آپ کا GPS نہیں بدلتا — یہ صرف قریبی ریستوران ڈھونڈنے کے لیے آپ کی لوکیشن استعمال کرتا ہے۔"},
       {q:"میں انتظار کا وقت کیسے درج کروں؟",a:"ریستوران پہنچتے ہی پہنچے پر ٹیپ کریں۔ ٹائمر خودبخود شروع ہو جائے گا۔ جیسے ہی کھانا ملے، مل گیا پر ٹیپ کریں — اس سے آپ کا اصل انتظار محفوظ ہو جاتا ہے۔"},
       {q:"کھانا ملنے پر مل گیا کیوں دبائیں؟",a:"مل گیا ٹائمر روک کر درست انتظار درج کرتا ہے۔ اس سے آپ کے اعداد و شمار درست رہتے ہیں اور اصل وقت دوسرے ڈرائیوروں کے ساتھ شیئر ہوتا ہے۔ اس کے بغیر انتظار محفوظ نہیں ہوگا۔"},
       {q:"کمیونٹی ڈیٹا کا کیا مطلب ہے؟",a:"کمیونٹی ڈیٹا تمام ڈرائیوروں کے درج کردہ اوقات سے بنا اوسط انتظار ہے۔ جتنے زیادہ لوگ درج کریں گے، یہ سب کے لیے اتنا ہی درست ہوگا۔"},
@@ -507,7 +515,7 @@ const HELP = {
     android:{title:"اینڈرائیڈ (Chrome)",steps:["اس صفحے کو Chrome میں کھولیں۔","اوپر دائیں طرف تین نقطوں والے مینو پر ٹیپ کریں۔","'Add to Home screen' پر ٹیپ کریں۔","'Add' پر ٹیپ کریں۔"]},
     manualTitle:"فوری گائیڈ",
     manual:[
-      {t:"WAITS کا استعمال",d:"WAITS ٹیب قریبی ریستوران ان کے لائیو اور عام انتظار کے اوقات کے ساتھ دکھاتا ہے۔ آپ کے یا کمیونٹی کے درج کردہ مقامات سب سے اوپر آتے ہیں۔"},
+      {t:"MOdelivr کا استعمال",d:"MOdelivr ٹیب قریبی ریستوران ان کے لائیو اور عام انتظار کے اوقات کے ساتھ دکھاتا ہے۔ آپ کے یا کمیونٹی کے درج کردہ مقامات سب سے اوپر آتے ہیں۔"},
       {t:"انتظار درج کرنا",d:"ریستوران پہنچنے پر ٹائمر شروع کرنے کے لیے پہنچے پر ٹیپ کریں، پھر آرڈر ملنے پر انتظار محفوظ کرنے کے لیے مل گیا پر ٹیپ کریں۔"},
       {t:"شفٹ ٹائمر",d:"شفٹ شروع کرنے کے لیے اسٹارٹ پر ٹیپ کریں، یا یہ پہلے پہنچے پر خودبخود شروع ہو جاتا ہے۔ یہ دن بھر کے کام کے گھنٹے گنتا ہے اور £/گھنٹہ چلاتا ہے۔"},
       {t:"کمیونٹی ڈیٹا پڑھنا",d:"ہر کارڈ آپ کا اوسط اور کمیونٹی اوسط دکھاتا ہے۔ سبز مطلب مختصر انتظار، نارنجی درمیانہ، سرخ لمبی قطار۔"},
@@ -518,8 +526,8 @@ const HELP = {
   pt:{
     title:"Ajuda e guia", faqTitle:"Perguntas frequentes",
     faq:[
-      {q:"O que é o WAITS e como funciona?",a:"O WAITS é um app comunitário para motoristas de entrega. Os motoristas registram quanto tempo esperam nos restaurantes, para que todos vejam os tempos de espera reais antes de ir até lá e evitem as filas longas."},
-      {q:"Este app é seguro com a minha conta de entregas?",a:"Sim. O WAITS é totalmente separado do Uber Eats, Deliveroo, Just Eat e dos outros. Ele nunca se conecta às suas contas de entrega, não lê suas mensagens nem altera seu GPS — usa sua localização apenas para encontrar restaurantes próximos."},
+      {q:"O que é o MOdelivr e como funciona?",a:"O MOdelivr é um app comunitário para motoristas de entrega. Os motoristas registram quanto tempo esperam nos restaurantes, para que todos vejam os tempos de espera reais antes de ir até lá e evitem as filas longas."},
+      {q:"Este app é seguro com a minha conta de entregas?",a:"Sim. O MOdelivr é totalmente separado do Uber Eats, Deliveroo, Just Eat e dos outros. Ele nunca se conecta às suas contas de entrega, não lê suas mensagens nem altera seu GPS — usa sua localização apenas para encontrar restaurantes próximos."},
       {q:"Como registro um tempo de espera?",a:"Ao chegar ao restaurante, toque em Cheguei. O cronômetro começa sozinho. Assim que estiver com a comida, toque em Peguei — isso salva o seu tempo de espera real."},
       {q:"Por que devo tocar em Peguei quando recebo a comida?",a:"O Peguei para o cronômetro e registra a espera exata. Mantém suas estatísticas corretas e compartilha o tempo real com os outros motoristas. Sem isso, a espera não é salva."},
       {q:"O que significam os dados da comunidade?",a:"Os dados da comunidade são a espera média criada a partir dos registros de todos os motoristas. Quanto mais gente registra, mais precisos ficam para todos."},
@@ -534,7 +542,7 @@ const HELP = {
     android:{title:"Android (Chrome)",steps:["Abra esta página no Chrome.","Toque no menu de três pontinhos no canto superior direito.","Toque em 'Adicionar à tela inicial'.","Toque em 'Adicionar'."]},
     manualTitle:"Guia rápido",
     manual:[
-      {t:"Usar o WAITS",d:"A aba WAITS lista os restaurantes próximos com os tempos de espera atuais e habituais. Os lugares que você ou a comunidade registraram aparecem no topo."},
+      {t:"Usar o MOdelivr",d:"A aba MOdelivr lista os restaurantes próximos com os tempos de espera atuais e habituais. Os lugares que você ou a comunidade registraram aparecem no topo."},
       {t:"Registrar uma espera",d:"Toque em Cheguei ao chegar ao restaurante para iniciar o cronômetro e, depois, em Peguei ao receber o pedido para salvar a espera."},
       {t:"O cronômetro de turno",d:"Toque em Iniciar para começar um turno, ou ele começa sozinho no seu primeiro Cheguei. Conta as horas trabalhadas no dia e alimenta o seu £/hora."},
       {t:"Ler os dados da comunidade",d:"Cada cartão mostra a SUA média e a média da COMUNIDADE. Verde é espera curta, laranja moderada, vermelho fila longa."},
@@ -545,8 +553,8 @@ const HELP = {
   zh:{
     title:"帮助与指南", faqTitle:"常见问题",
     faq:[
-      {q:"WAITS 是什么，如何运作？",a:"WAITS 是一款面向外卖骑手的社区应用。骑手记录在餐厅等待的时长，这样大家在前往之前就能看到真实的等待时间，避开长队。"},
-      {q:"使用这款应用会影响我的外卖账号安全吗？",a:"不会。WAITS 与 Uber Eats、Deliveroo、Just Eat 等完全独立。它绝不连接你的外卖账号、不读取你的消息、也不更改你的 GPS——只用你的位置来查找附近的餐厅。"},
+      {q:"MOdelivr 是什么，如何运作？",a:"MOdelivr 是一款面向外卖骑手的社区应用。骑手记录在餐厅等待的时长，这样大家在前往之前就能看到真实的等待时间，避开长队。"},
+      {q:"使用这款应用会影响我的外卖账号安全吗？",a:"不会。MOdelivr 与 Uber Eats、Deliveroo、Just Eat 等完全独立。它绝不连接你的外卖账号、不读取你的消息、也不更改你的 GPS——只用你的位置来查找附近的餐厅。"},
       {q:"如何记录等待时间？",a:"到达餐厅后点击“已到达”，计时会自动开始。一拿到餐就点击“已取餐”——这样就保存了你真实的等待时间。"},
       {q:"拿到餐后为什么要点“已取餐”？",a:"“已取餐”会停止计时并记录准确的等待时长。它让你的数据保持准确，并把真实时间分享给其他骑手。不点的话，等待时间无法保存。"},
       {q:"社区数据是什么意思？",a:"社区数据是根据所有骑手的记录计算出的平均等待时间。记录的人越多，对大家就越准确。"},
@@ -561,7 +569,7 @@ const HELP = {
     android:{title:"安卓（Chrome）",steps:["在 Chrome 中打开此页面。","点击右上角的三点菜单。","点击“添加到主屏幕”。","点击“添加”。"]},
     manualTitle:"快速指南",
     manual:[
-      {t:"使用 WAITS",d:"WAITS 标签显示附近餐厅及其实时和通常的等待时间。你或社区记录过的地点会排在最前面。"},
+      {t:"使用 MOdelivr",d:"MOdelivr 标签显示附近餐厅及其实时和通常的等待时间。你或社区记录过的地点会排在最前面。"},
       {t:"记录等待",d:"到达餐厅时点击“已到达”开始计时，收到订单后点击“已取餐”保存等待时间。"},
       {t:"班次计时器",d:"点击“开始”开启一个班次，或在第一次“已到达”时自动开始。它统计你当天的工作时长，并计算每小时收入。"},
       {t:"读懂社区数据",d:"每张卡片显示“你的”平均值和“社区”平均值。绿色表示等待短，橙色中等，红色表示排长队。"},
@@ -572,8 +580,8 @@ const HELP = {
   ro:{
     title:"Ajutor și ghid", faqTitle:"Întrebări frecvente",
     faq:[
-      {q:"Ce este WAITS și cum funcționează?",a:"WAITS este o aplicație de comunitate pentru șoferii de livrări. Șoferii înregistrează cât așteaptă la restaurante, astfel încât toți să vadă timpii reali de așteptare înainte de a merge acolo și să evite cozile lungi."},
-      {q:"Este aplicația sigură pentru contul meu de livrări?",a:"Da. WAITS este complet separată de Uber Eats, Deliveroo, Just Eat și celelalte. Nu se conectează niciodată la conturile tale de livrări, nu îți citește mesajele și nu îți modifică GPS-ul — folosește locația doar pentru a găsi restaurante din apropiere."},
+      {q:"Ce este MOdelivr și cum funcționează?",a:"MOdelivr este o aplicație de comunitate pentru șoferii de livrări. Șoferii înregistrează cât așteaptă la restaurante, astfel încât toți să vadă timpii reali de așteptare înainte de a merge acolo și să evite cozile lungi."},
+      {q:"Este aplicația sigură pentru contul meu de livrări?",a:"Da. MOdelivr este complet separată de Uber Eats, Deliveroo, Just Eat și celelalte. Nu se conectează niciodată la conturile tale de livrări, nu îți citește mesajele și nu îți modifică GPS-ul — folosește locația doar pentru a găsi restaurante din apropiere."},
       {q:"Cum înregistrez un timp de așteptare?",a:"Când ajungi la restaurant, apasă Ajuns. Cronometrul pornește singur. În clipa în care ai mâncarea, apasă Am preluat — astfel se salvează timpul tău real de așteptare."},
       {q:"De ce să apăs Am preluat când primesc mâncarea?",a:"Am preluat oprește cronometrul și înregistrează exact așteptarea. Îți păstrează statisticile corecte și împarte timpul real cu ceilalți șoferi. Fără el, așteptarea nu se salvează."},
       {q:"Ce înseamnă datele comunității?",a:"Datele comunității reprezintă așteptarea medie construită din înregistrările tuturor șoferilor. Cu cât înregistrează mai mulți, cu atât devin mai exacte pentru toți."},
@@ -588,7 +596,7 @@ const HELP = {
     android:{title:"Android (Chrome)",steps:["Deschide această pagină în Chrome.","Apasă meniul cu trei puncte din dreapta sus.","Apasă 'Adaugă la ecranul principal'.","Apasă 'Adaugă'."]},
     manualTitle:"Ghid rapid",
     manual:[
-      {t:"Folosirea WAITS",d:"Fila WAITS afișează restaurantele din apropiere cu timpii de așteptare actuali și obișnuiți. Locurile înregistrate de tine sau de comunitate apar primele."},
+      {t:"Folosirea MOdelivr",d:"Fila MOdelivr afișează restaurantele din apropiere cu timpii de așteptare actuali și obișnuiți. Locurile înregistrate de tine sau de comunitate apar primele."},
       {t:"Înregistrarea unei așteptări",d:"Apasă Ajuns când ajungi la restaurant ca să pornești cronometrul, apoi Am preluat când primești comanda ca să salvezi așteptarea."},
       {t:"Cronometrul de tură",d:"Apasă Start ca să începi o tură sau pornește singur la primul Ajuns. Numără orele lucrate în ziua respectivă și alimentează £/oră."},
       {t:"Citirea datelor comunității",d:"Fiecare card arată media TA și media COMUNITĂȚII. Verde înseamnă așteptare scurtă, portocaliu moderată, roșu coadă lungă."},
@@ -599,8 +607,8 @@ const HELP = {
   es:{
     title:"Ayuda y guía", faqTitle:"Preguntas frecuentes",
     faq:[
-      {q:"¿Qué es WAITS y cómo funciona?",a:"WAITS es una app comunitaria para repartidores. Los repartidores registran cuánto esperan en los restaurantes, para que todos vean los tiempos de espera reales antes de ir y se ahorren las colas largas."},
-      {q:"¿Es seguro usar esta app con mi cuenta de reparto?",a:"Sí. WAITS es totalmente independiente de Uber Eats, Deliveroo, Just Eat y demás. Nunca se conecta a tus cuentas de reparto, no lee tus mensajes ni cambia tu GPS — solo usa tu ubicación para encontrar restaurantes cercanos."},
+      {q:"¿Qué es MOdelivr y cómo funciona?",a:"MOdelivr es una app comunitaria para repartidores. Los repartidores registran cuánto esperan en los restaurantes, para que todos vean los tiempos de espera reales antes de ir y se ahorren las colas largas."},
+      {q:"¿Es seguro usar esta app con mi cuenta de reparto?",a:"Sí. MOdelivr es totalmente independiente de Uber Eats, Deliveroo, Just Eat y demás. Nunca se conecta a tus cuentas de reparto, no lee tus mensajes ni cambia tu GPS — solo usa tu ubicación para encontrar restaurantes cercanos."},
       {q:"¿Cómo registro un tiempo de espera?",a:"Al llegar al restaurante, toca Llegué. El cronómetro empieza solo. En cuanto tengas la comida, toca Ya lo tengo — así se guarda tu tiempo de espera real."},
       {q:"¿Por qué debo tocar Ya lo tengo al recoger la comida?",a:"Ya lo tengo detiene el cronómetro y registra la espera exacta. Mantiene tus estadísticas correctas y comparte el tiempo real con los demás repartidores. Sin ello, la espera no se guarda."},
       {q:"¿Qué significan los datos de la comunidad?",a:"Los datos de la comunidad son la espera media creada con los registros de todos los repartidores. Cuanta más gente registre, más precisos son para todos."},
@@ -615,7 +623,7 @@ const HELP = {
     android:{title:"Android (Chrome)",steps:["Abre esta página en Chrome.","Toca el menú de tres puntos arriba a la derecha.","Toca 'Añadir a pantalla de inicio'.","Toca 'Añadir'."]},
     manualTitle:"Guía rápida",
     manual:[
-      {t:"Usar WAITS",d:"La pestaña WAITS muestra los restaurantes cercanos con sus tiempos de espera en vivo y habituales. Los sitios que tú o la comunidad habéis registrado aparecen arriba."},
+      {t:"Usar MOdelivr",d:"La pestaña MOdelivr muestra los restaurantes cercanos con sus tiempos de espera en vivo y habituales. Los sitios que tú o la comunidad habéis registrado aparecen arriba."},
       {t:"Registrar una espera",d:"Toca Llegué al llegar al restaurante para iniciar el cronómetro, y luego Ya lo tengo al recibir el pedido para guardar la espera."},
       {t:"El cronómetro de turno",d:"Toca Empezar para iniciar un turno, o se inicia solo en tu primer Llegué. Cuenta tus horas de trabajo del día y alimenta tu €/hora."},
       {t:"Leer los datos de la comunidad",d:"Cada tarjeta muestra TU media y la media de la COMUNIDAD. Verde es espera corta, ámbar moderada, rojo cola larga."},
@@ -626,8 +634,8 @@ const HELP = {
   ru:{
     title:"Помощь и руководство", faqTitle:"Частые вопросы",
     faq:[
-      {q:"Что такое WAITS и как это работает?",a:"WAITS — это приложение-сообщество для курьеров. Курьеры отмечают, сколько они ждут в ресторанах, чтобы каждый видел реальное время ожидания до поездки и не стоял в длинных очередях."},
-      {q:"Безопасно ли пользоваться приложением с моим аккаунтом доставки?",a:"Да. WAITS полностью отделён от Uber Eats, Deliveroo, Just Eat и других. Он никогда не подключается к вашим аккаунтам доставки, не читает сообщения и не меняет GPS — он использует геолокацию только для поиска ближайших ресторанов."},
+      {q:"Что такое MOdelivr и как это работает?",a:"MOdelivr — это приложение-сообщество для курьеров. Курьеры отмечают, сколько они ждут в ресторанах, чтобы каждый видел реальное время ожидания до поездки и не стоял в длинных очередях."},
+      {q:"Безопасно ли пользоваться приложением с моим аккаунтом доставки?",a:"Да. MOdelivr полностью отделён от Uber Eats, Deliveroo, Just Eat и других. Он никогда не подключается к вашим аккаунтам доставки, не читает сообщения и не меняет GPS — он использует геолокацию только для поиска ближайших ресторанов."},
       {q:"Как отметить время ожидания?",a:"Когда приедете в ресторан, нажмите Прибыл. Таймер запустится сам. Как только получите еду, нажмите Забрал — так сохранится ваше реальное время ожидания."},
       {q:"Зачем нажимать Забрал, когда я получил еду?",a:"Кнопка Забрал останавливает таймер и записывает точное ожидание. Это сохраняет вашу статистику верной и передаёт реальное время другим курьерам. Без неё ожидание не сохранится."},
       {q:"Что означают данные сообщества?",a:"Данные сообщества — это среднее время ожидания, собранное из отметок всех курьеров. Чем больше людей отмечает, тем точнее оно для всех."},
@@ -642,7 +650,7 @@ const HELP = {
     android:{title:"Android (Chrome)",steps:["Откройте эту страницу в Chrome.","Нажмите меню из трёх точек справа вверху.","Нажмите «Добавить на главный экран».","Нажмите «Добавить»."]},
     manualTitle:"Краткое руководство",
     manual:[
-      {t:"Как пользоваться WAITS",d:"Вкладка WAITS показывает ближайшие рестораны с текущим и обычным временем ожидания. Места, отмеченные вами или сообществом, идут вверху."},
+      {t:"Как пользоваться MOdelivr",d:"Вкладка MOdelivr показывает ближайшие рестораны с текущим и обычным временем ожидания. Места, отмеченные вами или сообществом, идут вверху."},
       {t:"Как отметить ожидание",d:"Нажмите Прибыл по приезде в ресторан, чтобы запустить таймер, затем Забрал при получении заказа, чтобы сохранить ожидание."},
       {t:"Таймер смены",d:"Нажмите Старт, чтобы начать смену, или он запустится сам при первом Прибыл. Он считает ваши рабочие часы за день и питает показатель £/час."},
       {t:"Чтение данных сообщества",d:"Каждая карточка показывает ВАШЕ среднее и среднее по СООБЩЕСТВУ. Зелёный — короткое ожидание, оранжевый — среднее, красный — длинная очередь."},
@@ -1033,6 +1041,10 @@ async function geocodeBranch(lat,lng,name) {
 //  (2) pickup detour          = extra driving stacking adds to reach the pickup
 // Shared bands (minutes OVER baseline): ≤12 green · 13–17 orange · >17 red.
 const WINDOW_MIN = 45;                        // dropoff window (min): flag only when STACKING pushes completion past max(45, solo journey)
+// The sliding dropoff window, in minutes: 45·60·75·90… (+15 per +15 the solo run exceeds 37). Single
+// definition — the verdict maths and the at-risk notification schedule both size their window from
+// here, so the two can never drift apart. Formula unchanged from where it was first written.
+const slidingWindowMin = soloMin => WINDOW_MIN + 15*Math.max(0,Math.ceil((soloMin-37)/15));
 const STACK_GREEN_MAX_MIN  = 13;             // pickup-detour delta: <13 min = green
 const STACK_ORANGE_MAX_MIN = 17;             // pickup-detour delta: 13–17 = orange, >17 = red; also the far-pickup exempt cutoff + ⚠ line
 // Stack Check time-budget assumptions. TEMPORARY flat values — once waitEngine.js has enough
@@ -1069,10 +1081,177 @@ async function mapboxMatrix(points){
 }
 
 // Small numbered pin element for the map (P1 = order-1 pickup, D1 = order-1 drop, …).
+const PIN_SHADOW="0 1px 5px rgba(0,0,0,.5)";
 function stackMarkerEl(text,color){
   const el=document.createElement("div");
-  el.style.cssText="width:26px;height:26px;border-radius:50%;background:"+color+";border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;font-weight:700;font-size:10px;cursor:grab";
+  el.style.cssText="width:26px;height:26px;border-radius:50%;background:"+color+";border:2px solid #fff;box-shadow:"+PIN_SHADOW+";display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;font-weight:700;font-size:10px;cursor:grab";
   el.textContent=text; return el;
+}
+
+// ── HAND-OFF TO A NAV APP ─────────────────────────────────────────────────────
+// The optimiser's own sequence turned back into coordinates: "P2" → orders[1].pickup, "D1" →
+// orders[0].drop. Collected orders have no P label in the sequence, so they drop out on their own.
+function stackStops(res,orders){
+  const out=[];
+  const seq=res&&res.order?res.order.slice(1):null;   // [0] is always "You"
+  if(seq){
+    for(const lb of seq){
+      const m=/^([PD])(\d+)$/.exec(lb); if(!m)continue;
+      const o=orders[Number(m[2])-1]; if(!o)continue;
+      const c=m[1]==="P"?o.pickup:o.drop;
+      if(c)out.push({lat:c.lat,lng:c.lng,label:lb});
+    }
+    if(out.length)return out;
+  }
+  // No route worked out yet — fall back to the pins in the order they were added.
+  orders.forEach((o,i)=>{
+    if(o.status!=="picked"&&o.pickup)out.push({lat:o.pickup.lat,lng:o.pickup.lng,label:"P"+(i+1)});
+    if(o.drop)out.push({lat:o.drop.lat,lng:o.drop.lng,label:"D"+(i+1)});
+  });
+  return out;
+}
+const GMAPS_MAX_WAYPOINTS=9;      // the universal Google Maps URL takes at most 9 intermediate stops
+const pt=p=>p.lat+","+p.lng;
+function googleMapsUrl(origin,stops){
+  const capped=stops.slice(0,GMAPS_MAX_WAYPOINTS+1);          // + the final destination
+  const dest=capped[capped.length-1], mid=capped.slice(0,-1);
+  const q=new URLSearchParams({api:"1",destination:pt(dest),travelmode:"driving"});
+  if(origin)q.set("origin",pt(origin));
+  if(mid.length)q.set("waypoints",mid.map(pt).join("|"));
+  return "https://www.google.com/maps/dir/?"+q.toString();
+}
+// Apple's maps URL scheme has no waypoints parameter — one saddr, one daddr, and that's the lot. So
+// this navigates to the NEXT stop in the optimised sequence; the label in the menu says as much.
+function appleMapsUrl(origin,stops){
+  const q=new URLSearchParams({daddr:pt(stops[0]),dirflg:"d"});
+  if(origin)q.set("saddr",pt(origin));
+  return "https://maps.apple.com/?"+q.toString();
+}
+function openExternal(url){
+  try{ const w=window.open(url,"_blank","noopener"); if(!w)window.location.href=url; }
+  catch(e){ window.location.href=url; }
+}
+
+// ── VERDICT BANNER ────────────────────────────────────────────────────────────
+// The call itself, surfaced on the map so a driver gets it without opening the sheet. The hue carries
+// the verdict from a solid chip — on the pale light-theme tints the brand greens/ambers only reach
+// ~2:1, so they'd be a whisper as text or as a bare glyph. The words stay in --ink, which reads at
+// 13:1 on every tint in both themes, and the chip does the shouting.
+const VERDICT={
+  green :{hue:"#06c167",tint:"var(--tint-green)",title:"You can take this order",glyph:"check"},
+  orange:{hue:"#f5a623",tint:"var(--tint-amber)",title:"It's tight but possible",glyph:"alert"},
+  red   :{hue:"#ef4444",tint:"var(--tint-red)",  title:"Don't take this order",  glyph:"cross"},
+};
+const GLYPH_INK="#0b1a10";   // one dark tone that clears AA on all three hues
+function VerdictGlyph({kind,size=17}){
+  const s={fill:"none",stroke:GLYPH_INK,strokeWidth:2.4,strokeLinecap:"round",strokeLinejoin:"round"};
+  return(
+    <svg width={size} height={size} viewBox="0 0 20 20" style={{display:"block"}} aria-hidden="true">
+      {kind==="check"&&<path d="M4.6 10.6l3.5 3.5L15.4 6.3" {...s}/>}
+      {kind==="alert"&&<><path d="M10 4.8v6" {...s}/><circle cx="10" cy="14.8" r="1.3" fill={GLYPH_INK} stroke="none"/></>}
+      {kind==="cross"&&<><path d="M6 6l8 8" {...s}/><path d="M14 6l-8 8" {...s}/></>}
+    </svg>
+  );
+}
+function VerdictBanner({res,isAdmin,onOpen}){
+  const v=res.stacked?(VERDICT[res.bannerColor]||VERDICT.green):null;
+  const shell={position:"absolute",top:12,left:12,right:64,zIndex:170,display:"flex",alignItems:"center",gap:11,
+    textAlign:"left",width:"auto",borderRadius:14,padding:"10px 12px",cursor:"pointer",color:"var(--muted2)",
+    boxShadow:"0 8px 24px rgba(0,0,0,0.20)",animation:"slideDown .28s cubic-bezier(.16,1,.3,1)"};
+  // A lone order gets no colour — there's no stack to judge, so shouting green would be a lie.
+  if(!v)return(
+    <button type="button" onClick={onOpen} aria-label="Single order — open detail"
+      style={{...shell,background:"var(--card)",border:"1px solid var(--border2)"}}>
+      <span style={{flexShrink:0,width:30,height:30,borderRadius:9,background:"var(--border3)",display:"flex",alignItems:"center",justifyContent:"center",...B,fontWeight:800,fontSize:13,color:"var(--muted)"}}>1</span>
+      <span style={{flex:1,minWidth:0}}>
+        <span style={{display:"block",...B,fontWeight:800,fontSize:13.5,color:"var(--ink)",letterSpacing:0.1}}>Single order — nothing to stack</span>
+        <span style={{display:"block",...M,fontSize:10.5,color:"var(--muted)",marginTop:1}}>Add a second order to get a verdict</span>
+      </span>
+      <Chevron/>
+    </button>
+  );
+  return(
+    <button type="button" onClick={onOpen} aria-label={v.title+" — open detail"}
+      style={{...shell,background:v.tint,border:"1px solid "+v.hue+"66"}}>
+      <span style={{flexShrink:0,width:30,height:30,borderRadius:9,background:v.hue,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 1px 4px rgba(0,0,0,0.22)"}}>
+        <VerdictGlyph kind={v.glyph}/>
+      </span>
+      <span style={{flex:1,minWidth:0}}>
+        <span style={{display:"block",...B,fontWeight:800,fontSize:13.5,color:"var(--ink)",letterSpacing:0.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.title}</span>
+        <span style={{display:"flex",alignItems:"center",gap:5,marginTop:3}}>
+          {/* One chip per order in its own verdict colour — the whole stack readable at a glance. */}
+          {res.perOrder.map(o=>{ const c=(VERDICT[o.color]||VERDICT.green).hue; return(
+            <span key={o.n} title={"Order "+o.n} style={{width:17,height:17,borderRadius:"50%",background:c,display:"flex",alignItems:"center",justifyContent:"center",...B,fontWeight:800,fontSize:9.5,color:GLYPH_INK,flexShrink:0}}>{o.n}</span>
+          );})}
+          {/* Admin-only numbers. Kept in --ink rather than a grey: on these pale tints grey lands at
+              ~4:1, so the step down to secondary comes from size and weight instead. */}
+          {isAdmin&&<span style={{...M,fontSize:10,fontWeight:600,color:"var(--ink)",marginLeft:3,fontVariantNumeric:"tabular-nums"}}>{res.totalMin}m · {res.totalMiles}mi</span>}
+        </span>
+      </span>
+      <Chevron/>
+    </button>
+  );
+}
+function Chevron(){
+  return(
+    <svg width="15" height="15" viewBox="0 0 20 20" style={{display:"block",flexShrink:0,opacity:0.55}} aria-hidden="true">
+      <path d="M7.5 4.5l6 5.5-6 5.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+// The tap-a-pin menu: Move (nudge it) or Remove (take this one pin off, leaving the order and its
+// other pin alone). Rides above the pin as its own marker so it tracks the map, and stays a small
+// pill so it never covers the pins around it.
+function pinMenuEl(label,onMove,onRemove){
+  const el=document.createElement("div");
+  el.style.cssText="display:flex;align-items:stretch;background:var(--card);border:1px solid var(--border2);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.28);overflow:hidden;white-space:nowrap";
+  const btn=(text,color,fn)=>{
+    const b=document.createElement("button");
+    b.type="button"; b.textContent=text;
+    b.setAttribute("aria-label",text+" "+label);
+    b.style.cssText="appearance:none;border:none;background:transparent;color:"+color+";font-family:'Poppins',sans-serif;font-weight:700;font-size:12px;letter-spacing:0.3px;padding:9px 13px;min-height:34px;cursor:pointer";
+    b.addEventListener("click",e=>{ e.stopPropagation(); e.preventDefault(); fn(); });
+    return b;
+  };
+  const sep=document.createElement("div");
+  sep.style.cssText="width:1px;background:var(--border2);flex:none";
+  el.appendChild(btn("Move","var(--ink)",onMove));
+  el.appendChild(sep);
+  el.appendChild(btn("Remove","var(--danger)",onRemove));
+  el.addEventListener("click",e=>e.stopPropagation());   // taps inside the menu never reach the map
+  return el;
+}
+
+const HALO_BASE=100;                    // the accuracy ring's unscaled diameter — sizeHalo scales it
+const HALO_MIN=34, HALO_MAX=150;        // below MIN the ring is inside the dot's own glow, so it hides
+// The driver's live position — the standard navigation blue dot: a white ring around a blue core,
+// wearing a constant soft white glow, with a translucent accuracy ring outside it drawn at the GPS
+// accuracy radius in TRUE metres. At city zooms a good fix is only a few pixels across, smaller than
+// the dot itself, so the ring fades out rather than lying about the radius — it appears, and visibly
+// tightens, as you zoom in or as the fix degrades. The wrapper is zero-size so Mapbox anchors the dot
+// dead-centre, and clicks pass straight through so tapping the map still drops pins underneath.
+function driverDotEl(){
+  const el=document.createElement("div");
+  el.style.cssText="position:relative;width:0;height:0;pointer-events:none";
+  const halo=document.createElement("div");
+  // Fixed HALO_BASE box scaled by transform — the radius changes every fix, and scaling composites on
+  // the GPU where animating width/height would relayout the marker on each of them.
+  halo.style.cssText="position:absolute;left:0;top:0;width:"+HALO_BASE+"px;height:"+HALO_BASE+"px;margin:"+(-HALO_BASE/2)+"px 0 0 "+(-HALO_BASE/2)+"px;border-radius:50%;background:rgba(26,115,232,.13);border:1px solid rgba(26,115,232,.28);box-shadow:0 0 0 1px rgba(255,255,255,.35);opacity:0;transform:scale("+(HALO_MIN/HALO_BASE)+");transition:transform .5s cubic-bezier(.16,1,.3,1),opacity .4s ease-out;will-change:transform,opacity";
+  const core=document.createElement("div");
+  core.style.cssText="position:absolute;left:0;top:0;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 5px rgba(255,255,255,.30),0 1px 5px rgba(0,0,0,.45)";
+  el.appendChild(halo); el.appendChild(core);
+  el._halo=halo;
+  return el;
+}
+
+// Metres on the ground → pixels on screen at the map's current zoom and latitude.
+function metersToPx(map,lat,lng,m){
+  try{
+    const dLng=m/(111320*Math.max(0.15,Math.cos(lat*Math.PI/180)));
+    const a=map.project([lng,lat]), b=map.project([lng+dLng,lat]);
+    return Math.abs(b.x-a.x);
+  }catch(e){ return 0; }
 }
 
 // Plan a stack of N orders (each = optional pickup + a drop-off) from your current spot (matrix
@@ -1159,7 +1338,7 @@ function planStack(m, orders, dwell){
   const windowSecOf=o=>{
     const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0;
     const soloSec=o.pickupIdx!=null ? D[0][o.pickupIdx]+dwellP+D[o.pickupIdx][o.dropIdx] : D[0][o.dropIdx];  // solo total run to drop arrival
-    return (WINDOW_MIN+15*Math.max(0,Math.ceil((soloSec/60-37)/15)))*60;
+    return slidingWindowMin(soloSec/60)*60;
   };
   const windowColor=o=> arr[o.dropIdx] > windowSecOf(o) ? "red" : "green";                                  // over its own window (diagnostic only)
 
@@ -1296,32 +1475,6 @@ function getCommunityWait(restId,now,patterns) {
   const b=p.byDayPeriod?.[`${dow}_${per}`]||p.byPeriod?.[per]||p.overall;
   if(!b||b.count<CFG.COMMUNITY_MIN)return null;
   return{avg:b.avg,min:b.min,max:b.max,count:b.count,drivers:b.drivers};
-}
-
-// Predicted wait for a specific day + hour, using the finest bucket with enough data.
-// Tries this day & hour (±1h window) → this hour any day → day+period → period → overall.
-function predictWait(restId,dow,hour,patterns) {
-  const p=patterns[restId];
-  if(!p)return null;
-  const sumBuckets=(picks)=>{
-    let n=0,wsum=0,drivers=0;
-    for(const b of picks){ if(b){ n+=b.count; wsum+=b.avg*b.count; drivers=Math.max(drivers,b.drivers||0); } }
-    return n>0?{avg:Math.round(wsum/n*10)/10,count:n,drivers}:null;
-  };
-  // this weekday, hour ±1
-  const dh=sumBuckets([p.byDayHour?.[`${dow}_${(hour+23)%24}`],p.byDayHour?.[`${dow}_${hour}`],p.byDayHour?.[`${dow}_${(hour+1)%24}`]]);
-  if(dh&&dh.count>=CFG.COMMUNITY_MIN)return{...dh,context:dayLabel(dow)+" "+hourLabel(hour),tier:"day-hour"};
-  // any day, this hour ±1
-  const hh=sumBuckets([p.byHour?.[(hour+23)%24],p.byHour?.[hour],p.byHour?.[(hour+1)%24]]);
-  if(hh&&hh.count>=CFG.COMMUNITY_MIN)return{...hh,context:hourLabel(hour)+" (any day)",tier:"hour"};
-  // day + period
-  const per=timePeriod(hour);
-  const dp=p.byDayPeriod?.[`${dow}_${per}`];
-  if(dp&&dp.count>=CFG.COMMUNITY_MIN)return{avg:dp.avg,count:dp.count,drivers:dp.drivers,context:dayLabel(dow)+" "+per,tier:"day-period"};
-  const pp=p.byPeriod?.[per];
-  if(pp&&pp.count>=CFG.COMMUNITY_MIN)return{avg:pp.avg,count:pp.count,drivers:pp.drivers,context:per,tier:"period"};
-  if(p.overall&&p.overall.count>=CFG.COMMUNITY_MIN)return{avg:p.overall.avg,count:p.overall.count,drivers:p.overall.drivers,context:"all times",tier:"overall"};
-  return null;
 }
 
 function hourLabel(h){ const ampm=h<12?"am":"pm"; const hr=h%12===0?12:h%12; return hr+ampm; }
@@ -1634,7 +1787,26 @@ function AdBanner({premium}) {
 }
 
 // ── UPGRADE / SUBSCRIPTION ────────────────────────────────────────────────────
-function UpgradeScreen({premium,onBack,onSubscribe,onCancel}) {
+// Nothing sold on this screen carries a free trial — buying Premium takes effect immediately and
+// includes 8 Stack Check runs a day. The 3-day trial is a Stack Check thing only (see plans.js).
+function UpgradeScreen({premium,onBack,onSubscribe,onCancel,onRestore,restoring}) {
+  // iOS sells through StoreKit, never Stripe (Apple Guideline 3.1.1). The list only appears once
+  // the native plugin AND the App Store Connect products are both live; until then iOS shows no
+  // purchase UI at all, exactly as it does today.
+  const [iapPlans,setIapPlans]=useState(null);
+  useEffect(()=>{ if(!IS_IOS)return; let ok=true; iapProducts().then(p=>{ if(ok)setIapPlans(p); }); return()=>{ok=false;}; },[]);
+  const iapPriceOf=id=>(iapPlans||[]).find(p=>p.plan===id)?.price;
+  const showIapPlans=IS_IOS&&(iapPlans||[]).length>0;
+
+  // On the web, only offer plans the backend actually has a Stripe price for — otherwise a driver
+  // could tap a plan that errors at checkout. Until this resolves, no plan list is shown.
+  const [webPlans,setWebPlans]=useState(null);
+  useEffect(()=>{
+    if(IS_IOS)return; let ok=true;
+    fetch(`${API_URL}/plans`).then(r=>r.json()).then(d=>{ if(ok)setWebPlans(Array.isArray(d?.available)?d.available:[]); }).catch(()=>{ if(ok)setWebPlans([]); });
+    return()=>{ok=false;};
+  },[]);
+  const sellable=id=>showIapPlans?!!iapPriceOf(id):(webPlans||[]).includes(id);
   const perks=[
     {icon:"🚫",title:t("up_noAds"),desc:"Clean, distraction-free experience"},
     {icon:"📊",title:t("up_fullData"),desc:"See every driver's logs & full history"},
@@ -1666,11 +1838,76 @@ function UpgradeScreen({premium,onBack,onSubscribe,onCancel}) {
         ))}
       </div>
 
+      {/* ── STACK CHECK PLANS ──────────────────────────────────────────────────
+          Every plan and cap comes from plans.js, so these cards can never drift from what the
+          gate actually enforces. Hidden on iOS: Apple Guideline 3.1.1 forbids taking payment for
+          a digital subscription outside their IAP, and this list links to Stripe. */}
+      {PAID_PLAN_IDS.some(sellable)&&(showIapPlans||!premium)&&(
+        <div style={{marginBottom:28}}>
+          <div style={{...B,fontSize:15,color:"var(--ink)",letterSpacing:1.5,marginBottom:4}}>STACK CHECK PLANS</div>
+          <div style={{fontSize:11,...M,color:"var(--muted)",marginBottom:12}}>
+            Every plan includes everything above. Pick how many stack checks you need a day.
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {PAID_PLAN_IDS.filter(sellable).map(id=>{
+              const p=PLANS[id];
+              return(
+                <button key={id} type="button" onClick={()=>onSubscribe(id)}
+                  style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,width:"100%",textAlign:"left",
+                    background:"var(--card)",border:"1px solid "+(p.badge?"#00b8a966":"var(--border)"),borderRadius:12,padding:"14px 16px",cursor:"pointer"}}>
+                  <span style={{minWidth:0}}>
+                    <span style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{...B,fontSize:16,color:"var(--ink)",letterSpacing:.5}}>{p.name}</span>
+                      {p.badge&&<span style={{...M,fontSize:8,fontWeight:800,letterSpacing:1,color:"#00201e",background:"#00b8a9",borderRadius:5,padding:"2px 6px"}}>{p.badge}</span>}
+                    </span>
+                    <span style={{display:"block",fontSize:10.5,...M,color:"var(--muted)",marginTop:3}}>{capLabel(id)}</span>
+                  </span>
+                  <span style={{flexShrink:0,textAlign:"right"}}>
+                    {/* On iOS the price comes from StoreKit so it's already in the driver's own currency. */}
+                    <span style={{display:"block",...B,fontSize:19,color:"#00b8a9",lineHeight:1.1}}>{iapPriceOf(id)||p.priceLabel}</span>
+                    <span style={{display:"block",fontSize:9.5,...M,color:"var(--muted)"}}>/{p.per}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Guideline 3.1.2 — a subscription paywall MUST state the length of the period, the
+              price per period, that it auto-renews, and link Terms of Use + Privacy Policy before
+              purchase. Missing any of these is one of the most common subscription rejections. */}
+          <div style={{marginTop:12,padding:"12px 13px",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:12}}>
+            <div style={{fontSize:10.5,...M,color:"var(--muted)",lineHeight:1.6}}>
+              Subscriptions renew automatically at the price and period shown above unless cancelled
+              at least 24 hours before the end of the current period. Your account is charged for
+              renewal within 24 hours of the end of the current period.
+              {IS_IOS
+                ? " Manage or cancel any time in Settings › Apple Account › Subscriptions."
+                : " Manage or cancel any time from this screen."}
+            </div>
+            <div style={{display:"flex",gap:14,marginTop:9,flexWrap:"wrap"}}>
+              <a href={TERMS_URL} target="_blank" rel="noopener noreferrer"
+                style={{fontSize:10.5,...M,fontWeight:700,color:"#00b8a9",textDecoration:"underline"}}>Terms of Use</a>
+              <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer"
+                style={{fontSize:10.5,...M,fontWeight:700,color:"#00b8a9",textDecoration:"underline"}}>Privacy Policy</a>
+            </div>
+          </div>
+
+          {/* Guideline 3.1.1 — restoring a previous purchase is required, not optional. */}
+          {showIapPlans&&(
+            <button type="button" onClick={onRestore} disabled={restoring}
+              style={{width:"100%",minHeight:46,marginTop:10,background:"none",border:"1px solid var(--border2)",borderRadius:12,
+                ...B,fontWeight:700,fontSize:13,letterSpacing:1,color:restoring?"var(--faint)":"var(--muted2)",cursor:restoring?"default":"pointer"}}>
+              {restoring?"RESTORING…":"RESTORE PURCHASES"}
+            </button>
+          )}
+        </div>
+      )}
+
       {premium?(
         <>
           <div style={{background:"linear-gradient(135deg,var(--tint-green),var(--tint-green))",border:"1px solid #06c16744",borderRadius:14,padding:"18px",textAlign:"center",marginBottom:16}}>
             <div style={{...B,fontSize:22,color:"#06c167",letterSpacing:2}}>{t("up_active")}</div>
-            <div style={{fontSize:10,...M,color:"#0a8f4f",marginTop:4}}>Thanks for supporting Delivr</div>
+            <div style={{fontSize:10,...M,color:"#0a8f4f",marginTop:4}}>Thanks for supporting MOdelivr</div>
           </div>
           <button onClick={onCancel}
             style={{width:"100%",minHeight:48,background:"none",border:"1px solid var(--faint2)",borderRadius:12,...B,fontSize:16,letterSpacing:2,color:"var(--muted2)",cursor:"pointer"}}>
@@ -1703,7 +1940,7 @@ function GPSGateScreen({status,onRetry,onSkip}) {
           {acquiring?"Waiting for GPS signal…":
            denied?"Location is turned off for this site. Here's how to switch it on:":
            error?"This device can't provide a location.":
-           "DELIVR needs your location to show nearby restaurants and verify arrivals."}
+           "MOdelivr needs your location to show nearby restaurants and verify arrivals."}
         </div>
       </div>
 
@@ -1737,7 +1974,7 @@ function GPSGateScreen({status,onRetry,onSkip}) {
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,onHelp,contribCount,lang,onSetLang,communityPatterns}) {
+function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLogout,onSave,onUpgrade,onStats,onHelp,onLearn,contribCount,lang,onSetLang,communityPatterns}) {
   const [name,setName]=useState(user.name||"");
   const [phone,setPhone]=useState(user.phone||"");
   const [area,setArea]=useState(user.area||"");
@@ -2000,6 +2237,15 @@ function ProfileScreen({user,waitLog,gps,premium,theme,onToggleTheme,onBack,onLo
         <div>
           <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:1}}>❓ {(HELP[lang]||HELP.en).title}</div>
           <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:3}}>{(HELP[lang]||HELP.en).faqTitle} · {(HELP[lang]||HELP.en).manualTitle}</div>
+        </div>
+        <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
+      </button>
+
+      {/* Learning Materials — multi-app training, in the driver's own language */}
+      <button onClick={onLearn} style={{width:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left"}}>
+        <div>
+          <div style={{...B,fontWeight:700,fontSize:16,color:"var(--ink)",letterSpacing:1}}>📚 {(LEARN_LABELS[lang]||LEARN_LABELS.en).title}</div>
+          <div style={{fontSize:11,...M,color:"var(--muted)",marginTop:3}}>{(LEARN_LABELS[lang]||LEARN_LABELS.en).subtitle}</div>
         </div>
         <span style={{...B,fontSize:24,color:"#00b8a9"}}>›</span>
       </button>
@@ -2545,7 +2791,7 @@ function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift,myName}){
       </div>
       {manualCapReached&&<div style={{fontSize:10,...M,color:"var(--muted2)",textAlign:"center",marginBottom:16}}>Daily manual delivery limit reached — edit/delete an entry, or use platform total.</div>}
 
-      {/* Today's clocked shift time (from the WAITS shift timer) */}
+      {/* Today's clocked shift time (from the MOdelivr shift timer) */}
       {view==="today"&&shiftMins>0&&(
         <div style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
           <span style={{fontSize:20}}>⏱️</span>
@@ -2692,7 +2938,7 @@ function LanguageScreen({onChoose}) {
   return(
     <div style={{minHeight:"100vh",background:"#0e1316",color:"#eaf0f2",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 26px",fontFamily:"'Nunito',sans-serif"}}>
       <div style={{textAlign:"center",marginBottom:36}}>
-        <div style={{fontFamily:"'Poppins',sans-serif",fontWeight:800,fontSize:40,color:"#00b8a9",letterSpacing:6}}>DELIVR</div>
+        <div style={{fontFamily:"'Poppins',sans-serif",fontWeight:800,fontSize:40,color:"#00b8a9",letterSpacing:6}}>MOdelivr</div>
         <div style={{fontSize:13,color:"#9aa7af",marginTop:10}}>🌐 Choose your language</div>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -2759,7 +3005,7 @@ function Onboarding({onFinish,lang}) {
       )}
 
       <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",zIndex:1,paddingTop:40}}>
-        <div style={{fontFamily:"'Poppins',sans-serif",fontWeight:800,fontSize:28,color:D.teal,letterSpacing:3,marginBottom:36}}>DELIVR</div>
+        <div style={{fontFamily:"'Poppins',sans-serif",fontWeight:800,fontSize:28,color:D.teal,letterSpacing:3,marginBottom:36}}>MOdelivr</div>
 
         {s.emoji&&<div style={{fontSize:80,marginBottom:24}}>{s.emoji}</div>}
 
@@ -2927,7 +3173,7 @@ function LoginScreen({onLogin,onRegistered,initialMode,lang,onChangeLang}) {
   return(
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 24px 60px",background:"linear-gradient(160deg,var(--tint-teal) 0%,var(--bg) 55%)"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
-        <div style={{...B,fontSize:80,color:"#00b8a9",letterSpacing:8,lineHeight:1,textShadow:"0 0 80px #00b8a944"}}>DELIVR</div>
+        <div style={{...B,fontSize:80,color:"#00b8a9",letterSpacing:8,lineHeight:1,textShadow:"0 0 80px #00b8a944"}}>MOdelivr</div>
         <div style={{fontSize:10,color:"var(--faint2)",letterSpacing:5,marginTop:6}}>{t("tagline")}</div>
         {onChangeLang&&<button type="button" onClick={onChangeLang} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:11,...M,marginTop:10}}>{t("changeLang")}</button>}
       </div>
@@ -3070,7 +3316,7 @@ function VerifyCodeScreen({email,onVerified,onBack}) {
 }
 
 // ── RESTAURANT DETAIL ─────────────────────────────────────────────────────────
-function RestaurantDetail({r,now,gps,waitLog,communityPatterns,communityLogs,activeCounts,reportedCounts,distMap,checkingId,arrivalError,activeWait,manualVoted,onArrived,onManualArrive,isAdmin,queueActive,onBack}) {
+function RestaurantDetail({r,now,gps,waitLog,communityPatterns,communityLogs,activeCounts,distMap,checkingId,arrivalError,activeWait,manualVoted,onArrived,onManualArrive,isAdmin,queueActive,onBack}) {
   const ck=cardKey(r);
   const personal=getPersonalWait(ck,now,waitLog);
   const community=getCommunityWait(ck,now,communityPatterns);
@@ -3444,7 +3690,7 @@ function ShiftTimer({activeShift,completedToday,onStart,onStop,onGoCheck}){
   );
 }
 
-// ── WAITS SCREEN ──────────────────────────────────────────────────────────────
+// ── MOdelivr SCREEN ──────────────────────────────────────────────────────────────
 function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrders,communityPatterns,communityLogs,checkingId,arrivalError,premium,manualVoted,activeCounts,reportedCounts,activeWaitsList,contribCounts,myName,revealNames,driverCount,activeShift,shiftCompletedToday,onStartShift,onStopShift,queueAlerts,queueAlertsSent,onQueueAlert,onReportCount,onOpenLogbook,onGoCheck,onArrived,onManualArrive,onPickedUp,onDelivered,onCancelWait,onAddDelivery,isAdmin,accountLogs}) {
   const [picking,setPicking]=useState(false);
   const [selectedRestaurant,setSelectedRestaurant]=useState(null);
@@ -3533,7 +3779,7 @@ function WaitsScreen({now,gps,restaurants,waitLog,activeWait,session,activeOrder
     const selQa=queueAlerts?.[cardKey(selectedRestaurant)];
     const selQueueActive=!!(selQa&&now.getTime()-new Date(selQa.ts).getTime()<QUEUE_ALERT_TTL_MS);
     return <RestaurantDetail r={selectedRestaurant} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns}
-      communityLogs={communityLogs} activeCounts={activeCounts} reportedCounts={reportedCounts}
+      communityLogs={communityLogs} activeCounts={activeCounts}
       distMap={distMap} checkingId={checkingId} arrivalError={arrivalError} activeWait={activeWait} manualVoted={manualVoted}
       onArrived={onArrived} onManualArrive={onManualArrive} isAdmin={isAdmin} queueActive={selQueueActive} onBack={()=>setSelectedRestaurant(null)}/>;
   }
@@ -3886,7 +4132,7 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
 
   // Tapped a restaurant → full stats (detail in stats-only mode: no arrive/manual buttons)
   if(selected){
-    return <RestaurantDetail r={selected} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns} communityLogs={communityLogs} activeCounts={activeCounts} reportedCounts={reportedCounts} distMap={distMap} onBack={()=>setSelected(null)}/>;
+    return <RestaurantDetail r={selected} now={now} gps={gps} waitLog={waitLog} communityPatterns={communityPatterns} communityLogs={communityLogs} activeCounts={activeCounts} distMap={distMap} onBack={()=>setSelected(null)}/>;
   }
 
   // Default = every logged place first (anyone's logs), nearest-first, then the rest by distance.
@@ -3977,7 +4223,17 @@ function CheckScreen({restaurants,communityPatterns,communityLogs,waitLog,now,gp
 }
 
 // ── STATS / ADMIN ─────────────────────────────────────────────────────────────
-function StatsScreen({communityLogs,communityPatterns,activeCounts,contribCounts,onBack}) {
+function StatsScreen({communityLogs,activeCounts,contribCounts,onBack,premium}) {
+  // AdMob banner — this screen only. It's a native view pinned over the bottom of the webview, so
+  // it can't be a child of this tree; we ask for it on mount and take it away on unmount, and only
+  // pad the page once one is genuinely on screen. Premium paid for no ads, so they never see it.
+  const [adSlot,setAdSlot]=useState(0);
+  useEffect(()=>{
+    if(premium)return;
+    let live=true;
+    showStatsBanner().then(shown=>{ if(live&&shown)setAdSlot(ADMOB_BANNER_SLOT_PX); });
+    return ()=>{ live=false; setAdSlot(0); hideStatsBanner(); };   // leaving Stats takes the banner with it
+  },[premium]);
   const totalLogs=communityLogs.length;
   const totalDrivers=new Set(communityLogs.map(l=>l.username)).size;
   const now=Date.now();
@@ -4004,7 +4260,9 @@ function StatsScreen({communityLogs,communityPatterns,activeCounts,contribCounts
   );
 
   return(
-    <div style={{padding:"20px 16px 100px"}}>
+    /* Bottom padding grows by the banner's height only when a banner is actually showing, so the
+       last stats row is never sitting underneath it. */
+    <div style={{padding:"20px 16px "+(100+adSlot)+"px"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
         <button onClick={onBack} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",fontSize:28,padding:0,lineHeight:1}}>‹</button>
         <div style={{...B,fontSize:28,color:"#00b8a9",letterSpacing:2}}>APP STATS</div>
@@ -4110,7 +4368,40 @@ function HelpScreen({lang,onBack}){
 // ── STACK CHECK SCREEN (admin test) ───────────────────────────────────────────
 // Per-order route-line colours (same colour for that order's pickup + dropoff legs): green, blue, orange…
 const STACK_ROUTE_COLORS=["#06c167","#2b8fff","#ff9500","#c471f5","#00d4d4","#ffd23f"];
-function StackScreen({gps,activeOrders,isAdmin}){
+const DOT_EASE_MS=500;    // the dot and the camera MUST glide over the same window, in step — if these
+                          // ever differ the dot visibly slides across the map mid-animation
+const POOR_FIX_M=100;     // worse than this and the fix is bouncing around; hold the camera still
+const PICKUP_WINDOW_MIN=17;         // from ACCEPT to collecting the order — its own clock, separate from
+                                    // the drop-off window, which keeps running on the existing WINDOW_MIN rule
+const SHEET_PEEK=150;               // collapsed sheet: handle + two lines + clearance for the floating nav
+const SHEET_OPEN_VH=55;             // expanded cap — the map still owns the top 45% so it stays dominant
+// ── AT-RISK NOTIFICATIONS ─────────────────────────────────────────────────────
+// Absolute UTC fire times worked out ONCE, the moment ACCEPT is tapped, and stored. Nothing here
+// counts down on screen — the driver sees nothing until a notification lands on their phone.
+// The two tracks are independent: PICKED UP cancels the pickup track, DELIVERED cancels both.
+const NOTIF_SCHED_KEY="delivr_stack_sched";
+const RISK_MSG={
+  p5:"You are running late to your pickup — head there now.",
+  p2:"You need to be at your pickup right now — move immediately.",
+  d10:"You are running late — consider contacting your customer to let them know.",
+  d5:"Contact your customer now and let them know you are on your way. Be polite and apologise for the wait.",
+  d0:"Your delivery is running very late — contact rider support and let them know there has been a delay.",
+};
+const PICKUP_KEYS=["p5","p2"], DROP_KEYS=["d10","d5","d0"];   // each track escalates in this order
+const readSched =()=>store.get(NOTIF_SCHED_KEY)||{};
+const writeSched=s=>{ try{ store.set(NOTIF_SCHED_KEY,s); }catch(e){} };
+// Drop whole orders (DELIVERED / cleared) or just one track (PICKED UP cancels the pickup track).
+function cancelNotifs(orderId,keys){
+  const s=readSched(), e=s[orderId]; if(!e)return;
+  if(!keys){ delete s[orderId]; } else { keys.forEach(k=>{ delete e.at[k]; }); }
+  writeSched(s);
+}
+
+// Where an order is in its life: nothing = still being built, then accepted → picked → gone on delivery.
+const isActive=o=>o.status==="accepted"||o.status==="picked";
+// (The minsLeft/fmtLeft countdown helpers were removed with the on-card clocks — timing is carried
+// entirely by the background notifications now, so nothing counts down in front of the driver.)
+function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
   // Persisted Stack Check state — restored on mount so switching tabs never loses anything (saved below).
   const [restored]=useState(()=> store.get("delivr_stack_state")||{});
   const [orders,setOrders]=useState(()=> (restored.orders&&restored.orders.length) ? restored.orders : [{id:0,pickup:null,drop:null,pText:"",dText:"",pay:"",addedAt:Date.now()}]);
@@ -4120,15 +4411,94 @@ function StackScreen({gps,activeOrders,isAdmin}){
   const [loading,setLoading]=useState(false);
   const [res,setRes]=useState(()=> restored.res||null);
   const [err,setErr]=useState("");
+  const [quotaBlocked,setQuotaBlocked]=useState(false);     // budget ran out — offer the plans instead of just an error
   const [sampleCount,setSampleCount]=useState(undefined);   // admin readout: waitTimeSamples collected
   const [mapReady,setMapReady]=useState(false);             // flips true once the map exists, so restored pins get drawn
+  // Camera locked to the driver (drives the locate button's look). Always starts ON: pausing is a
+  // "you're looking at something right now" state, not a preference. It used to be persisted, which
+  // meant one hand-pan switched following off permanently — every later session opened with a map
+  // that never moved again.
+  const [following,setFollowing]=useState(true);
+  const [sheetOpen,setSheetOpen]=useState(false);           // the cards ride over the map, peeking by default
+  const [driveOpen,setDriveOpen]=useState(false);           // DRIVE's Google / Apple chooser
   const mapEl=useRef(null), mapRef=useRef(null), glRef=useRef(null), markRef=useRef({}), placingRef=useRef(placing), idRef=useRef((restored.orders&&restored.orders.length)?Math.max(...restored.orders.map(o=>o.id))+1:1);
   const viewportRef=useRef(restored.viewport||null);
+  // Live driver dot: marker + the animation frame gliding it, its last fix, its accuracy, and whether
+  // the camera is still following. followRef mirrors `following` for listeners bound once at map init.
+  const dotRef=useRef(null), dotAnimRef=useRef(null), dotPosRef=useRef(null), dotAccRef=useRef(null);
+  const camLockedRef=useRef(false);   // has the camera done its opening fly-to yet? (first GOOD fix, not first fix)
+  const followRef=useRef(true), locateBtnRef=useRef(null);
+  const setFollow=useCallback(on=>{ followRef.current=on; setFollowing(on); },[]);
+  // Per-pin menu: the open menu marker, the pin currently armed for dragging, and a flag saying a pin
+  // was dragged so the drawn route gets recomputed once the new coords reach state.
+  const pinMenuRef=useRef(null), pinMenuKeyRef=useRef(null), armedPinRef=useRef(null), pendingRecheckRef=useRef(false);
+  const sheetTouchRef=useRef(null);   // swipe origin for the bottom-sheet handle
   // Persist the whole screen (orders + coords + payout, last result, map viewport, details panel) on every
   // change. Ref keeps a latest-state saver the map's moveend handler can call without a stale closure.
   const saveRef=useRef(()=>{});
-  saveRef.current=()=>{ try{ store.set("delivr_stack_state",{orders,res,showDetails,placing,myPos,viewport:viewportRef.current}); }catch(e){} };
-  useEffect(()=>{ saveRef.current(); },[orders,res,showDetails,placing,myPos]);   // save immediately on add / pin / check / toggle
+  const skipSaveRef=useRef(false);   // set by Clear all: swallow the save its own reset would trigger
+  saveRef.current=()=>{ try{
+    if(skipSaveRef.current){ skipSaveRef.current=false; return; }   // the key was just deleted — leave it deleted
+    // `follow` is deliberately NOT saved — see the following state above.
+    store.set("delivr_stack_state",{orders,res,showDetails,placing,myPos,viewport:viewportRef.current});
+  }catch(e){} };
+  useEffect(()=>{ saveRef.current(); },[orders,res,showDetails,placing,myPos,following]);   // save immediately on add / pin / check / toggle
+
+  // Locate button: snap back to the driver and resume following. No fix yet → ask GPS for one.
+  const recentreRef=useRef(()=>{});
+  recentreRef.current=()=>{
+    const map=mapRef.current, p=dotPosRef.current||(gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null);
+    setFollow(true);
+    if(!p){ gps.retry&&gps.retry(); return; }
+    if(map)map.easeTo({center:[p.lng,p.lat],offset:[0,Math.round((map.getContainer().clientHeight||300)/6)],duration:700,essential:true});
+    setMyPos(p);
+  };
+  // ── PER-PIN MENU ────────────────────────────────────────────────────────────
+  // Tapping a pin opens Move / Remove just above it. Remove takes off only the pin that was tapped —
+  // the order and its other pin are untouched, so the card below just shows that side as un-pinned
+  // again and the next map tap re-places it.
+  const closePinMenuRef=useRef(()=>{});
+  closePinMenuRef.current=()=>{
+    if(pinMenuRef.current){ try{ pinMenuRef.current.remove(); }catch(e){} pinMenuRef.current=null; }
+    pinMenuKeyRef.current=null;
+  };
+  const disarmPinRef=useRef(()=>{});
+  disarmPinRef.current=()=>{
+    const m=armedPinRef.current;
+    if(m){ try{ m.getElement().style.boxShadow=PIN_SHADOW; }catch(e){} armedPinRef.current=null; }
+  };
+  const openPinMenuRef=useRef(()=>{});
+  openPinMenuRef.current=(orderId,kind,mk)=>{
+    const map=mapRef.current, gl=glRef.current; if(!map||!gl)return;
+    closePinMenuRef.current(); disarmPinRef.current();
+    const el=pinMenuEl(kind==="pickup"?"pickup pin":"drop-off pin",
+      ()=>{                                    // Move — hand the pin over to the driver's finger
+        closePinMenuRef.current();
+        try{ mk.getElement().style.boxShadow="0 0 0 4px rgba(26,115,232,.5),"+PIN_SHADOW; }catch(e){}
+        armedPinRef.current=mk;
+      },
+      ()=>{                                    // Remove — this pin only
+        closePinMenuRef.current(); disarmPinRef.current();
+        upd(orderId,{[kind]:null});
+        setRes(null);            // the drawn route ran through a pin that's gone — drop the stale one
+        setPlacing({id:orderId,kind});         // next map tap re-places the pin just removed
+      });
+    pinMenuRef.current=new gl.Marker({element:el,anchor:"bottom",offset:[0,-18]}).setLngLat(mk.getLngLat()).addTo(map);
+    pinMenuKeyRef.current=orderId+"-"+kind;
+  };
+
+  // Accuracy halo, in real metres: recomputed on every fix and on every zoom, clamped so it stays a
+  // readable ring around the dot instead of a pinprick or a disc that swallows the map.
+  const sizeHaloRef=useRef(()=>{});
+  sizeHaloRef.current=()=>{
+    const map=mapRef.current, mk=dotRef.current, p=dotPosRef.current;
+    if(!map||!mk||!p)return;
+    const halo=mk.getElement()._halo; if(!halo)return;
+    const d=dotAccRef.current?metersToPx(map,p.lat,p.lng,dotAccRef.current)*2:0;   // true diameter in px
+    halo.style.opacity=d>=HALO_MIN?"1":"0";        // smaller than the dot's glow → nothing honest to draw
+    halo.style.transform="scale("+(Math.min(HALO_MAX,Math.max(HALO_MIN,d))/HALO_BASE).toFixed(3)+")";
+  };
+  useEffect(()=>{ const b=locateBtnRef.current; if(!b)return; b.style.color=following?"#1a73e8":"#4b5563"; b.setAttribute("aria-pressed",following?"true":"false"); },[following,mapReady]);
   // Acceptance countdowns tick live off the STORED per-order timestamp (elapsed = now − addedAt), never
   // from mount — so reopening the app shows the true remaining time, or EXPIRED if 45min already passed.
   const [,setNowTick]=useState(0);
@@ -4136,7 +4506,6 @@ function StackScreen({gps,activeOrders,isAdmin}){
   useEffect(()=>{placingRef.current=placing;},[placing]);
   useEffect(()=>{ let a=true; getSampleCount().then(c=>{if(a)setSampleCount(c);}); return ()=>{a=false;}; },[]);
   const fld={width:"100%",background:"var(--bg)",border:"1px solid var(--border2)",borderRadius:10,padding:"10px 12px",color:"var(--ink)",fontSize:13,...M,fontWeight:600,outline:"none",boxSizing:"border-box"};
-  const lbl={fontSize:10,...M,fontWeight:700,color:"var(--muted)",letterSpacing:0.5,marginBottom:5};
   const upd=(id,patch)=>setOrders(os=>os.map(o=>o.id===id?{...o,...patch}:o));
 
   // Lazy-load Mapbox GL only when this admin-only screen opens (keeps it out of the main bundle).
@@ -4150,42 +4519,136 @@ function StackScreen({gps,activeOrders,isAdmin}){
         mapboxgl.accessToken=MAPBOX_TOKEN;
         const dark=document.documentElement.getAttribute("data-theme")==="dark"||(!document.documentElement.getAttribute("data-theme")&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);
         const vp=viewportRef.current;                                          // restore the saved map viewport if we have one
-        const center=vp?.center||(myPos?[myPos.lng,myPos.lat]:[-0.12,51.5]);
-        const zoom=vp?.zoom??13;
+        const live=(gps.status==="active"&&gps.lat!=null)?[gps.lng,gps.lat]:(myPos?[myPos.lng,myPos.lat]:null);
+        const center=(followRef.current&&live)||vp?.center||live||[-0.12,51.5];   // following → open on the driver, no jump
+        const zoom=vp?.zoom??14.5;   // urban delivery default — close enough to read street layout
         map=new mapboxgl.Map({container:mapEl.current,style:dark?"mapbox://styles/mapbox/dark-v11":"mapbox://styles/mapbox/streets-v12",center,zoom,attributionControl:false});
         mapRef.current=map; glRef.current=mapboxgl; setMapReady(true);
         map.addControl(new mapboxgl.NavigationControl({showCompass:false}),"top-right");
-        // Live location: shows the blue dot, centres on you, and gives the route's start point.
-        const geo=new mapboxgl.GeolocateControl({positionOptions:{enableHighAccuracy:true},trackUserLocation:true,showUserHeading:true});
-        map.addControl(geo,"top-right");
-        geo.on("geolocate",e=>{ if(!cancelled)setMyPos({lat:e.coords.latitude,lng:e.coords.longitude}); });
-        map.on("moveend",()=>{ const c=map.getCenter(); viewportRef.current={center:[c.lng,c.lat],zoom:map.getZoom()}; saveRef.current(); });   // persist pan/zoom
-        // Auto-centre on the driver only for a FRESH session — a restored session keeps its saved viewport.
-        map.on("load",()=>{ if(!vp)setTimeout(()=>{try{geo.trigger();}catch(e){}},400); });
+        // Locate button (under the zoom controls): re-centres on the driver and resumes following.
+        // Blue while following, grey once the driver has panned away. The dot itself is drawn from the
+        // app's own watchPosition stream below — no second GPS watcher, no second permission prompt.
+        const locate={
+          onAdd(){
+            const c=document.createElement("div"); c.className="mapboxgl-ctrl mapboxgl-ctrl-group";
+            const b=document.createElement("button"); b.type="button"; b.title="Centre on my location";
+            b.setAttribute("aria-label","Centre on my location");
+            b.style.cssText="display:flex;align-items:center;justify-content:center;color:"+(followRef.current?"#1a73e8":"#4b5563");
+            b.innerHTML='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M12 1.5v3.4M12 19.1v3.4M22.5 12h-3.4M4.9 12H1.5"/></svg>';
+            b.addEventListener("click",()=>recentreRef.current());
+            locateBtnRef.current=b; this._c=c; c.appendChild(b); return c;
+          },
+          onRemove(){ locateBtnRef.current=null; if(this._c&&this._c.parentNode)this._c.parentNode.removeChild(this._c); }
+        };
+        map.addControl(locate,"top-right");
+        // Full-bleed map now runs under the app's fixed profile avatar (top-right) — drop the map's
+        // own control stack below it so the two never sit on top of each other.
+        try{ const ctl=map.getContainer().querySelector(".mapboxgl-ctrl-top-right"); if(ctl)ctl.style.marginTop="56px"; }catch(e){}
+        // Persist pan/zoom — but not the camera's own follow moves, which would rewrite storage every
+        // GPS tick (user-driven moves carry an originalEvent; programmatic eases don't).
+        map.on("moveend",e=>{ const c=map.getCenter(); viewportRef.current={center:[c.lng,c.lat],zoom:map.getZoom()}; if(e.originalEvent||!followRef.current)saveRef.current(); });
+        map.on("dragstart",()=>{ if(followRef.current&&!cancelled)setFollow(false); });   // driver panned by hand → let go of the camera
+        map.on("zoom",()=>sizeHaloRef.current());                                          // accuracy halo is in metres, so it rescales with zoom
         map.on("click",e=>{
+          // A tap anywhere else dismisses an open pin menu — and only dismisses it, so closing the
+          // menu never drops a stray pin where the driver happened to tap.
+          if(pinMenuRef.current){ closePinMenuRef.current(); disarmPinRef.current(); return; }
           const {id,kind}=placingRef.current, c={lat:e.lngLat.lat,lng:e.lngLat.lng};
           setOrders(os=>os.map(o=>o.id===id?{...o,[kind]:c}:o));
           if(kind==="pickup")setPlacing(p=>({...p,kind:"drop"}));
         });
       }catch(e){ if(!cancelled)setErr("Map couldn't load — you can still type the addresses below."); }
     })();
-    return ()=>{cancelled=true; if(map)map.remove();};
+    return ()=>{
+      cancelled=true;
+      // The map (and every marker on it) is going away — drop the dot's handles so the next fix
+      // rebuilds it on the new map instead of writing to a destroyed one.
+      if(dotAnimRef.current){cancelAnimationFrame(dotAnimRef.current);dotAnimRef.current=null;}
+      dotRef.current=null; dotPosRef.current=null;
+      pinMenuRef.current=null; pinMenuKeyRef.current=null; armedPinRef.current=null;
+      if(map)map.remove();
+    };
   },[]);
+
+  // ── LIVE DRIVER DOT ─────────────────────────────────────────────────────────
+  // Every fix from the app's existing watchPosition glides the dot from where it is to the new
+  // coordinate over one GPS tick — linear, and the camera eases with the same duration and the same
+  // linear curve, so the dot stays pinned to its spot on screen instead of sliding or stuttering.
+  // While following, the camera keeps the driver two-thirds down the map, leaving the road ahead in view.
+  useEffect(()=>{
+    const map=mapRef.current, gl=glRef.current;
+    if(!map||!gl||!mapReady||gps.lat==null||gps.lng==null)return;
+    const to={lat:gps.lat,lng:gps.lng};
+    const first=!dotRef.current;
+    if(first)dotRef.current=new gl.Marker({element:driverDotEl()}).setLngLat([to.lng,to.lat]).addTo(map);
+    const from=dotPosRef.current;
+    dotPosRef.current=to; dotAccRef.current=gps.accuracy;
+    sizeHaloRef.current();
+    const moved=from?distMeters(from.lat,from.lng,to.lat,to.lng):null;
+    if(moved!=null&&moved<0.75)return;                            // standing still — GPS jitter, don't twitch the dot
+    setMyPos(p=>(!p||distMeters(p.lat,p.lng,to.lat,to.lng)>10)?to:p);   // route start point, only when it really changed
+    if(dotAnimRef.current)cancelAnimationFrame(dotAnimRef.current);
+    if(from){
+      const t0=performance.now();
+      const step=now=>{
+        const k=Math.min(1,(now-t0)/DOT_EASE_MS);
+        if(dotRef.current)dotRef.current.setLngLat([from.lng+(to.lng-from.lng)*k,from.lat+(to.lat-from.lat)*k]);
+        dotAnimRef.current=k<1?requestAnimationFrame(step):null;
+      };
+      dotAnimRef.current=requestAnimationFrame(step);
+    } else dotRef.current.setLngLat([to.lng,to.lat]);
+    // A fix this vague is bouncing around the street, so moving the camera on it would swing the map
+    // for no reason. The dot still updates — it's the truth about where GPS thinks we are — but the
+    // camera holds until the signal tightens up.
+    const poorFix=gps.accuracy!=null&&gps.accuracy>POOR_FIX_M;
+    if(followRef.current&&!poorFix){
+      const off=[0,Math.round((map.getContainer().clientHeight||300)/6)];   // driver sits ⅔ down, map ahead of them
+      if(!camLockedRef.current){
+        // First usable fix — go there properly, at a zoom that shows streets for city driving. Keyed
+        // off the camera, not the dot, so a poor opening fix doesn't cost us the fly-in entirely.
+        camLockedRef.current=true;
+        const z=map.getZoom();
+        map.flyTo({center:[to.lng,to.lat],offset:off,zoom:z<14?14.5:z,duration:900,essential:true});
+      }
+      else map.easeTo({center:[to.lng,to.lat],offset:off,duration:DOT_EASE_MS,easing:t=>t,essential:true});
+    }
+  },[gps.lat,gps.lng,gps.accuracy,mapReady]);
+  useEffect(()=>()=>{ if(dotAnimRef.current)cancelAnimationFrame(dotAnimRef.current); },[]);
 
   // Keep the numbered map pins in sync with the orders list (P1/D1, P2/D2, …).
   useEffect(()=>{
     const map=mapRef.current, gl=glRef.current; if(!map||!gl)return;
     const wanted=new Set();
     orders.forEach((o,i)=>{
-      [["pickup",o.pickup,"#06c167","P"+(i+1)],["drop",o.drop,"#ef4444","D"+(i+1)]].forEach(([kind,coord,color,text])=>{
+      // A collected order keeps its coords but drops its pin — it's in the car, not on the map.
+      [["pickup",o.status==="picked"?null:o.pickup,"#06c167","P"+(i+1)],["drop",o.drop,"#ef4444","D"+(i+1)]].forEach(([kind,coord,color,text])=>{
         if(!coord)return;
         const key=o.id+"-"+kind; wanted.add(key);
         let mk=markRef.current[key];
-        if(!mk){ mk=new gl.Marker({element:stackMarkerEl(text,color),draggable:true}).setLngLat([coord.lng,coord.lat]).addTo(map); mk.on("dragend",()=>{const ll=mk.getLngLat(); upd(o.id,{[kind]:{lat:ll.lat,lng:ll.lng}});}); markRef.current[key]=mk; }
+        if(!mk){
+          mk=new gl.Marker({element:stackMarkerEl(text,color),draggable:true}).setLngLat([coord.lng,coord.lat]).addTo(map);
+          // A drag ends with a browser click on the same element, so track it and swallow that one
+          // click — otherwise every nudge would pop the menu open again.
+          let dragged=false;
+          const el=mk.getElement();
+          const fresh=()=>{dragged=false;};
+          el.addEventListener("mousedown",fresh); el.addEventListener("touchstart",fresh,{passive:true});
+          mk.on("dragstart",()=>{ dragged=true; closePinMenuRef.current(); });
+          mk.on("dragend",()=>{
+            const ll=mk.getLngLat(); upd(o.id,{[kind]:{lat:ll.lat,lng:ll.lng}});
+            disarmPinRef.current();
+            pendingRecheckRef.current=true;   // moved pin → the drawn route is stale, recompute it
+          });
+          el.addEventListener("click",ev=>{ ev.stopPropagation(); if(dragged)return; openPinMenuRef.current(o.id,kind,mk); });
+          markRef.current[key]=mk;
+        }
         else { mk.setLngLat([coord.lng,coord.lat]); mk.getElement().textContent=text; }
       });
     });
-    Object.keys(markRef.current).forEach(k=>{ if(!wanted.has(k)){markRef.current[k].remove(); delete markRef.current[k];} });
+    Object.keys(markRef.current).forEach(k=>{ if(!wanted.has(k)){
+      if(pinMenuKeyRef.current===k)closePinMenuRef.current();   // its pin just went — don't leave the menu floating
+      markRef.current[k].remove(); delete markRef.current[k];
+    } });
   },[orders,mapReady]);   // mapReady so restored pins get drawn once the map exists
 
   // Coloured route polylines — drawn from the persisted result's per-leg road geometry (each leg in its
@@ -4217,14 +4680,107 @@ function StackScreen({gps,activeOrders,isAdmin}){
   function addOrder(){ if(orders.length>=6)return; const id=idRef.current++; setOrders(os=>[...os,{id,pickup:null,drop:null,pText:"",dText:"",pay:"",addedAt:Date.now()}]); setPlacing({id,kind:"pickup"}); }
   function removeOrder(id){ setOrders(os=>os.filter(o=>o.id!==id)); setPlacing(p=>p.id===id?{id:(orders.find(o=>o.id!==id)||{}).id??0,kind:"pickup"}:p); setRes(null); }
 
+  // ── ORDER LIFECYCLE: accept → picked up → delivered ─────────────────────────
+  // Timestamps are stored UTC (ISO) on the order itself, so the whole lifecycle rides along in the
+  // existing delivr_stack_state save and survives a refresh mid-run.
+  const syncStart=()=>{ if(gps.status==="active"&&gps.lat!=null)setMyPos({lat:gps.lat,lng:gps.lng}); };   // recalcs start from where the driver is NOW
+  const newest=orders.length?orders.reduce((a,b)=>((b.addedAt||0)>=(a.addedAt||0)?b:a)):null;
+  const pendingNewest=res&&newest&&!newest.status&&(newest.drop||(newest.dText||"").trim())?newest:null;   // ACCEPT/REJECT target
+
+  // ACCEPT is the clock's zero. Work out every fire time now, from this one stored UTC stamp, so the
+  // schedule is already fixed and doesn't depend on the app being open later to do the arithmetic.
+  function scheduleRiskNotifs(order,idx,acceptedAt){
+    const base=Date.parse(acceptedAt); if(!Number.isFinite(base))return;
+    const at={};
+    if(order.pickup||(order.pText||"").trim()){
+      at.p5=base+(PICKUP_WINDOW_MIN-5)*60000;
+      at.p2=base+(PICKUP_WINDOW_MIN-2)*60000;
+    }
+    // Delivery deadline from the sliding-window rule that already exists — read only, same formula,
+    // nothing about the calculation is changed here.
+    const po=res&&res.perOrder&&res.perOrder[idx];
+    if(po&&po.baselineMin!=null){
+      const win=slidingWindowMin(po.baselineMin-DROPOFF_DWELL_MIN);
+      at.d10=base+(win-10)*60000;
+      at.d5 =base+(win-5)*60000;
+      at.d0 =base+win*60000;
+    }
+    if(!Object.keys(at).length)return;
+    const s=readSched(); s[String(order.id)]={at,fired:{}}; writeSched(s);
+  }
+
+  function acceptOrder(id){
+    const acceptedAt=new Date().toISOString();
+    setOrders(os=>os.map(o=>o.id===id?{...o,status:"accepted",acceptedAt}:o));
+    const idx=orders.findIndex(o=>o.id===id), o=orders[idx];
+    if(o)scheduleRiskNotifs(o,idx,acceptedAt);
+    // An accepted order can't be re-pinned, so hand the map's aim to the next order still being built.
+    setPlacing(p=>{ if(p.id!==id)return p; const nxt=orders.find(o=>o.id!==id&&!isActive(o)); return nxt?{id:nxt.id,kind:nxt.pickup?"drop":"pickup"}:p; });
+    syncStart();   // pins and route lines stay exactly as they are — nothing about the geometry changed
+  }
+  function rejectOrder(id){
+    closePinMenuRef.current(); disarmPinRef.current();
+    cancelNotifs(String(id));
+    setOrders(os=>{ const next=os.filter(o=>o.id!==id); return next.length?next:[blankOrder()]; });
+    setPlacing(p=>p.id===id?{id:(orders.find(o=>o.id!==id)||{}).id??0,kind:"pickup"}:p);
+    setRes(null); setErr("");     // its pins, its route line and the verdict all go with it
+    setSheetOpen(false);          // back to the map-first view it came from
+  }
+  function markPickedUp(id){
+    setOrders(os=>os.map(o=>o.id===id?{...o,status:"picked",pickedUpAt:new Date().toISOString()}:o));
+    cancelNotifs(String(id),PICKUP_KEYS);   // collected — the pickup track is done; delivery keeps running
+    syncStart();
+    pendingRecheckRef.current=true;   // pickup pin + its leg drop out, so re-time the run from here
+  }
+  function markDelivered(id){
+    closePinMenuRef.current(); disarmPinRef.current();
+    cancelNotifs(String(id));   // done — nothing further fires for this order
+    setOrders(os=>{ const next=os.filter(o=>o.id!==id); return next.length?next:[blankOrder()]; });
+    setPlacing(p=>p.id===id?{id:(orders.find(o=>o.id!==id)||{}).id??0,kind:"pickup"}:p);
+    syncStart();
+    pendingRecheckRef.current=true;   // re-optimise whatever is left, starting from the current position
+  }
+
+  // Is there anything to clear? A blank first order isn't a stack — that's the fresh screen, so the
+  // Clear all button stays hidden until the driver has actually put something in.
+  const blankOrder=()=>({id:0,pickup:null,drop:null,pText:"",dText:"",pay:"",addedAt:Date.now()});
+  const hasStack=orders.length>1||res!=null||err!==""||orders.some(o=>o.pickup||o.drop||(o.pText||"").trim()||(o.dText||"").trim()||String(o.pay||"").trim());
+
+  // Clear all — one tap back to a first-open screen. Emptying orders and the result is enough to strip
+  // the map too: the pin effect removes every marker no order still wants, and the route effect drops
+  // the line layer when there's no result. Then forget the saved session so nothing restores.
+  function clearAll(){
+    closePinMenuRef.current(); disarmPinRef.current();   // no pins left for the menu to point at
+    store.del("delivr_stack_state");
+    store.del(NOTIF_SCHED_KEY);   // the whole stack is gone — no order left to warn about
+    skipSaveRef.current=true;
+    idRef.current=1;
+    setOrders([blankOrder()]);
+    setPlacing({id:0,kind:"pickup"});
+    setRes(null); setErr(""); setShowDetails(false);
+    // Back to the opening camera: on the driver, following again — but never ask for GPS off this tap.
+    if(dotPosRef.current)recentreRef.current();
+  }
+
   async function check(){
     setErr("");setRes(null);
+    // Budget gate — refuse BEFORE spending a Mapbox request, so a blocked run costs nothing.
+    if(quota&&!quota.allowed){
+      setErr(quota.reason==="no-plan"
+        ? "Your free trial has ended — pick a plan to keep stacking."
+        : `You've used all ${quota.cap} stack checks for today. Your budget resets at midnight.`);
+      setQuotaBlocked(true);
+      return;
+    }
     const start=myPos||(gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null);
     if(!start){setErr("We need your location — tap the ⌖ locate button on the map (top-right) and allow it.");return;}
     setLoading(true);
     try{
+      // An order that's already been collected goes in WITHOUT a pickup — the optimiser's existing
+      // "in hand" path then routes straight to its drop. Input only; none of the maths below changes.
+      const liveOrders=orders.map(o=>o.status==="picked"?{...o,pickup:null,pText:""}:o);
       const points=[start], ord=[];
-      for(const o of orders){
+      for(const o of liveOrders){
         const pk=o.pickup||(o.pText.trim()?await geocodeText(o.pText,start.lat,start.lng):null);
         const dp=o.drop||(o.dText.trim()?await geocodeText(o.dText,start.lat,start.lng):null);
         if(!dp){setErr("Every order needs a drop-off (pin or address).");setLoading(false);return;}
@@ -4234,6 +4790,8 @@ function StackScreen({gps,activeOrders,isAdmin}){
       if(points.length>25){setErr("Too many stops — keep it to about 6 orders.");setLoading(false);return;}
       const m=await mapboxMatrix(points);
       if(!m){setErr("Routing is unavailable right now — try again.");setLoading(false);return;}
+      onConsume&&onConsume();   // a request was actually spent — count it against today's budget
+      track(EV.stackCheck,{orders:orders.length});
       // Dwell per stop: pickup = real restaurant wait if enough samples exist, else flat PICKUP_DWELL_MIN;
       // drop-off = flat DROPOFF_DWELL_MIN. Applied per stop, so N orders = N pickup + N drop buffers.
       const hour=new Date().getHours(), dwell={}; let usedWait=false;
@@ -4271,49 +4829,212 @@ function StackScreen({gps,activeOrders,isAdmin}){
     setLoading(false);
   }
 
+  // A pin dragged to a new spot leaves the drawn route pointing at the old one. Once the new coords
+  // land in state, re-run the same check — but only when a route was already on screen, so moving a
+  // pin before the first CHECK stays silent.
+  useEffect(()=>{
+    if(!pendingRecheckRef.current)return;
+    pendingRecheckRef.current=false;
+    const routable=orders.filter(o=>o.drop||(o.dText||"").trim());
+    if(!routable.length){ setRes(null); return; }   // nothing left to route — clear the old lines
+    if(res&&!loading)check();
+  },[orders]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Countdowns tick every second only while something is actually running.
+  const hasLive=orders.some(isActive);
+  useEffect(()=>{ if(!hasLive)return; const id=setInterval(()=>setNowTick(t=>t+1),1000); return ()=>clearInterval(id); },[hasLive]);
+
   const activeIdx=orders.findIndex(o=>o.id===placing.id);
+  // The sheet is always its full open height and simply slides down to leave a peek — sliding is a
+  // transform, so opening and closing composites on the GPU instead of relaying out the whole sheet.
+  const sheetDrop=`calc(${SHEET_OPEN_VH}vh - ${SHEET_PEEK}px)`;
+  const sheetShift=sheetOpen?"translateY(0)":`translateY(${sheetDrop})`;
+  const railShift=sheetOpen?`translateY(calc(-1 * (${sheetDrop})))`:"translateY(0)";
+  // Only prompt for pinning when the aimed-at order is still editable — an accepted one can't be re-pinned.
+  const placingOrder=orders.find(o=>o.id===placing.id);
+  const placingHint=(activeIdx>=0&&placingOrder&&!isActive(placingOrder))
+    ? `Tap the map to set Order ${activeIdx+1} ${placing.kind==="pickup"?"pickup":"drop-off"}`
+    : (orders.some(isActive)?"Stack running — add an order for the next one":"Add an order to start");
+  // One line that survives the collapsed sheet: whatever is most urgent right now.
+  const liveOrders=orders.filter(isActive);
+  // Status only — no clock. Timing is carried entirely by the background notifications; the driver
+  // is never shown a countdown to watch.
+  const summaryLine=liveOrders.length
+    ? liveOrders.map(o=>{
+        const n=orders.findIndex(x=>x.id===o.id)+1;
+        return o.status==="picked"?`Order ${n} · out for drop-off`:`Order ${n} · heading to pickup`;
+      }).join("   ·   ")
+    : placingHint;
+  const headline=res
+    ? (res.stacked?({green:"You can take this order",orange:"Tight but possible",red:"Don't take this order"}[res.bannerColor]||"Verdict ready"):"Single order — nothing to stack")
+    : `${orders.length} order${orders.length===1?"":"s"} in the stack`;
+  // Rail button shape — one thumb, edge of the screen, never over the middle of the map.
+  const railBtn={minWidth:104,minHeight:46,borderRadius:12,...B,fontWeight:800,fontSize:12,letterSpacing:0.8,cursor:"pointer",boxShadow:"0 4px 14px rgba(0,0,0,0.28)",display:"flex",alignItems:"center",justifyContent:"center"};
+  // Hand-off to a nav app: the same stops, in the same order the optimiser worked out.
+  const driveStops=stackStops(res,orders);
+  const driveOrigin=dotPosRef.current||myPos||(gps.status==="active"&&gps.lat!=null?{lat:gps.lat,lng:gps.lng}:null);
+  const goDrive=provider=>{
+    if(!driveStops.length)return;
+    setDriveOpen(false);
+    openExternal(provider==="apple"?appleMapsUrl(driveOrigin,driveStops):googleMapsUrl(driveOrigin,driveStops));
+  };
+  const driveItem={display:"block",width:"100%",textAlign:"left",background:"transparent",border:"none",padding:"10px 13px",minHeight:44,cursor:"pointer",...B,fontWeight:700,fontSize:12.5,color:"var(--ink)"};
+
+  // Height matches the safe-area padding the app shell now adds, so the map still fills exactly
+  // what's left of the viewport instead of overflowing it by the status-bar height.
   return(
-    <div style={{padding:"20px 16px 100px"}}>
-      <div style={{...B,fontSize:34,color:"#00b8a9",letterSpacing:2}}>STACK CHECK</div>
-      <div style={{fontSize:10,color:"var(--muted2)",letterSpacing:1,marginTop:2,marginBottom:10}}>CAN I STACK THESE ORDERS?</div>
-      <div style={{fontSize:11,...M,color:"var(--muted)",lineHeight:1.5,marginBottom:10}}>Add each order (pickup + drop-off), pin them on the map, and it finds the best route from where you are and tells you which orders still deliver on time.</div>
-      {isAdmin&&<div style={{display:"flex",alignItems:"center",gap:8,background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:10,padding:"8px 12px",marginBottom:14}}>
+    <div style={{position:"relative",height:"calc(100dvh - env(safe-area-inset-top,0px))",overflow:"hidden"}}>
+      {/* THE MAP — full bleed and the primary element; everything else floats over it. */}
+      <div ref={mapEl} style={{position:"absolute",inset:0,background:"var(--border3)"}}/>
+
+      {/* Top slot: the verdict takes it the moment there is one, otherwise the pinning prompt holds it.
+          Both clear the profile avatar on the right and sit left of the map's own control stack. */}
+      {res?(
+        <VerdictBanner res={res} isAdmin={isAdmin} onOpen={()=>setSheetOpen(true)}/>
+      ):(
+        <div style={{position:"absolute",top:12,left:12,maxWidth:"56%",zIndex:150,background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,padding:"8px 11px",boxShadow:"0 4px 14px rgba(0,0,0,0.18)",pointerEvents:"none"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{...B,fontWeight:800,fontSize:12,color:"#00b8a9",letterSpacing:1.2}}>STACK CHECK</div>
+            <ScreenReaderButton/>
+          </div>
+          <div style={{...M,fontSize:10.5,color:"var(--muted)",lineHeight:1.35,marginTop:2}}>{placingHint}</div>
+        </div>
+      )}
+
+      {/* Tapping anywhere off the DRIVE chooser closes it, without the map underneath acting on it. */}
+      {driveOpen&&<div onClick={()=>setDriveOpen(false)} style={{position:"absolute",inset:0,zIndex:175}}/>}
+
+      {/* RIGHT RAIL — DRIVE / ADD ORDER / CHECK always, plus ACCEPT / REJECT once there's a verdict. */}
+      <div style={{position:"absolute",right:12,bottom:SHEET_PEEK+12,zIndex:driveOpen?180:160,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:9,transform:railShift,transition:"transform .28s cubic-bezier(.16,1,.3,1)",willChange:"transform"}}>
+        {pendingNewest&&(
+          <>
+            <button type="button" onClick={()=>acceptOrder(pendingNewest.id)}
+              style={{...railBtn,background:"#06c167",border:"none",color:"#00250f"}}>ACCEPT</button>
+            <button type="button" onClick={()=>rejectOrder(pendingNewest.id)}
+              style={{...railBtn,background:"#161d22",border:"1px solid rgba(239,68,68,0.55)",color:"#fff"}}>REJECT</button>
+          </>
+        )}
+        {/* DRIVE — hands the optimiser's sequence to a real nav app. Only offered once there's
+            somewhere to drive to; the chooser sits directly above it and closes on any tap outside. */}
+        {driveOpen&&driveStops.length>0&&(
+          <div style={{background:"var(--card)",border:"1px solid var(--border2)",borderRadius:12,boxShadow:"0 10px 26px rgba(0,0,0,0.30)",overflow:"hidden",minWidth:186,animation:"slideDown .2s cubic-bezier(.16,1,.3,1)"}}>
+            <div style={{padding:"9px 13px 5px",...M,fontSize:9.5,fontWeight:700,letterSpacing:1,color:"var(--muted2)"}}>
+              {driveStops.length} STOP{driveStops.length===1?"":"S"} · IN ROUTE ORDER
+            </div>
+            <button type="button" onClick={()=>goDrive("google")} style={driveItem}>Google Maps</button>
+            <div style={{height:1,background:"var(--border2)"}}/>
+            <button type="button" onClick={()=>goDrive("apple")} style={{...driveItem,paddingBottom:11}}>
+              Apple Maps
+              <span style={{display:"block",...M,fontWeight:600,fontSize:10,color:"var(--muted)",marginTop:2}}>next stop only — Apple takes one destination</span>
+            </button>
+          </div>
+        )}
+        {driveStops.length>0&&(
+          <button type="button" onClick={()=>setDriveOpen(o=>!o)} aria-expanded={driveOpen}
+            style={{...railBtn,background:"#2b8fff",border:"none",color:"#00172e"}}>DRIVE</button>
+        )}
+        {/* Secondary weight so CHECK stays the obvious primary; hidden at the 6-order cap, same as in the sheet. */}
+        {orders.length<6&&(
+          <button type="button" onClick={addOrder}
+            style={{...railBtn,background:"var(--card)",border:"1px solid var(--border2)",color:"var(--ink)"}}>ADD ORDER</button>
+        )}
+        <button type="button" onClick={check} disabled={loading}
+          style={{...railBtn,background:loading?"var(--border)":"#00b8a9",border:"none",color:loading?"var(--faint)":"#00201e",fontSize:loading?10:12}}>
+          {loading?"WORKING…":"CHECK"}
+        </button>
+      </div>
+
+      {/* Today's remaining budget — shown only when it's finite and running down, so a driver is
+          never surprised by the gate. Hidden for admins (never metered) and on a fresh full day. */}
+      {quota&&quota.enforced&&Number.isFinite(quota.cap)&&quota.used>0&&(
+        <div style={{position:"absolute",top:12,left:12,zIndex:160,...M,fontSize:10,fontWeight:700,
+          color:quota.left<=3?"#ff9500":"var(--muted)",background:"var(--card)",border:"1px solid var(--border2)",
+          borderRadius:8,padding:"4px 8px",fontVariantNumeric:"tabular-nums"}}>
+          {quota.left}/{quota.cap} checks left today
+        </div>
+      )}
+
+      {/* BOTTOM SHEET — peeks by default so the map keeps the screen; tap or swipe the handle for detail. */}
+      <div style={{position:"absolute",left:0,right:0,bottom:0,height:`${SHEET_OPEN_VH}vh`,zIndex:150,background:"var(--card)",borderTop:"1px solid var(--border2)",borderRadius:"18px 18px 0 0",boxShadow:"0 -8px 28px rgba(0,0,0,0.22)",display:"flex",flexDirection:"column",transform:sheetShift,transition:"transform .28s cubic-bezier(.16,1,.3,1)",willChange:"transform"}}>
+        <div role="button" tabIndex={0} aria-expanded={sheetOpen} aria-label={sheetOpen?"Collapse order detail":"Expand order detail"}
+          onClick={()=>setSheetOpen(s=>!s)}
+          onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();setSheetOpen(s=>!s);} }}
+          onTouchStart={e=>{ sheetTouchRef.current=e.touches[0].clientY; }}
+          onTouchEnd={e=>{ const y0=sheetTouchRef.current; sheetTouchRef.current=null;
+            if(y0==null)return; const dy=e.changedTouches[0].clientY-y0;
+            if(dy<-30)setSheetOpen(true); else if(dy>30)setSheetOpen(false); }}
+          style={{flexShrink:0,padding:"9px 14px 11px",cursor:"pointer",touchAction:"none"}}>
+          <div style={{width:38,height:4,borderRadius:2,background:"var(--border2)",margin:"0 auto 9px"}}/>
+          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+            <span style={{...B,fontWeight:800,fontSize:13,color:"var(--ink)",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{headline}</span>
+            <span style={{...M,fontSize:9.5,color:"var(--muted2)",flexShrink:0,letterSpacing:0.4}}>{sheetOpen?"CLOSE":"DETAIL"}</span>
+          </div>
+          <div style={{...M,fontSize:11,color:liveOrders.length?"var(--ink)":"var(--muted)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{summaryLine}</div>
+        </div>
+
+        <div style={{flex:1,overflowY:"auto",padding:"0 14px 76px",display:sheetOpen?"block":"none",WebkitOverflowScrolling:"touch"}}>
+      {isAdmin&&<div style={{display:"flex",alignItems:"center",gap:8,background:"var(--tint-teal)",border:"1px solid #00b8a933",borderRadius:10,padding:"8px 12px",marginBottom:12}}>
         <span style={{fontSize:14}}>📊</span>
         <span style={{flex:1,fontSize:11.5,...M,color:"var(--muted)"}}>Wait-time samples collected: <b style={{color:"#00b8a9"}}>{sampleCount===undefined?"…":(sampleCount==null?"—":sampleCount.toLocaleString())}</b></span>
         <button onClick={()=>{setSampleCount(undefined);getSampleCount().then(setSampleCount);}} style={{background:"none",border:"none",color:"#00b8a9",cursor:"pointer",...B,fontSize:14}}>↻</button>
       </div>}
 
-      <div style={{fontSize:10,...M,color:"var(--muted2)",marginBottom:8}}>{activeIdx>=0?<>Tap the map to set <b style={{color:placing.kind==="pickup"?"#06c167":"#ef4444"}}>Order {activeIdx+1} {placing.kind==="pickup"?"pickup":"drop-off"}</b> · drag to fine-tune. Use ⌖ for your location.</>:"Add an order below to start."}</div>
-      <div ref={mapEl} style={{height:300,borderRadius:14,overflow:"hidden",border:"1px solid var(--border)",marginBottom:12,background:"var(--border3)"}}/>
+      {/* Clear all — secondary weight and off to the side, well away from the map and CHECK, so it's
+          never the button a thumb finds by accident. Held back while a check is in flight so a result
+          can't land on an already-cleared screen. */}
+      {hasStack&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+        <button type="button" onClick={clearAll} disabled={loading} style={{background:"none",border:"1px solid "+(loading?"var(--border3)":"var(--border2)"),borderRadius:9,padding:"8px 12px",minHeight:34,...B,fontWeight:700,fontSize:11,letterSpacing:0.5,color:loading?"var(--faint)":"var(--danger)",cursor:loading?"default":"pointer"}}>Clear all</button>
+      </div>}
 
       {orders.map((o,i)=>{
         const aP=placing.id===o.id&&placing.kind==="pickup", aD=placing.id===o.id&&placing.kind==="drop";
+        const live=isActive(o);
+        // No pick-up/drop clocks on the card by design — the driver is warned by notification, not
+        // by a number ticking down in front of them.
+        const actBtn={flex:1,minHeight:44,borderRadius:10,...B,fontWeight:800,fontSize:12,letterSpacing:0.6,cursor:"pointer"};
         return(
-          <div key={o.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px",marginBottom:10}}>
+          <div key={o.id} style={{background:"var(--card)",border:"1px solid "+(live?"#06c16755":"var(--border)"),borderRadius:12,padding:"12px",marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                 <div style={{...B,fontWeight:800,fontSize:13,color:"var(--ink)",letterSpacing:0.5}}>ORDER {i+1}</div>
-                {isAdmin&&(()=>{ const start=o.addedAt||Date.now(); const remMin=WINDOW_MIN-(Date.now()-start)/60000; const c=remMin<=0?"#ef4444":remMin<=10?"#f5a623":"var(--muted)"; return <span style={{...M,fontSize:10,fontWeight:700,color:c,letterSpacing:0.3}}>⏱ {remMin<=0?"EXPIRED":Math.ceil(remMin)+"m left"}</span>; })()}
+                {live&&<span style={{...B,fontWeight:800,fontSize:9,letterSpacing:1,color:o.status==="picked"?"#2b8fff":"#06c167",background:o.status==="picked"?"var(--tint-blue)":"var(--tint-green)",border:"1px solid "+(o.status==="picked"?"#2b8fff55":"#06c16755"),borderRadius:6,padding:"3px 6px"}}>{o.status==="picked"?"PICKED UP":"ACCEPTED"}</span>}
+                {!live&&isAdmin&&(()=>{ const start=o.addedAt||Date.now(); const remMin=WINDOW_MIN-(Date.now()-start)/60000; const c=remMin<=0?"#ef4444":remMin<=10?"#f5a623":"var(--muted)"; return <span style={{...M,fontSize:10,fontWeight:700,color:c,letterSpacing:0.3}}>⏱ {remMin<=0?"EXPIRED":Math.ceil(remMin)+"m left"}</span>; })()}
               </div>
-              {orders.length>1&&<button onClick={()=>removeOrder(o.id)} style={{background:"none",border:"none",color:"var(--muted2)",fontSize:16,cursor:"pointer",lineHeight:1}}>✕</button>}
+              {orders.length>1&&!live&&<button onClick={()=>removeOrder(o.id)} style={{background:"none",border:"none",color:"var(--muted2)",fontSize:16,cursor:"pointer",lineHeight:1}}>✕</button>}
             </div>
-            <div style={{display:"flex",gap:6,marginBottom:8}}>
-              <button onClick={()=>setPlacing({id:o.id,kind:"pickup"})} style={{flex:1,background:aP?"#06c167":"var(--bg)",border:"1px solid "+(aP?"#06c167":"var(--border2)"),borderRadius:9,padding:"8px 4px",...B,fontWeight:700,fontSize:11,color:aP?"#fff":o.pickup?"#06c167":"var(--muted)",cursor:"pointer"}}>📍 Pickup{o.pickup?" ✓":""}</button>
-              <button onClick={()=>setPlacing({id:o.id,kind:"drop"})} style={{flex:1,background:aD?"#ef4444":"var(--bg)",border:"1px solid "+(aD?"#ef4444":"var(--border2)"),borderRadius:9,padding:"8px 4px",...B,fontWeight:700,fontSize:11,color:aD?"#fff":o.drop?"#ef4444":"var(--muted)",cursor:"pointer"}}>🏁 Drop{o.drop?" ✓":""}</button>
-            </div>
-            <input value={o.pText} onChange={e=>upd(o.id,{pText:e.target.value})} placeholder={o.pickup?"📍 pinned · or type pickup":"Pickup address (blank = already collected)"} style={{...fld,marginBottom:6}}/>
-            <input value={o.dText} onChange={e=>upd(o.id,{dText:e.target.value})} placeholder={o.drop?"📍 pinned · or type drop-off":"Drop-off address"} style={{...fld,marginBottom:6}}/>
-            <input value={o.pay} onChange={e=>upd(o.id,{pay:e.target.value})} inputMode="decimal" placeholder="Pay £ (optional)" style={fld}/>
+
+            {live?(
+              /* An order in flight: no more pinning or editing — just the two moves left to make. */
+              <div style={{display:"flex",gap:6}}>
+                {o.status==="accepted"&&<button onClick={()=>markPickedUp(o.id)} style={{...actBtn,background:"#06c167",border:"none",color:"#00250f"}}>PICKED UP</button>}
+                {o.status==="picked"&&<button onClick={()=>markDelivered(o.id)} style={{...actBtn,background:"#2b8fff",border:"none",color:"#00172e"}}>DELIVERED</button>}
+              </div>
+            ):(<>
+              <div style={{display:"flex",gap:6,marginBottom:8}}>
+                <button onClick={()=>setPlacing({id:o.id,kind:"pickup"})} style={{flex:1,background:aP?"#06c167":"var(--bg)",border:"1px solid "+(aP?"#06c167":"var(--border2)"),borderRadius:9,padding:"8px 4px",...B,fontWeight:700,fontSize:11,color:aP?"#fff":o.pickup?"#06c167":"var(--muted)",cursor:"pointer"}}>📍 Pickup{o.pickup?" ✓":""}</button>
+                <button onClick={()=>setPlacing({id:o.id,kind:"drop"})} style={{flex:1,background:aD?"#ef4444":"var(--bg)",border:"1px solid "+(aD?"#ef4444":"var(--border2)"),borderRadius:9,padding:"8px 4px",...B,fontWeight:700,fontSize:11,color:aD?"#fff":o.drop?"#ef4444":"var(--muted)",cursor:"pointer"}}>🏁 Drop{o.drop?" ✓":""}</button>
+              </div>
+              <input value={o.pText} onChange={e=>upd(o.id,{pText:e.target.value})} placeholder={o.pickup?"📍 pinned · or type pickup":"Pickup address (blank = already collected)"} style={{...fld,marginBottom:6}}/>
+              <input value={o.dText} onChange={e=>upd(o.id,{dText:e.target.value})} placeholder={o.drop?"📍 pinned · or type drop-off":"Drop-off address"} style={{...fld,marginBottom:6}}/>
+              <input value={o.pay} onChange={e=>upd(o.id,{pay:e.target.value})} inputMode="decimal" placeholder="Pay £ (optional)" style={fld}/>
+            </>)}
           </div>
         );
       })}
       {orders.length<6&&<button onClick={addOrder} style={{width:"100%",background:"var(--card)",border:"1px dashed var(--border2)",borderRadius:12,padding:"12px",...B,fontWeight:700,fontSize:13,color:"#00b8a9",cursor:"pointer",marginBottom:12}}>+ Add order ({orders.length}/6)</button>}
 
       {err&&<div style={{fontSize:12,...M,color:"#ef4444",marginBottom:12}}>{err}</div>}
-      <button onClick={check} disabled={loading} style={{width:"100%",minHeight:56,background:loading?"var(--border)":"#00b8a9",border:"none",borderRadius:14,...B,fontWeight:800,fontSize:17,letterSpacing:0.5,color:loading?"var(--faint)":"#003",cursor:loading?"default":"pointer"}}>{loading?"WORKING OUT THE ROUTE…":"CHECK THE STACK"}</button>
+      {/* Out of budget isn't a dead end — send the driver straight to the plans. */}
+      {quotaBlocked&&onUpgrade&&(
+        <button type="button" onClick={()=>{setQuotaBlocked(false);onUpgrade();}}
+          style={{width:"100%",minHeight:46,marginBottom:12,background:"#00b8a9",border:"none",borderRadius:12,
+            ...B,fontWeight:800,fontSize:14,letterSpacing:1,color:"#00201e",cursor:"pointer"}}>
+          SEE PLANS →
+        </button>
+      )}
+      {/* CHECK itself lives on the map rail so it's reachable without opening this sheet. */}
 
       {res&&(()=>{
-        const n=res.perOrder.length;
         const CV={
           green:{c:"#06c167", bg:"var(--tint-green)", banner:"✅ You can take this order",  row:"Good to go"},
           orange:{c:"#f5a623", bg:"var(--tint-amber)", banner:"🟠 It's tight but possible", row:"Tight — your call"},
@@ -4409,12 +5130,14 @@ function StackScreen({gps,activeOrders,isAdmin}){
           </div>
         );
       })()}
+        </div>{/* /sheet scroll area */}
+      </div>{/* /bottom sheet */}
     </div>
   );
 }
 
 // ── BOTTOM NAV ────────────────────────────────────────────────────────────────
-function BottomNav({screen,onNav,activeWait,unreadChat,isAdmin}) {
+function BottomNav({screen,onNav,activeWait,unreadChat}) {
   const tabs=[
     {id:"waits",icon:"⏱",label:t("nav_waits"),dot:activeWait,  color:"#00b8a9"},
     {id:"stats",icon:"📊",label:t("nav_stats"),dot:false,       color:"#f5a623"},
@@ -4469,6 +5192,7 @@ export default function App() {
   const [showStats,setShowStats]=useState(false);
   const [showLogbook,setShowLogbook]=useState(false);
   const [showHelp,setShowHelp]=useState(false);
+  const [showLearn,setShowLearn]=useState(false);   // Learning Materials (multi-app training)
   const [reminder,setReminder]=useState(null);   // in-app "still waiting?" notification text
   const [theme,setTheme]=useState(()=>store.get("delivr_theme")||"light");
   const [onboarded,setOnboarded]=useState(()=>!!store.get("delivr_onboarded"));
@@ -4477,6 +5201,31 @@ export default function App() {
   const [disclaimerOk,setDisclaimerOk]=useState(()=>!!store.get("delivr_disclaimer"));
   _lang=lang||"en";   // make t() use the current language for all child screens this render
   const premium=!!user?.premium||hasAdminPerks(user);   // delegated admins get premium perks
+
+  // ── STACK CHECK CALL BUDGET ────────────────────────────────────────────────
+  // Each CHECK costs a real Mapbox Matrix request, so every plan carries a daily cap (see plans.js).
+  // The counter lives on the user doc so it follows the driver across devices, with a local mirror
+  // so the gate still works offline. Admins are never metered — they're the ones testing it.
+  const meteredStack=!hasAdminPerks(user);
+  const [stackUsage,setStackUsage]=useState(()=>store.get("delivr_stack_usage")||null);
+  useEffect(()=>{ if(user?.stackUsage)setStackUsage(user.stackUsage); },[user?.stackUsage?.day,user?.stackUsage?.count]);
+  const stackQuota=useMemo(()=>{
+    if(!meteredStack)return{plan:"admin",allowed:true,cap:Infinity,used:0,left:Infinity,reason:null};
+    return quotaState(user,stackUsage);
+  },[meteredStack,user,stackUsage]);
+  // Called only after a CHECK actually spends a Mapbox request — a failed or blocked run is free.
+  const consumeStackCheck=useCallback(()=>{
+    if(!meteredStack)return;
+    const next=bumpUsage(stackUsage);
+    setStackUsage(next);
+    store.set("delivr_stack_usage",next);
+    const uid=auth.currentUser?.uid;
+    if(uid)setDoc(doc(db,"users",uid),{stackUsage:next},{merge:true}).catch(()=>{});
+  },[meteredStack,stackUsage]);
+
+  // Start Analytics on load so Firebase's automatic session/page events fire even if the driver
+  // never gets past the login screen. Runs once.
+  useEffect(()=>{ initAnalytics(); },[]);
 
   // Apply + persist the colour theme
   useEffect(()=>{
@@ -4545,7 +5294,7 @@ export default function App() {
   const gps=useGPS();
 
   // Which listeners a screen actually needs. The presence/location/count listeners only feed
-  // the WAITS, CHECK (and owner APP STATS) views — they stay disconnected on STATS/CHAT so we
+  // the MOdelivr, CHECK (and owner APP STATS) views — they stay disconnected on STATS/CHAT so we
   // hold no live Firestore subscriptions the visible screen can't use. The personal earnings
   // listener attaches only while the STATS tab is open. The community waitLogs listener stays
   // global because patterns + contributor badges are read on nearly every screen.
@@ -4580,8 +5329,14 @@ export default function App() {
           if(!profile){ profile={name:p.username,color:p.color,initial:p.initial}; }
           if('premium' in p){ profile={...profile,premium:!!p.premium,subscriptionId:p.subscriptionId??profile?.subscriptionId??null}; }
           profile={...profile,logCount:p.logCount??profile?.logCount??0};   // account-based unlock counter
+          // Plan + call budget. `plan` is webhook-written (locked in firestore.rules); stackUsage is
+          // the driver's own day counter, mirrored here so the budget follows them across devices.
+          profile={...profile,plan:p.plan??null,stackUsage:p.stackUsage??null};
         }
       }catch(e){}
+      // Account age comes from Firebase Auth itself, not a field we write — so the 3-day free trial
+      // can't be reset by clearing app storage, signing out, or editing the user doc.
+      if(profile&&fbUser.metadata?.creationTime){ profile={...profile,createdAt:new Date(fbUser.metadata.creationTime).toISOString()}; }
       if(profile){ setUser(profile);store.set("delivr_user",profile); }
     });
     return unsub;
@@ -4597,8 +5352,10 @@ export default function App() {
       setUser(u=>{
         if(!u)return u;
         const prem=!!p.premium, sub=p.subscriptionId??null, lc=p.logCount??u.logCount??0;
-        if(!!u.premium===prem && (u.subscriptionId??null)===sub && (u.logCount??0)===lc)return u;
-        const n={...u,premium:prem,subscriptionId:sub,logCount:lc};
+        const pl=p.plan??null, su=p.stackUsage??null;   // plan flips the moment Stripe/StoreKit confirms
+        if(!!u.premium===prem && (u.subscriptionId??null)===sub && (u.logCount??0)===lc
+           && (u.plan??null)===pl && JSON.stringify(u.stackUsage??null)===JSON.stringify(su))return u;
+        const n={...u,premium:prem,subscriptionId:sub,logCount:lc,plan:pl,stackUsage:su};
         store.set("delivr_user",n);
         return n;
       });
@@ -4655,7 +5412,7 @@ export default function App() {
     return ()=>{ if(unsubSnap)unsubSnap(); unsubAuth(); };
   },[earningsActive]);
 
-  // Live listener for crowd-sourced pinned restaurant locations (WAITS/CHECK only)
+  // Live listener for crowd-sourced pinned restaurant locations (MOdelivr/CHECK only)
   useEffect(()=>{
     if(!liveTabActive)return;
     const unsub=onSnapshot(collection(db,"restaurantLocations"),snap=>{
@@ -4684,7 +5441,7 @@ export default function App() {
     return ()=>clearInterval(id);
   },[user,liveTabActive]);
 
-  // Live listener for who's waiting right now (real-time presence; WAITS/CHECK only)
+  // Live listener for who's waiting right now (real-time presence; MOdelivr/CHECK only)
   useEffect(()=>{
     if(!liveTabActive)return;
     const unsub=onSnapshot(collection(db,"activeWaits"),snap=>{
@@ -4704,7 +5461,7 @@ export default function App() {
     return unsub;
   },[liveTabActive]);
 
-  // Live listener for driver-reported queue counts (latest per restaurant; WAITS/CHECK only)
+  // Live listener for driver-reported queue counts (latest per restaurant; MOdelivr/CHECK only)
   useEffect(()=>{
     if(!liveTabActive)return;
     const unsub=onSnapshot(collection(db,"restaurantCounts"),snap=>{
@@ -4778,7 +5535,7 @@ export default function App() {
       const delay=start+min*60000-Date.now();
       if(delay>0)timers.push(setTimeout(()=>{
         setReminder(msg);
-        try{ if(window.Notification&&Notification.permission==="granted")new Notification("DELIVR",{body:msg}); }catch(e){}
+        try{ if(window.Notification&&Notification.permission==="granted")new Notification("MOdelivr",{body:msg}); }catch(e){}
       },delay));
     });
     return ()=>timers.forEach(clearTimeout);
@@ -4798,7 +5555,7 @@ export default function App() {
     const name=activeWait.restaurantName||"the restaurant";
     const msg=`Your wait at ${name} was not completed and has been removed. No data was logged.`;
     setReminder(msg);
-    try{ if(window.Notification&&Notification.permission==="granted")new Notification("DELIVR",{body:msg}); }catch(e){}
+    try{ if(window.Notification&&Notification.permission==="granted")new Notification("MOdelivr",{body:msg}); }catch(e){}
     setActiveWait(null);store.set("delivr_activewait",null);
     try{ deleteDoc(doc(db,"activeWaits",auth.currentUser.uid)); }catch(e){}
   },[now,activeWait]);
@@ -4810,32 +5567,26 @@ export default function App() {
   // touches the sliding-window/verdict calc — it just reads the persisted stack state and reuses the formula.
   useEffect(()=>{
     if(typeof Notification==="undefined"||Notification.permission!=="granted")return;
-    const ss=store.get("delivr_stack_state"); const orders=ss&&ss.orders;
-    if(!orders||!orders.length)return;
-    const per=(ss.res&&ss.res.perOrder)||[];
-    const fired=store.get("delivr_stack_notified")||{}; let dirty=false;
-    const notify=msg=>{ try{ new Notification("DELIVR",{body:msg}); }catch(e){} };
-    orders.forEach((o,i)=>{
-      if(o.addedAt==null)return;
-      const elapsed=(Date.now()-o.addedAt)/60000, f=fired[o.id]||{p:0,d:0};
-      // Pickup window — 17-min clock from acceptance, only for orders that have a pickup.
-      if(o.pickup||(o.pText&&o.pText.trim())){
-        const rem=17-elapsed, lvl=rem<=2?2:rem<=5?1:0;
-        if(lvl>f.p){ notify(lvl===2?"You need to be at your pickup right now — move immediately.":"You're running late to your pickup — head there now."); f.p=lvl; dirty=true; }
-      }
-      // Delivery window — the Fix-1 sliding window (read-only formula), only when the last CHECK matches.
-      const po=per[i];
-      if(po&&per.length===orders.length&&po.baselineMin!=null){
-        const soloMin=po.baselineMin-DROPOFF_DWELL_MIN;                        // strip drop dwell → the sliding-window input
-        const win=WINDOW_MIN+15*Math.max(0,Math.ceil((soloMin-37)/15));       // identical formula to Fix 1, not modified
-        const rem=win-elapsed, lvl=rem<0?3:rem<=5?2:rem<=10?1:0;
-        if(lvl>f.d){ notify(lvl===3?"Your delivery is running very late — contact rider support and let them know there has been a delay.":lvl===2?"Contact your customer now and let them know you are on your way. Be polite and apologise for the wait.":"You're running late — consider contacting your customer to let them know."); f.d=lvl; dirty=true; }
-      }
-      fired[o.id]=f;
+    const sched=readSched(); const ids=Object.keys(sched); if(!ids.length)return;
+    const nowMs=Date.now(); let dirty=false;
+    const notify=msg=>{ try{ new Notification("MOdelivr",{body:msg}); }catch(e){} };
+    ids.forEach(id=>{
+      const e=sched[id]; if(!e||!e.at)return;
+      // Each track escalates, so after a spell with the app shut only the WORST message that came
+      // due is sent — a driver opening the app late gets one clear instruction, not a pile of five.
+      [PICKUP_KEYS,DROP_KEYS].forEach(track=>{
+        let due=null;
+        track.forEach(k=>{ if(e.at[k]!=null&&e.at[k]<=nowMs&&!e.fired[k])due=k; });
+        if(!due)return;
+        notify(RISK_MSG[due]);
+        track.forEach(k=>{ if(e.at[k]!=null&&e.at[k]<=nowMs)e.fired[k]=true; });   // swallow the ones it superseded
+        dirty=true;
+      });
+      // Every stage sent and nothing left to watch — drop the order's schedule.
+      if(Object.keys(e.at).every(k=>e.fired[k]))
+        { delete sched[id]; dirty=true; }
     });
-    const ids=new Set(orders.map(o=>o.id));
-    Object.keys(fired).forEach(k=>{ if(!ids.has(Number(k))){ delete fired[k]; dirty=true; } });
-    if(dirty)store.set("delivr_stack_notified",fired);
+    if(dirty)writeSched(sched);
   },[now]);
 
   // After returning from Stripe Checkout, verify payment and flip premium on
@@ -4883,8 +5634,9 @@ export default function App() {
     if(from>=0&&to>=0&&to!==from)setNavDir(to>from?1:-1);   // for the slide animation
     if(s==="chat")setUnreadChat(false);
     setScreen(s);store.set("delivr_tab",s);
+    track(EV.screenView,{firebase_screen:s});
   }
-  // Swipe left/right anywhere on the tab content to move between WAITS → CHECK → STATS → CHAT.
+  // Swipe left/right anywhere on the tab content to move between MOdelivr → CHECK → STATS → CHAT.
   // Only horizontal swipes act (vertical scrolling is untouched); overlays disable it.
   function onTabTouchStart(e){const t=e.touches[0];swipeRef.current={x:t.clientX,y:t.clientY,t:Date.now()};}
   function onTabTouchEnd(e){
@@ -4975,6 +5727,8 @@ export default function App() {
 
   function handleLogin(userData){
     setUser(userData);store.set("delivr_user",userData);
+    identify(auth.currentUser?.uid);   // uid only — Firebase forbids PII in analytics
+    track(EV.login);
   }
 
   function handleRegistered(profile,email){
@@ -4984,6 +5738,8 @@ export default function App() {
   function handleVerified(){
     const profile={...pendingVerify.profile,emailVerified:true};
     setUser(profile);store.set("delivr_user",profile);
+    identify(auth.currentUser?.uid);
+    track(EV.signUp,{method:"email"});
     setPendingVerify(null);
   }
 
@@ -5001,11 +5757,48 @@ export default function App() {
     setUser(updated);store.set("delivr_user",updated);
   }
 
-  async function handleSubscribe(){
+  // planId picks which Stripe price to charge; omitted = the original £4.99 price, so any older
+  // caller (and a driver mid-flow on a cached build) keeps working exactly as before.
+  // Restore Purchases (Guideline 3.1.1). Asks StoreKit what this Apple Account already owns and
+  // sends the signed receipt to the server, which is the only thing allowed to grant `plan`.
+  const [restoring,setRestoring]=useState(false);
+  async function handleRestore(){
+    setRestoring(true);
+    try{
+      const r=await iapRestore();
+      if(!r||!r.plan){ alert("No previous purchase found on this Apple Account."); }
+      else{
+        const vr=await fetch(`${API_URL}/iap/verify`,{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({uid:auth.currentUser?.uid||"",plan:r.plan,jws:r.jws}),
+        });
+        alert(vr.ok?"Purchase restored.":"We found your purchase but couldn't activate it yet — it'll appear shortly.");
+      }
+    }catch{ alert("Could not restore purchases — please try again."); }
+    setRestoring(false);
+  }
+
+  async function handleSubscribe(planId){
+    if(typeof planId==="string")track(EV.planSelected,{plan:planId});
+    // iOS must go through StoreKit (Guideline 3.1.1). The receipt is sent to the server to be
+    // verified there — the app can't grant itself `plan`, which is locked in firestore.rules.
+    if(IS_IOS&&typeof planId==="string"){
+      try{
+        const r=await iapPurchase(planId);
+        if(r.cancelled)return;
+        if(r.pending){ alert("Your purchase is awaiting approval. It'll unlock as soon as it's approved."); return; }
+        const vr=await fetch(`${API_URL}/iap/verify`,{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({uid:auth.currentUser?.uid||"",plan:r.plan,jws:r.jws}),
+        });
+        if(!vr.ok)alert("Purchase went through but we couldn't activate it yet — it'll appear shortly.");
+      }catch(e){ alert(e?.message||"Could not complete purchase"); }
+      return;
+    }
     try{
       const r=await fetch(`${API_URL}/stripe/create-checkout-session`,{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({email:user?.email||"",uid:auth.currentUser?.uid||""}),
+        body:JSON.stringify({email:user?.email||"",uid:auth.currentUser?.uid||"",planId:typeof planId==="string"?planId:undefined}),
       });
       const d=await r.json();
       if(d.url){ window.location.href=d.url; }      // redirect to Stripe hosted checkout
@@ -5280,6 +6073,7 @@ export default function App() {
     // Write to Firestore — triggers live pattern update for all drivers
     try{
       await addDoc(collection(db,"waitLogs"),{...entry,username:user?.name||"anon"});
+      track(EV.waitLogged,{wait_mins:entry.waitMins??null,restaurant:entry.restaurantName||null});
     }catch(e){}
     // Account-based unlock counter — follows the driver across devices (the data gate reads this).
     try{ await updateDoc(doc(db,"users",auth.currentUser.uid),{logCount:increment(1)}); }catch(e){}
@@ -5349,6 +6143,7 @@ export default function App() {
       --border:#e9edf0;--border2:#dfe4e8;--border3:#eef1f3;
       --tint-green:#e7f7ee;--tint-blue:#e8f1ff;--tint-red:#fdecec;
       --tint-coral:#fff1ec;--tint-coral2:#ffe4d8;--tint-amber:#fff7e0;--tint-teal:#e6faf8;
+      --danger:#c92a2a;   /* destructive label text — deeper than #ef4444 so small text clears AA on the light bg */
     }
     [data-theme="dark"]{
       --bg:#121519;--card:#192127;--ink:#eaf0f2;
@@ -5356,6 +6151,7 @@ export default function App() {
       --border:#28343a;--border2:#313d44;--border3:#222d33;
       --tint-green:#10291d;--tint-blue:#112338;--tint-red:#2c1517;
       --tint-coral:#2a1b13;--tint-coral2:#341f14;--tint-amber:#2a2410;--tint-teal:#0d2927;
+      --danger:#f45b5b;   /* lifted off #ef4444 so small text clears AA on the dark card too */
     }
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     html,body{background:var(--bg);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-synthesis:none;-webkit-text-size-adjust:100%}
@@ -5406,35 +6202,42 @@ export default function App() {
       <style>{CSS}</style>
       <div style={ROOT}>
         {/* Profile avatar button — fixed top right */}
-        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&(
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&!showLearn&&(
           <button onClick={()=>setShowProfile(true)} aria-label="Profile"
-            style={{position:"fixed",top:14,right:14,zIndex:300,width:42,height:42,borderRadius:"50%",background:"linear-gradient(135deg,"+user.color+","+user.color+"cc)",border:"2px solid rgba(255,255,255,0.65)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 14px "+user.color+"66, inset 0 1px 0 rgba(255,255,255,0.35)"}}>
+            style={{position:"fixed",top:"calc(14px + env(safe-area-inset-top,0px))",right:14,zIndex:300,width:42,height:42,borderRadius:"50%",background:"linear-gradient(135deg,"+user.color+","+user.color+"cc)",border:"2px solid rgba(255,255,255,0.65)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 14px "+user.color+"66, inset 0 1px 0 rgba(255,255,255,0.35)"}}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff" style={{display:"block"}}><circle cx="12" cy="8" r="3.6"/><path d="M5 19.5c0-3.6 3.1-5.8 7-5.8s7 2.2 7 5.8V21H5v-1.5z"/></svg>
           </button>
         )}
 
         {/* Persistent wait banner — visible on every tab while a wait is open */}
-        {activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&(
+        {activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&!showLearn&&(
           <PersistentWaitBanner restaurantName={activeWait.restaurantName||"Restaurant"} startedAt={activeWait.startedAt} onPickedUp={handlePickedUp}/>
         )}
 
-        <div onTouchStart={onTabTouchStart} onTouchEnd={onTabTouchEnd} style={{height:"calc(100vh"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp?" - 56px":"")+")",overflowY:"auto",overflowX:"hidden"}}>
+        {/* The webview runs edge-to-edge (viewport-fit=cover), so without this every screen's first
+            row sits under the status bar / Dynamic Island — unreadable, and the back arrow lands
+            under the clock where it's hard to hit. box-sizing is border-box globally, so padding
+            here shrinks the content box rather than growing the element. */}
+        <div onTouchStart={onTabTouchStart} onTouchEnd={onTabTouchEnd} style={{paddingTop:"env(safe-area-inset-top,0px)",height:"calc(100vh"+(activeWait&&!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&!showLearn?" - 56px":"")+")",overflowY:"auto",overflowX:"hidden"}}>
           <Suspense fallback={<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",...B,color:"#f5a623",letterSpacing:2,fontSize:14}}>LOADING…</div>}>
           <div key={screen} style={{animation:navDir>0?"slideFromR 0.22s ease":navDir<0?"slideFromL 0.22s ease":"none"}}>
-          {showHelp?(
+          {showLearn?(
+            <LearnScreen lang={lang||"en"} onBack={()=>{setShowLearn(false);setShowProfile(true);}}/>
+          ):showHelp?(
             <HelpScreen lang={lang||"en"} onBack={()=>{setShowHelp(false);setShowProfile(true);}}/>
           ):showLogbook?(
             <Logbook communityLogs={communityLogs} contribCounts={contribCounts} onBack={()=>setShowLogbook(false)} myName={user.name} revealNames={hasAdminPerks(user)}/>
           ):showStats&&isOwner(user)?(
-            <StatsScreen communityLogs={communityLogs} communityPatterns={communityPatterns} activeCounts={activeCounts} contribCounts={contribCounts} onBack={()=>setShowStats(false)}/>
+            <StatsScreen communityLogs={communityLogs} activeCounts={activeCounts} contribCounts={contribCounts} premium={premium} onBack={()=>setShowStats(false)}/>
           ):showUpgrade?(
-            <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub}/>
+            <UpgradeScreen premium={premium} onBack={()=>setShowUpgrade(false)} onSubscribe={handleSubscribe} onCancel={handleCancelSub} onRestore={handleRestore} restoring={restoring}/>
           ):showProfile?(
             <ProfileScreen user={user} waitLog={waitLog} gps={gps} premium={premium} theme={theme} onToggleTheme={toggleTheme} contribCount={contribCounts[user.name]||0}
               communityPatterns={communityPatterns} lang={lang||"en"} onSetLang={chooseLang}
               onBack={()=>setShowProfile(false)} onLogout={handleLogout} onSave={handleSaveProfile}
-              onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);}}
+              onUpgrade={()=>{setShowProfile(false);setShowUpgrade(true);track(EV.upgradeViewed);}}
               onHelp={()=>{setShowProfile(false);setShowHelp(true);}}
+              onLearn={()=>{setShowProfile(false);setShowLearn(true);track(EV.learnOpened);}}
               onStats={()=>{setShowProfile(false);setShowStats(true);}}/>
           ):screen==="waits"?(
             <WaitsScreen now={now} gps={gps} restaurants={resolvedRestaurants} waitLog={waitLog} activeWait={activeWait} session={session} activeOrders={activeOrders}
@@ -5445,9 +6248,10 @@ export default function App() {
           ):screen==="stats"?(
             <MyStats earningsLog={earningsLog} activeOrders={activeOrders} now={now} shiftsLog={shiftsLog} activeShift={activeShift} myName={user.name}/>
           ):screen==="stack"?(
-            <StackScreen gps={gps} activeOrders={activeOrders} isAdmin={hasAdminPerks(user)}/>
+            <StackScreen gps={gps} isAdmin={hasAdminPerks(user)}
+              quota={stackQuota} onConsume={consumeStackCheck} onUpgrade={()=>{setShowUpgrade(true);}}/>
           ):(
-            <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} onGoProfile={()=>setShowProfile(true)} isAdmin={hasAdminPerks(user)}/>
+            <ChatScreen user={user} onLogout={handleLogout} area={user.area||"general"} contribCounts={contribCounts} isAdmin={hasAdminPerks(user)}/>
           )}
           </div>
           </Suspense>
@@ -5479,7 +6283,7 @@ export default function App() {
         )}
         {/* First-login notification opt-in (wait reminders only) */}
         {showNotifPrompt&&<NotifPrompt onAllow={allowNotifs} onSkip={skipNotifs}/>}
-        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat} isAdmin={canUseStack(user)}/>}
+        {!showProfile&&!showUpgrade&&!showStats&&!showLogbook&&!showHelp&&!showLearn&&<BottomNav screen={screen} onNav={handleNav} activeWait={!!activeWait} unreadChat={unreadChat}/>}
       </div>
     </div>
   );

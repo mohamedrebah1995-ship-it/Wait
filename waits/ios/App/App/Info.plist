@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Delivr</string>
+        <string>MOdelivr</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -67,8 +67,37 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Delivr uses your location to show nearby restaurants, confirm you've arrived at a pickup, and measure how long orders take — so drivers can see real wait times.</string>
+	<string>MOdelivr uses your location to show nearby restaurants, confirm you've arrived at a pickup, and measure how long orders take — so drivers can see real wait times.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Chat records hold-to-talk voice notes via getUserMedia({audio:true}). iOS terminates the
+	     app the instant it touches the microphone without this string — this is a crash, not just
+	     a review item. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MOdelivr uses your microphone only when you hold the record button to send a voice message in driver chat.</string>
+	<!-- The chat image picker is <input type="file" accept="image/*">, which lets iOS offer both
+	     "Take Photo" and the library, so both strings are required. -->
+	<key>NSCameraUsageDescription</key>
+	<string>MOdelivr uses your camera only when you choose to take a photo to send in driver chat.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MOdelivr accesses your photo library only when you choose a picture to send in driver chat.</string>
+	<!-- App Tracking Transparency. Without this key (and the prompt) AdMob may only serve
+	     non-personalised ads, which pays considerably less. -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>Allow tracking so the ads you see in MOdelivr are more relevant. Your wait logs and earnings are never shared.</string>
+	<!-- Google AdMob. The SDK reads this key by name at launch and raises if it's missing or
+	     malformed, so it has to be the literal app id here rather than a build variable. -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3527173535512943~9544988533</string>
+	<!-- SKAdNetwork attribution. This is Google's own network id, the one required for AdMob (per
+	     the plugin's own docs). Additional buyer ids can be pasted in from Google's published list
+	     later to widen attribution — they only add reporting coverage, nothing breaks without them. -->
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 </dict>
 </plist>

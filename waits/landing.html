@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>WAITS — Community-powered wait times for delivery drivers</title>
-  <meta name="description" content="WAITS shows delivery drivers the real wait time at every restaurant, logged live by drivers like you. Skip the long queues, earn more per hour. Built by a delivery driver, for delivery drivers." />
+  <title>MOdelivr — Community-powered wait times for delivery drivers</title>
+  <meta name="description" content="MOdelivr shows delivery drivers the real wait time at every restaurant, logged live by drivers like you. Skip the long queues, earn more per hour. Built by a delivery driver, for delivery drivers." />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://drivers-eyes.web.app/" />
   <meta name="theme-color" content="#0e1316" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="WAITS — Community-powered wait times for delivery drivers" />
+  <meta property="og:title" content="MOdelivr — Community-powered wait times for delivery drivers" />
   <meta property="og:description" content="See the real wait time at every restaurant before you drive there. Logged live by drivers, for drivers." />
   <meta property="og:url" content="https://drivers-eyes.web.app/" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -123,22 +123,144 @@
       .steps{grid-template-columns:1fr 1fr 1fr}
       .installs{grid-template-columns:1fr 1fr}
     }
+
+    /* Stack checker — top section. Its own .sc- namespace so it borrows nothing
+       from the phone/stat styles above and can't alter them. */
+    .sc{background:var(--bg);padding:38px 0 46px;text-align:center}
+    .sc-phone{width:268px;max-width:100%;margin:0 auto;background:#05080a;border:8px solid #05080a;border-radius:40px;box-shadow:0 26px 64px rgba(0,0,0,.6);overflow:hidden}
+    .sc-screen{position:relative;border-radius:32px;overflow:hidden;background:#14181c;line-height:0}
+    .sc-map{display:block;width:100%;height:auto}
+    .sc-verdict{position:absolute;left:10px;right:10px;bottom:10px;display:flex;align-items:center;gap:9px;text-align:left;line-height:1.3;background:#101a16;border:1px solid #06c16766;border-radius:14px;padding:11px 13px;box-shadow:0 8px 22px rgba(0,0,0,.45)}
+    .sc-vdot{flex-shrink:0;width:10px;height:10px;border-radius:50%;background:var(--green)}
+    .sc-vtext{font-family:'Poppins',sans-serif;font-weight:700;font-size:13px;color:var(--green);letter-spacing:.1px}
+    .sc-h{font-family:'Poppins',sans-serif;font-size:clamp(30px,8.2vw,48px);line-height:1.1;font-weight:800;letter-spacing:-.6px;color:#fff;max-width:600px;margin:32px auto 12px;text-wrap:balance}
+    .sc-sub{font-size:16.5px;color:var(--muted);max-width:520px;margin:0 auto;text-wrap:pretty}
+    @media(min-width:680px){
+      .sc-sub{font-size:17.5px}
+    }
   </style>
 </head>
 <body>
   <header>
     <div class="wrap nav">
-      <div class="brand"><span class="dot"></span>WAITS</div>
+      <div class="brand"><span class="dot"></span>MOdelivr</div>
       <a class="btn ghost" href="/app">Sign up</a>
     </div>
   </header>
 
   <main>
+    <!-- STACK CHECKER — first thing a new driver sees, above the hero -->
+    <section class="sc">
+      <div class="wrap">
+        <div class="sc-phone">
+          <div class="sc-screen" role="img" aria-label="The MOdelivr Stack Check screen: a map with a green route and a blue route running from the driver through green pickup pins to red drop-off pins, and a verdict reading “You can take this order”.">
+            <svg class="sc-map" viewBox="0 0 268 420" aria-hidden="true" focusable="false">
+              <defs>
+                <filter id="scPin" x="-70%" y="-70%" width="240%" height="240%">
+                  <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000" flood-opacity=".55"/>
+                </filter>
+                <linearGradient id="scScrim" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#0b0f12" stop-opacity="0"/>
+                  <stop offset="1" stop-color="#0b0f12" stop-opacity=".72"/>
+                </linearGradient>
+              </defs>
+
+              <!-- land -->
+              <rect width="268" height="420" fill="#14181c"/>
+
+              <!-- blocks + two parks -->
+              <g fill="#1b2026">
+                <rect x="30" y="68" width="38" height="22" rx="2"/><rect x="80" y="68" width="24" height="22" rx="2"/>
+                <rect x="108" y="68" width="26" height="22" rx="2"/><rect x="146" y="68" width="44" height="22" rx="2"/>
+                <rect x="202" y="68" width="38" height="22" rx="2"/><rect x="0" y="68" width="18" height="22" rx="2"/>
+                <rect x="80" y="102" width="54" height="20" rx="2"/><rect x="80" y="126" width="26" height="18" rx="2"/>
+                <rect x="110" y="126" width="24" height="18" rx="2"/><rect x="146" y="102" width="44" height="42" rx="2"/>
+                <rect x="202" y="102" width="38" height="24" rx="2"/><rect x="202" y="130" width="38" height="14" rx="2"/>
+                <rect x="252" y="102" width="16" height="42" rx="2"/>
+                <rect x="80" y="156" width="54" height="38" rx="2"/><rect x="146" y="156" width="20" height="38" rx="2"/>
+                <rect x="170" y="156" width="20" height="38" rx="2"/><rect x="202" y="156" width="38" height="38" rx="2"/>
+                <rect x="0" y="156" width="18" height="38" rx="2"/>
+                <rect x="30" y="206" width="38" height="18" rx="2"/><rect x="30" y="228" width="38" height="16" rx="2"/>
+                <rect x="80" y="206" width="54" height="38" rx="2"/><rect x="146" y="206" width="44" height="38" rx="2"/>
+                <rect x="202" y="206" width="38" height="38" rx="2"/><rect x="252" y="206" width="16" height="38" rx="2"/>
+                <rect x="30" y="256" width="38" height="38" rx="2"/><rect x="80" y="256" width="26" height="38" rx="2"/>
+                <rect x="110" y="256" width="24" height="38" rx="2"/><rect x="202" y="256" width="38" height="38" rx="2"/>
+                <rect x="30" y="306" width="38" height="40" rx="2"/><rect x="80" y="306" width="54" height="40" rx="2"/>
+                <rect x="146" y="306" width="44" height="18" rx="2"/><rect x="146" y="328" width="44" height="18" rx="2"/>
+                <rect x="202" y="306" width="38" height="40" rx="2"/><rect x="0" y="306" width="18" height="40" rx="2"/>
+                <rect x="30" y="358" width="38" height="32" rx="2"/><rect x="80" y="358" width="54" height="32" rx="2"/>
+                <rect x="146" y="358" width="44" height="32" rx="2"/><rect x="202" y="358" width="38" height="32" rx="2"/>
+              </g>
+              <g fill="#16241a">
+                <rect x="146" y="256" width="44" height="38" rx="3"/>
+                <rect x="30" y="102" width="38" height="42" rx="3"/>
+              </g>
+
+              <!-- minor roads -->
+              <g stroke="#262d33" stroke-width="4.5" fill="none">
+                <path d="M24,0V420"/><path d="M246,0V420"/>
+                <path d="M0,96H268"/><path d="M0,150H268"/><path d="M0,250H268"/><path d="M0,300H268"/><path d="M0,396H268"/>
+              </g>
+              <!-- arterials: casing, then surface -->
+              <g stroke="#1e252b" stroke-width="9.5" fill="none">
+                <path d="M74,0V420"/><path d="M140,0V420"/><path d="M196,0V420"/>
+                <path d="M0,62H268"/><path d="M0,200H268"/><path d="M0,352H268"/>
+              </g>
+              <g stroke="#343d45" stroke-width="7" fill="none">
+                <path d="M74,0V420"/><path d="M140,0V420"/><path d="M196,0V420"/>
+                <path d="M0,62H268"/><path d="M0,200H268"/><path d="M0,352H268"/>
+              </g>
+
+              <!-- street labels -->
+              <g fill="#55636c" font-family="sans-serif" font-size="5.5" letter-spacing="1">
+                <text x="86" y="197.5">MARKET ST</text>
+                <text x="36" y="349.5">STATION RD</text>
+                <text transform="translate(243.5,286) rotate(-90)">MILL LN</text>
+              </g>
+
+              <!-- routes: order 1 green, order 2 blue (the app's own STACK_ROUTE_COLORS) -->
+              <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M140,300 H84 Q74,300 74,290 V106 Q74,96 64,96 H46" stroke="#07110c" stroke-width="9.5" stroke-opacity=".6"/>
+                <path d="M140,300 V210 Q140,200 150,200 H186 Q196,200 196,190 V72 Q196,62 206,62 H222" stroke="#04121f" stroke-width="9.5" stroke-opacity=".6"/>
+                <path d="M140,300 H84 Q74,300 74,290 V106 Q74,96 64,96 H46" stroke="#06c167" stroke-width="5" stroke-opacity=".95"/>
+                <path d="M140,300 V210 Q140,200 150,200 H186 Q196,200 196,190 V72 Q196,62 206,62 H222" stroke="#2b8fff" stroke-width="5" stroke-opacity=".95"/>
+              </g>
+
+              <!-- bottom scrim so the verdict card stays legible over the map -->
+              <rect x="0" y="330" width="268" height="90" fill="url(#scScrim)"/>
+
+              <!-- you -->
+              <circle cx="140" cy="300" r="16" fill="#2b8fff" fill-opacity=".18"/>
+              <circle cx="140" cy="300" r="7" fill="#2b8fff" stroke="#fff" stroke-width="2.5"/>
+
+              <!-- pickup pins (green) + drop-off pins (red), as drawn in the app -->
+              <g filter="url(#scPin)" font-family="sans-serif" font-size="10" font-weight="700" fill="#fff" text-anchor="middle">
+                <circle cx="74" cy="250" r="13" fill="#06c167" stroke="#fff" stroke-width="2"/>
+                <text x="74" y="253.6">P1</text>
+                <circle cx="196" cy="150" r="13" fill="#06c167" stroke="#fff" stroke-width="2"/>
+                <text x="196" y="153.6">P2</text>
+                <circle cx="46" cy="96" r="13" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+                <text x="46" y="99.6">D1</text>
+                <circle cx="222" cy="62" r="13" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+                <text x="222" y="65.6">D2</text>
+              </g>
+            </svg>
+            <div class="sc-verdict">
+              <span class="sc-vdot"></span>
+              <span class="sc-vtext">You can take this order</span>
+            </div>
+          </div>
+        </div>
+        <h2 class="sc-h">Know before you go</h2>
+        <p class="sc-sub">Check if you can stack your next order before you accept it. See the route, the timing, and the verdict in seconds.</p>
+      </div>
+    </section>
+
     <!-- HERO -->
     <section class="hero">
       <div class="wrap">
         <h1>Community-powered <span class="hl">wait times</span> for delivery drivers</h1>
-        <p class="sub">Stop guessing how long you'll be stuck at the counter. WAITS shows you the real wait at every restaurant — logged live by drivers like you — so you can skip the long queues and earn more per hour.</p>
+        <p class="sub">Stop guessing how long you'll be stuck at the counter. MOdelivr shows you the real wait at every restaurant — logged live by drivers like you — so you can skip the long queues and earn more per hour.</p>
         <div class="cta-row">
           <a class="btn" href="/app">Get started — it's free</a>
           <a class="btn ghost" href="#how">See how it works</a>
@@ -197,7 +319,7 @@
             <li><span class="tick">✓</span><span><b>Local driver chat</b> to share tips with your area.</span></li>
           </ul>
         </div>
-        <div class="phone" role="img" aria-label="Screenshot of the WAITS app showing nearby restaurants with live wait times">
+        <div class="phone" role="img" aria-label="Screenshot of the MOdelivr app showing nearby restaurants with live wait times">
           <div class="screen">
             <div class="greet">Good evening, Mo 👋</div>
             <div class="title">RESTAURANT WAITS</div>
@@ -220,7 +342,7 @@
         <div class="copy">
           <div class="eyebrow" style="text-align:left">Your numbers, private to you</div>
           <h2>Know your real £/hour — not the headline pay</h2>
-          <p style="color:var(--muted);margin-top:6px">A £4 order isn't really £4 if the kitchen makes you wait 25 minutes. WAITS quietly tracks what you <em>actually</em> earn against the hours you <em>actually</em> work — so you can see which shifts, platforms and times of day truly pay.</p>
+          <p style="color:var(--muted);margin-top:6px">A £4 order isn't really £4 if the kitchen makes you wait 25 minutes. MOdelivr quietly tracks what you <em>actually</em> earn against the hours you <em>actually</em> work — so you can see which shifts, platforms and times of day truly pay.</p>
           <ul>
             <li><span class="tick">✓</span><span><b>Live £/hour</b> from your first arrival of a shift to your last drop.</span></li>
             <li><span class="tick">✓</span><span><b>Automatic shift timer</b> — it starts when you do and clocks your hours.</span></li>
@@ -252,8 +374,8 @@
       <div class="wrap">
         <div class="quote">
           <blockquote>“Built by a delivery driver, for delivery drivers.”</blockquote>
-          <p>WAITS started in a car outside a chicken shop, on a 25-minute wait that should have been five. Every feature exists because a real driver needed it on a real shift — not because it looked good in a meeting.</p>
-          <div class="by">— The WAITS team</div>
+          <p>MOdelivr started in a car outside a chicken shop, on a 25-minute wait that should have been five. Every feature exists because a real driver needed it on a real shift — not because it looked good in a meeting.</p>
+          <div class="by">— The MOdelivr team</div>
         </div>
       </div>
     </section>
@@ -263,7 +385,7 @@
       <div class="wrap">
         <div class="eyebrow">Add to your home screen</div>
         <h2>Install in 10 seconds</h2>
-        <p class="lead">WAITS runs right in your browser — no app store, no download. Add it to your home screen so it opens like a normal app.</p>
+        <p class="lead">MOdelivr runs right in your browser — no app store, no download. Add it to your home screen so it opens like a normal app.</p>
         <div class="installs">
           <div class="install">
             <h3>📱 iPhone (Safari)</h3>
@@ -306,11 +428,11 @@
         <a href="#how">How it works</a>
         <a href="#install">Install</a>
         <a href="/privacy.html">Privacy policy</a>
-        <a href="mailto:mohamedrebah1995@gmail.com">Contact</a>
+        <a href="mailto:support@MOdelivr.com">Contact</a>
         <a href="/app">Sign in</a>
       </div>
-      <p class="disclaimer">WAITS is an independent community tool. It is not affiliated with, endorsed by, or connected to Uber Eats, Deliveroo, Just Eat or any delivery platform. We only use your device location to find nearby restaurants — we never touch your delivery accounts.</p>
-      <p style="margin-top:12px">© 2026 WAITS · Community-powered wait times for delivery drivers</p>
+      <p class="disclaimer">MOdelivr is an independent community tool. It is not affiliated with, endorsed by, or connected to Uber Eats, Deliveroo, Just Eat or any delivery platform. We only use your device location to find nearby restaurants — we never touch your delivery accounts.</p>
+      <p style="margin-top:12px">© 2026 MOdelivr · Community-powered wait times for delivery drivers</p>
     </div>
   </footer>
 

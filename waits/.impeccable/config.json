@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "landing.html"
+        ],
+        "createdAt": "2026-08-17T22:42:56.330Z",
+        "reason": "Pre-existing landing-page CTA/live-dot glows (.btn L34, .brand .dot L42, .stat .live i L58), untouched by this change: user instruction for this task was explicitly 'do not move, remove, or change anything that already exists on the opening screen'. Not user-confirmed as a design choice — out of scope to fix here."
+      }
+    ]
+  }
+}

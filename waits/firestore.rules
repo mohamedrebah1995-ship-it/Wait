@@ -11,10 +11,16 @@ service cloud.firestore {
     // so a driver can't self-grant Premium by writing their own doc.
     match /users/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
+      // `plan` is locked exactly like premium: it sets the Stack Check daily call budget, so a
+      // driver writing their own doc must never be able to promote themselves to a bigger plan.
+      // `stackUsage` stays writable — it's the driver's own day counter, and the client has the
+      // Mapbox token anyway, so metering it here is about honest accounting, not access control.
       allow create: if request.auth != null && request.auth.uid == userId
-        && request.resource.data.get('premium', false) == false;
+        && request.resource.data.get('premium', false) == false
+        && request.resource.data.get('plan', null) == null;
       allow update: if request.auth != null && request.auth.uid == userId
         && request.resource.data.get('premium', false) == resource.data.get('premium', false)
+        && request.resource.data.get('plan', null) == resource.data.get('plan', null)
         && request.resource.data.get('subscriptionId', null) == resource.data.get('subscriptionId', null);
       // A driver may delete their own profile doc (in-app account deletion — App Store 5.1.1(v)).
       allow delete: if request.auth != null && request.auth.uid == userId;
