@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, initializeAuth, browserLocalPersistence, inMemoryPersistence } from 'firebase/auth';
-import { getFirestore, initializeFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager, memoryLocalCache, doc as fsDoc, getDocFromCache } from 'firebase/firestore';
 import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
@@ -28,9 +28,31 @@ export const auth = Capacitor.isNativePlatform()
 // Firestore's default transport (WebChannel streaming) hangs inside the iOS/Android WKWebView, so on
 // native we force long-polling (discrete XHRs) which works reliably. This is why sign-in stuck on
 // "LOADING…" natively (auth REST succeeded, then the users-doc read never resolved). Web keeps the default.
+//
+// Offline: on native, Firestore keeps its data and queued writes on the device (IndexedDB), so earnings,
+// shifts and wait logs show and save with no signal and sync when it returns. Auth's IndexedDB use
+// hung in this WebView (above), so this one proves itself on every launch: one cache read must settle
+// within 8s. If it doesn't, the cache is switched off for good on this device and the app reloads once
+// with the old in-memory behaviour.
+const FS_CACHE_KEY = "delivr_fs_cache";   // "on" (default) | "off" (IndexedDB failed its check here)
+const fsCacheOff = (() => { try { return localStorage.getItem(FS_CACHE_KEY) === "off"; } catch { return true; } })();
+const useDeviceCache = Capacitor.isNativePlatform() && !fsCacheOff;
 export const db    = Capacitor.isNativePlatform()
-  ? initializeFirestore(fbApp, { experimentalForceLongPolling: true })
+  ? initializeFirestore(fbApp, {
+      experimentalForceLongPolling: true,
+      localCache: useDeviceCache ? persistentLocalCache({ tabManager: persistentSingleTabManager() }) : memoryLocalCache(),
+    })
   : getFirestore(fbApp);
+
+if (useDeviceCache) {
+  const settled = getDocFromCache(fsDoc(db, "_cachecheck", "x")).then(() => true, () => true);   // "not cached" is fine: it answered
+  const timedOut = new Promise(r => setTimeout(() => r(false), 8000));
+  Promise.race([settled, timedOut]).then(ok => {
+    if (ok) return;
+    try { localStorage.setItem(FS_CACHE_KEY, "off"); } catch { /* nothing to remember with */ }
+    location.reload();
+  });
+}
 
 // ── Push notifications (FCM) ───────────────────────────────────────────────────
 // VAPID public key from Firebase Console → Project Settings → Cloud Messaging →
