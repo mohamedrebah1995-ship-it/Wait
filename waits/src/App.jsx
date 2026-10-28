@@ -1046,9 +1046,22 @@ async function geocodeBranch(lat,lng,name) {
 // Shared bands (minutes OVER baseline): ≤12 green · 13–17 orange · >17 red.
 // Engine constants (window, detour bands, dwell) live in src/stackEngine.js with planStack.
 
-// Geocode a typed address / place → {lat,lng,label}. Mapbox forward search (biased to the driver).
+// UK postcode, tolerating a missing space ("CO91BD" → "CO9 1BD"). Null if the text isn't one.
+const UK_POSTCODE=/^([A-Z]{1,2}[0-9][A-Z0-9]?)\s*([0-9][A-Z]{2})$/;
+function normPostcode(q){ const m=String(q||"").trim().toUpperCase().match(UK_POSTCODE); return m?`${m[1]} ${m[2]}`:null; }
+
+// Geocode a typed postcode / place → {lat,lng,label}. A UK postcode goes straight to Mapbox's
+// postcode lookup (same as the server's offer checks); anything else uses forward search (biased to the driver).
 async function geocodeText(q,lat,lng){
   if(!MAPBOX_TOKEN||!q||!q.trim())return null;
+  const pc=normPostcode(q);
+  if(pc){
+    try{
+      const g=await (await fetch(`https://api.mapbox.com/search/geocode/v6/forward?q=${encodeURIComponent(pc)}&types=postcode&country=gb&limit=1&access_token=${MAPBOX_TOKEN}`)).json();
+      const c=g.features?.[0]?.geometry?.coordinates;
+      if(c)return{lat:c[1],lng:c[0],label:pc};
+    }catch(e){}
+  }
   try{
     let url=`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(q.trim())}&limit=1&access_token=${MAPBOX_TOKEN}`;
     if(lat!=null&&lng!=null)url+=`&proximity=${lng},${lat}`;
@@ -2413,7 +2426,7 @@ function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift,myName}){
     };
   },[earningsLog,dayKey,nowMs,shiftsLog,activeShift,weekOffset]);
   // Offer checks call an offer "slow" below this all-time £/hour (kept on the device for the extension).
-  useEffect(()=>{ shareAverageRate(all.overallRate); },[all.overallRate]);
+  useEffect(()=>{ shareAverageRate(all?.overallRate); },[all?.overallRate]);   // all is null until there are earnings
 
   // Manual-delivery cap: max 20 per-delivery manual adds per day (bulk-platform totals don't count).
   const manualToday=entries.today.filter(e=>e.manual&&!e.bulk).length;
@@ -4657,7 +4670,7 @@ function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
       for(const o of liveOrders){
         const pk=o.pickup||(o.pText.trim()?await geocodeText(o.pText,start.lat,start.lng):null);
         const dp=o.drop||(o.dText.trim()?await geocodeText(o.dText,start.lat,start.lng):null);
-        if(!dp){setErr("Every order needs a drop-off (pin or address).");setLoading(false);return;}
+        if(!dp){setErr(o.dText.trim()?`Couldn't find "${o.dText.trim()}" — check the postcode.`:"Every order needs a drop-off (pin or postcode).");setLoading(false);return;}
         let pIdx=null, pKey=null; if(pk){points.push(pk);pIdx=points.length-1;pKey=restaurantKey(o.pText||"",pk.lat,pk.lng);}
         points.push(dp); ord.push({pickupIdx:pIdx,dropIdx:points.length-1,pay:o.pay?parseFloat(String(o.pay).replace(/[^0-9.]/g,"")):0,pKey});
       }
@@ -4888,8 +4901,8 @@ function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
                 <button onClick={()=>setPlacing({id:o.id,kind:"pickup"})} style={{flex:1,background:aP?"#06c167":"var(--bg)",border:"1px solid "+(aP?"#06c167":"var(--border2)"),borderRadius:9,padding:"8px 4px",...B,fontWeight:700,fontSize:11,color:aP?"#fff":o.pickup?"#06c167":"var(--muted)",cursor:"pointer"}}>📍 Pickup{o.pickup?" ✓":""}</button>
                 <button onClick={()=>setPlacing({id:o.id,kind:"drop"})} style={{flex:1,background:aD?"#ef4444":"var(--bg)",border:"1px solid "+(aD?"#ef4444":"var(--border2)"),borderRadius:9,padding:"8px 4px",...B,fontWeight:700,fontSize:11,color:aD?"#fff":o.drop?"#ef4444":"var(--muted)",cursor:"pointer"}}>🏁 Drop{o.drop?" ✓":""}</button>
               </div>
-              <input value={o.pText} onChange={e=>upd(o.id,{pText:e.target.value})} placeholder={o.pickup?"📍 pinned · or type pickup":"Pickup address (blank = already collected)"} style={{...fld,marginBottom:6}}/>
-              <input value={o.dText} onChange={e=>upd(o.id,{dText:e.target.value})} placeholder={o.drop?"📍 pinned · or type drop-off":"Drop-off address"} style={{...fld,marginBottom:6}}/>
+              <input value={o.pText} onChange={e=>upd(o.id,{pText:e.target.value})} placeholder={o.pickup?"📍 pinned · or type pickup":"Pickup postcode or restaurant (blank = collected)"} style={{...fld,marginBottom:6}}/>
+              <input value={o.dText} onChange={e=>upd(o.id,{dText:e.target.value.toUpperCase()})} autoCapitalize="characters" autoCorrect="off" placeholder={o.drop?"📍 pinned · or type drop-off":"Drop-off postcode (e.g. CO9 1BD)"} style={{...fld,marginBottom:6}}/>
               <input value={o.pay} onChange={e=>upd(o.id,{pay:e.target.value})} inputMode="decimal" placeholder="Pay £ (optional)" style={fld}/>
             </>)}
           </div>

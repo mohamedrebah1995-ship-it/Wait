@@ -66,7 +66,13 @@ final class OfferEvaluator {
         }
         let estimate = offlineEstimate(offer: offer, run: run)
         if live == .reconnect { return estimate.map { "\($0)\n\(Self.reconnectText)" } ?? Self.reconnectText }
-        return estimate ?? "Offline: can't check this offer (no drop-off postcode on the card)"
+        return estimate ?? Self.cantCheck(offer)
+    }
+
+    // Says which it was: no postcode read off the card, or one the phone couldn't place without signal.
+    static func cantCheck(_ offer: ScreenEvent) -> String {
+        guard let pc = offer.dropPostcode else { return "Can't check this offer: no drop-off postcode on the card" }
+        return "Offline: can't place \(pc) yet — needs signal"
     }
 
     // IDLE: Uber and Just Eat cards give the trip time, so this needs no network at all. Deliveroo cards
@@ -80,7 +86,7 @@ final class OfferEvaluator {
         }
         let estimate = offlineSoloEstimate(offer)
         if live == .reconnect { return estimate.map { "\($0)\n\(Self.reconnectText)" } ?? Self.reconnectText }
-        return estimate ?? "Offline: can't check this offer (no drop-off postcode on the card)"
+        return estimate ?? Self.cantCheck(offer)
     }
 
     // Trip minutes from the card: Uber prints them; Just Eat prints the drop-off ETA (minutes = ETA − when
@@ -212,10 +218,11 @@ final class OfferEvaluator {
             o["pickup"] = p.map { ["lat": $0[0], "lng": $0[1]] } ?? NSNull()
             return o
         }
-        let runPlaced = run.map { place(drop: $0.dropPostcode, pickupPC: $0.pickupPostcode, name: $0.restaurant, pickedUp: $0.pickedUp, pay: $0.pay) }
+        // A run order with no usable postcode is left out (and said so) rather than blocking the check.
+        let runList = run.compactMap { place(drop: $0.dropPostcode, pickupPC: $0.pickupPostcode, name: $0.restaurant, pickedUp: $0.pickedUp, pay: $0.pay) }
         guard let offerPlaced = place(drop: offer.dropPostcode, pickupPC: offer.pickupPostcode, name: offer.restaurant, pickedUp: false, pay: offer.pay),
-              !runPlaced.isEmpty, !runPlaced.contains(where: { $0 == nil }) else { return nil }
-        let runList = runPlaced.compactMap { $0 }
+              !runList.isEmpty else { return nil }
+        let skipped = run.count - runList.count
         let first = runList[0]
         // Start: the driver's fresh fix, else the run's next stop (same rule as /evaluate).
         let start = ScreenReaderStore.freshFix().map { ["lat": $0.lat, "lng": $0.lng] }
@@ -227,8 +234,10 @@ final class OfferEvaluator {
         let matrix = Self.estimateMatrix(points)
         let verdict = engine.invokeMethod("judgeOffer", withArguments: [matrix, built.forProperty("orders") as Any,
                                                                          ["offline": true, "minRate": ScreenReaderStore.minRate()]])
-        return verdict?.forProperty("text").toString()
+        return verdict?.forProperty("text").toString().map { $0 + Self.skippedNote(skipped) }
     }
+
+    static func skippedNote(_ n: Int) -> String { n > 0 ? " · \(n) order\(n == 1 ? "" : "s") without a postcode left out" : "" }
 
     // Straight-line × road factor ÷ average urban speed: the same rule as the app's routeCache.
     private static func estimateMatrix(_ pts: [[String: Double]]) -> [String: [[Double]]] {
@@ -269,18 +278,33 @@ final class OfferEvaluator {
         switch p { case .uber: return "Uber Eats"; case .justEat: return "Just Eat"; case .deliveroo: return "Deliveroo" }
     }
 
-    // Time-sensitive, with sound. One per offer: the id is the offer's dedupe key, so a repeat replaces
-    // the earlier banner instead of stacking a second one.
+    // Time-sensitive, with the Delivr offer chime (delivr_offer.caf, bundled in this extension).
+    // One per offer: the id is the offer's dedupe key, so a repeat replaces the earlier banner
+    // instead of stacking a second one.
     private func notify(_ text: String, offer: ScreenEvent) {
         let c = UNMutableNotificationContent()
         c.title = "Delivr · " + Self.platformName(offer.platform)
         c.body = text
-        c.sound = .default
+        _ = Self.installSound
+        c.sound = UNNotificationSound(named: UNNotificationSoundName("delivr_offer.caf"))
         c.interruptionLevel = .timeSensitive
         let req = UNNotificationRequest(identifier: "offer|" + offer.dedupeKey, content: c, trigger: nil)
         UNUserNotificationCenter.current().add(req)
         ScreenReaderStore.set(ScreenReaderStore.Key.lastVerdict, text)
     }
+
+    // Copy the chime into the App Group's Library/Sounds once — a sound named by a notification an
+    // extension posts is looked up there as well as in bundles, so this works either way.
+    private static let installSound: Void = {
+        let fm = FileManager.default
+        guard let src = Bundle.main.url(forResource: "delivr_offer", withExtension: "caf"),
+              let dir = fm.containerURL(forSecurityApplicationGroupIdentifier: ScreenReaderStore.appGroup)?
+                .appendingPathComponent("Library/Sounds", isDirectory: true) else { return }
+        let dst = dir.appendingPathComponent("delivr_offer.caf")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? fm.removeItem(at: dst)
+        try? fm.copyItem(at: src, to: dst)
+    }()
 }
 
 // Postcode / restaurant → coordinates learned from /evaluate replies. App Group, device only.

@@ -1,6 +1,7 @@
 import ReplayKit
 import CoreMedia
 import CoreVideo
+import UserNotifications
 
 // Broadcast Upload Extension. iOS runs this in its own process with a ~50MB memory cap.
 //
@@ -117,6 +118,19 @@ class SampleHandler: RPBroadcastSampleHandler {
 
     override func broadcastFinished() {
         ScreenReaderStore.set(ScreenReaderStore.Key.state, "stopped")
+        notifyStopped()
+    }
+
+    // iOS ends a broadcast on its own (screen lock, a call, another app recording). Mid-shift that would
+    // otherwise go unnoticed, so say it — only while a run is on or a delivery app was just on screen.
+    private func notifyStopped() {
+        guard runState.active || Date().timeIntervalSince1970 - lastDeliverySeenAt < contextWindow else { return }
+        let c = UNMutableNotificationContent()
+        c.title = "MOdelivr stopped reading offers"
+        c.body = "Screen sharing ended. Open MOdelivr and tap Start to keep checking offers."
+        c.sound = .default
+        c.interruptionLevel = .timeSensitive
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "screen-reader-stopped", content: c, trigger: nil))
     }
 
     // Record the reason in the App Group first, so the app can show it, then end the broadcast.

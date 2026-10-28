@@ -364,6 +364,11 @@ let _driverCountCache = { n: 0, at: 0 };
 const MAPBOX_TOKEN = (process.env.MAPBOX_TOKEN || '').trim();
 const PC_RE = /^[A-Z]{1,2}[0-9][A-Z0-9]? [0-9][A-Z]{2}$/;
 const geoCache = new Map();   // "pc:CM7 1AA" / "name:mcdonald's@lat,lng" → {lat,lng}
+// Postcode district centroids (OGL data), shared with the extension's offline estimates.
+const DISTRICTS = (() => {
+  try { return JSON.parse(readFileSync(join(__dirname, '../ios/App/DelivrScreenReader/PostcodeDistricts.json'), 'utf8')).districts || {}; }
+  catch { return {}; }
+})();
 
 function cleanEvalOrder(o) {
   if (!o || typeof o !== 'object') return null;
@@ -390,7 +395,9 @@ async function geocodePostcode(pc) {
   const k = 'pc:' + pc; if (geoCache.has(k)) return geoCache.get(k);
   const g = await mapboxJSON(`https://api.mapbox.com/search/geocode/v6/forward?q=${encodeURIComponent(pc)}&types=postcode&country=gb&limit=1&access_token=${MAPBOX_TOKEN}`);
   const c = g?.features?.[0]?.geometry?.coordinates;
-  const v = c ? { lat: c[1], lng: c[0] } : null;
+  // Not found (new build, or a misread last letter): the centre of its district ("CO9") instead.
+  const d = c ? null : DISTRICTS[pc.split(' ')[0]];
+  const v = c ? { lat: c[1], lng: c[0] } : d ? { lat: d[0], lng: d[1] } : null;
   if (v) geoCache.set(k, v);
   return v;
 }
@@ -477,8 +484,10 @@ app.post('/evaluate', async (req, res) => {
   // Search restaurants near the driver; with no fresh position, near the run's first stop.
   const near = here || (await geocodePostcode(run[0].pickupPostcode)) || (await geocodePostcode(run[0].dropPostcode));
   const located = await Promise.all([...run, offer].map(o => locateOrder(o, near)));
-  if (located.some(x => !x)) return res.status(422).json({ error: 'postcode not found' });
-  const runLoc = located.slice(0, -1), offerLoc = located[located.length - 1];
+  // A run order with no usable postcode is left out (and said so) rather than blocking the check.
+  const offerLoc = located[located.length - 1], runLoc = located.slice(0, -1).filter(Boolean);
+  if (!offerLoc || !runLoc.length) return res.status(422).json({ error: 'postcode not found' });
+  const skipped = run.length - runLoc.length;
   // Run start: the driver's own position when the app had a fresh fix, else the run's next stop.
   const first = runLoc[0];
   const start = here || first.pickup || first.drop;
@@ -490,7 +499,9 @@ app.post('/evaluate', async (req, res) => {
   const result = judgeOffer({ dur: g.durations, dist: g.distances }, orders, { minRate, approx: offerLoc.approx });
   if (!result) return res.status(500).json({ error: 'no plan' });
   // Coordinates go back so the extension can cache them for its own offline estimates.
-  res.json({ ...result, source: 'live', located: { start, run: runLoc, offer: offerLoc } });
+  // located.run lines up index-for-index with the request's run (null = left out).
+  const note = skipped ? ` · ${skipped} order${skipped === 1 ? '' : 's'} without a postcode left out` : '';
+  res.json({ ...result, text: result.text + note, source: 'live', located: { start, run: located.slice(0, -1), offer: offerLoc } });
 });
 
 // Health check: readiness only, never values. evaluate=true means /evaluate can answer for real.

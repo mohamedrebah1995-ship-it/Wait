@@ -38,6 +38,7 @@
 		F3670BD74F0E222CB46BFCB8 /* RunState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF9239A08AF5B734FC7904E /* RunState.swift */; };
 		F9F588311124F8F1B05B4772 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AEB2A70ACCCC8E09EB78ECEC /* Foundation.framework */; };
 		FE71599781AE5F3B149D4672 /* StackEngine.js in Resources */ = {isa = PBXBuildFile; fileRef = C685A0FE23F8BF94EB393696 /* StackEngine.js */; };
+		D31F0A0E5C0FFEE5A1B2C302 /* delivr_offer.caf in Resources */ = {isa = PBXBuildFile; fileRef = D31F0A0E5C0FFEE5A1B2C301 /* delivr_offer.caf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -94,6 +95,7 @@
 		BDCE24A6B6CEAB64DC533535 /* ChangeDetector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChangeDetector.swift; sourceTree = "<group>"; };
 		BEF9239A08AF5B734FC7904E /* RunState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RunState.swift; sourceTree = "<group>"; };
 		C685A0FE23F8BF94EB393696 /* StackEngine.js */ = {isa = PBXFileReference; includeInIndex = 1; path = StackEngine.js; sourceTree = "<group>"; };
+		D31F0A0E5C0FFEE5A1B2C301 /* delivr_offer.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = delivr_offer.caf; sourceTree = "<group>"; };
 		C9E095411FC6D8FE1B33E09B /* StackPlansPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StackPlansPlugin.swift; sourceTree = "<group>"; };
 		D6656C1AB187036905414B41 /* OfferEvaluator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OfferEvaluator.swift; sourceTree = "<group>"; };
 		DA27829FE8D03D4D4A12E90D /* ScreenRules.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScreenRules.swift; sourceTree = "<group>"; };
@@ -133,6 +135,7 @@
 				87EB295F3D17325FC25C0DB3 /* Run */,
 				C685A0FE23F8BF94EB393696 /* StackEngine.js */,
 				8E87EB15716B3625C47DAA31 /* PostcodeDistricts.json */,
+				D31F0A0E5C0FFEE5A1B2C301 /* delivr_offer.caf */,
 				613D311BE75C7A9EE83164BD /* SharedAuth.swift */,
 			);
 			name = DelivrScreenReader;
@@ -308,6 +311,7 @@
 			files = (
 				FE71599781AE5F3B149D4672 /* StackEngine.js in Resources */,
 				B966FD27367731F0E422FAA2 /* PostcodeDistricts.json in Resources */,
+				D31F0A0E5C0FFEE5A1B2C302 /* delivr_offer.caf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

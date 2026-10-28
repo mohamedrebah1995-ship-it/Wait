@@ -65,11 +65,42 @@ enum Rx {
 enum Parse {
     static func number(_ s: String) -> Double? { Double(s.replacingOccurrences(of: ",", with: ".")) }
 
-    // UK postcode, tolerating OCR dropping the space ("CM778EZ" → "CM77 8EZ").
+    // UK postcode, tolerating OCR dropping the space ("CM778EZ" → "CM77 8EZ"). With no clean match,
+    // OCR letter/digit swaps are repaired ("C09 1BD" → "CO9 1BD", "CM7 IAA" → "CM7 1AA").
     static func postcode(_ s: String) -> String? {
-        guard let m = Rx.match(#"\b([A-Z]{1,2}[0-9][A-Z0-9]?)\s?([0-9][A-Z]{2})\b"#, s.uppercased()) else { return nil }
-        return "\(m[1]) \(m[2])"
+        let u = s.uppercased()
+        if let m = Rx.match(#"\b([A-Z]{1,2}[0-9][A-Z0-9]?)\s?([0-9][A-Z]{2})\b"#, u), validArea(m[1]) { return "\(m[1]) \(m[2])" }
+        guard let m = Rx.match(#"\b([A-Z0-9]{2,4})\s?([A-Z0-9]{3})\b"#, u),
+              m[1].contains(where: \.isNumber) || m[2].contains(where: \.isNumber),
+              let inward = repair(m[2], as: "9AA") else { return nil }
+        let outward = ["A9", "A99", "A9A", "AA9", "AA99", "AA9A"].filter { $0.count == m[1].count }
+            .compactMap { repair(m[1], as: $0) }.filter(validArea)
+            .min { swaps(m[1], $0) < swaps(m[1], $1) }
+        return outward.map { "\($0) \(inward)" }
     }
+
+    // The 121 UK postcode areas (the letters before the first digit).
+    private static let areas: Set<String> = Set("""
+        AB AL B BA BB BD BH BL BN BR BS BT CA CB CF CH CM CO CR CT CV CW DA DD DE DG DH DL DN DT DY E EC EH EN EX \
+        FK FY G GL GU GY HA HD HG HP HR HS HU HX IG IM IP IV JE KA KT KW KY L LA LD LE LL LN LS LU M ME MK ML N NE \
+        NG NN NP NR NW OL OX PA PE PH PL PO PR RG RH RM S SA SE SG SK SL SM SN SO SP SR SS ST SW SY TA TD TF TN TQ \
+        TR TS TW UB W WA WC WD WF WN WR WS WV YO ZE
+        """.split(separator: " ").map(String.init))
+    private static func validArea(_ outward: String) -> Bool { areas.contains(String(outward.prefix { $0.isLetter })) }
+
+    private static let toLetter: [Character: Character] = ["0": "O", "1": "I", "5": "S", "8": "B", "2": "Z"]
+    private static let toDigit: [Character: Character] = ["O": "0", "D": "0", "I": "1", "L": "1", "S": "5", "B": "8", "Z": "2"]
+
+    // `pattern`: "A" = letter, "9" = digit. Nil if a character can't be read as what that slot needs.
+    private static func repair(_ s: String, as pattern: String) -> String? {
+        var out = ""
+        for (c, p) in zip(s, pattern) {
+            if p == "A" { guard let l = c.isLetter ? c : toLetter[c] else { return nil }; out.append(l) }
+            else { guard let d = c.isNumber ? c : toDigit[c] else { return nil }; out.append(d) }
+        }
+        return out
+    }
+    private static func swaps(_ a: String, _ b: String) -> Int { zip(a, b).filter { $0 != $1 }.count }
 
     // The headline pay is the tallest "£x.xx" on screen ("€" accepted: OCR confuses the two on small text). Returns (amount, isAddOn "+£").
     static func headlinePay(_ s: ScreenText, near row: Int? = nil) -> (Double, Bool)? {
