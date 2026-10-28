@@ -22,6 +22,8 @@ class SampleHandler: RPBroadcastSampleHandler {
     private var peakMB: Double = 0
     private var debouncer = Debouncer()
     private var runState = RunState.load()
+    private var lastDeliverySeenAt: TimeInterval = 0     // last time a delivery app was recognised
+    private let contextWindow: TimeInterval = 3 * 60
     private let evaluator = OfferEvaluator()
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
@@ -59,10 +61,14 @@ class SampleHandler: RPBroadcastSampleHandler {
         if runState.expireIfNeeded(endRequestedAt: endRequested) { runState.save() }
         if detector.changed(cells) {
             changedFrames += 1
-            if let accent = PlatformGate.signature(pixelBuffer) {
+            // Layout-only screens (greyed buttons, toasts, the stop disc) are allowed only in delivery
+            // context: during a run, or shortly after a delivery app was recognised.
+            let inContext = runState.active || Date().timeIntervalSince1970 - lastDeliverySeenAt < contextWindow
+            if let gate = PlatformGate.check(pixelBuffer, allowLayout: inContext) {
                 passedGate += 1
                 ScreenReaderStore.set(ScreenReaderStore.Key.passedGate, passedGate)
-                read(pixelBuffer, accent: accent)
+                if gate.accent != nil { lastDeliverySeenAt = Date().timeIntervalSince1970 }
+                read(pixelBuffer, accent: gate.accent)
             }
             // No delivery-app button: the frame is dropped here, never OCR'd, nothing logged.
         }
@@ -75,11 +81,12 @@ class SampleHandler: RPBroadcastSampleHandler {
 
     // Runs synchronously on ReplayKit's callback queue: one frame in flight at a time, released when
     // this returns. Frames ReplayKit delivers meanwhile are simply skipped.
-    private func read(_ pixelBuffer: CVPixelBuffer, accent: Accent) {
+    private func read(_ pixelBuffer: CVPixelBuffer, accent: Accent?) {
         ocrPasses += 1
         autoreleasepool {
             let lines = OCR.recognize(pixelBuffer)
             let result = ScreenReaderRules.read(lines, accent: accent)
+            if result.platform != nil { lastDeliverySeenAt = Date().timeIntervalSince1970 }
             if var event = result.event, debouncer.accept(event) {
                 event.seq = ScreenReaderStore.nextSeq()
                 EventLog.append(event)

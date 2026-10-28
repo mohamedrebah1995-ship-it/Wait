@@ -54,19 +54,21 @@ for p in platforms {
               let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else { continue }
         // Same order as the extension: gate first, OCR only behind it. The ungated read is kept only to
         // report what the gate costs.
-        let gate = PlatformGate.signature(img)
+        // Fixtures are frames from real shifts, so they're judged in delivery context (layout tier on).
+        let gateResult = PlatformGate.check(img, allowLayout: true)
+        let gate: String? = gateResult.map { $0.accent.map { gateName[$0]! } ?? "layout" }
         let (ungated, platform, used): (ScreenEvent?, Platform?, Bool) = autoreleasepool {
-            let r = ScreenReaderRules.read(OCR.recognize(img), accent: gate)
+            let r = ScreenReaderRules.read(OCR.recognize(img), accent: gateResult?.accent)
             return (r.event, r.platform, r.usedColour)
         }
         let event = gate == nil ? nil : ungated
         peak = max(peak, MemoryProbe.footprintMB())
         if used { colourUsed += 1 }
         if let e = ungated { readByName[name] = e }
-        if let g = gate, g != wantAccent[p] { wrongGate.append("\(name): \(gateName[g]!)") }
+        if let a = gateResult?.accent, a != wantAccent[p] { wrongGate.append("\(name): \(gateName[a]!)") }
 
         guard let x = expectations[name] else {
-            print(pad(p, 10) + "| " + pad(f, 42) + "| " + pad(gate.map { gateName[$0]! } ?? "—", 8) + "| " + pad("(no README row)", 15) + "| " + pad(event?.type.rawValue ?? "UNKNOWN", 15) + "| " + pad(fields(event), 92) + "| ?")
+            print(pad(p, 10) + "| " + pad(f, 42) + "| " + pad(gate ?? "—", 8) + "| " + pad("(no README row)", 15) + "| " + pad(event?.type.rawValue ?? "UNKNOWN", 15) + "| " + pad(fields(event), 92) + "| ?")
             continue
         }
         let wrongPlatform: (ScreenEvent?) -> Bool = { e in e != nil && platform?.rawValue != ["uber": "UBER_EATS", "justeat": "JUST_EAT", "deliveroo": "DELIVEROO"][p] }
@@ -79,7 +81,7 @@ for p in platforms {
         var pp = perPlatform[p] ?? (0, 0); pp.0 += 1; if ok { pp.1 += 1 }; perPlatform[p] = pp
         if x.type == .newOffer { var o = offers[p] ?? (0, 0); o.0 += 1; if ok { o.1 += 1 }; offers[p] = o }
         if !ok && !lostToGate { failures.append("\(name): " + (wrongPlatform(event) ? ["platform \(platform?.rawValue ?? "nil")"] : bad).joined(separator: "; ")) }
-        print(pad(p, 10) + "| " + pad(f.replacingOccurrences(of: ".png", with: ""), 42) + "| " + pad(gate.map { gateName[$0]! } ?? "—", 8) + "| "
+        print(pad(p, 10) + "| " + pad(f.replacingOccurrences(of: ".png", with: ""), 42) + "| " + pad(gate ?? "—", 8) + "| "
               + pad(x.type.rawValue, 15) + "| " + pad(event?.type.rawValue ?? "UNKNOWN", 15) + "| " + pad(fields(event), 92) + "| "
               + (ok ? "PASS" : lostToGate ? "FAIL (gated out)" : "FAIL"))
     }
@@ -101,15 +103,16 @@ print("Gate picked the wrong app on \(wrongGate.count) frame(s)" + (wrongGate.is
 if CommandLine.arguments.count > 2 {
     let dir = CommandLine.arguments[2]
     let files = ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".png") }.sorted()
-    var passed: [String] = [], logged: [String] = []
+    var passed: [String] = [], logged: [String] = [], passedIdle = 0
     for f in files {
         guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: "\(dir)/\(f)") as CFURL, nil),
               let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else { continue }
-        guard let g = PlatformGate.signature(img) else { continue }
-        passed.append("\(f) (\(gateName[g]!))")
-        if ScreenReaderRules.read(OCR.recognize(img), accent: g).event != nil { logged.append(f) }
+        if PlatformGate.check(img, allowLayout: false) != nil { passedIdle += 1 }
+        guard let g = PlatformGate.check(img, allowLayout: true) else { continue }
+        passed.append("\(f) (\(g.accent.map { gateName[$0]! } ?? "layout"))")
+        if ScreenReaderRules.read(OCR.recognize(img), accent: g.accent).event != nil { logged.append(f) }
     }
-    print("\nOther-app frames: \(files.count) checked, \(passed.count) passed the gate (OCR'd then discarded), \(logged.count) produced an event (want 0)"
+    print("\nOther-app frames: \(files.count) checked. Outside delivery context \(passedIdle) pass the gate (want 0). In delivery context \(passed.count) pass (OCR'd then discarded), \(logged.count) produced an event (want 0)"
           + (passed.isEmpty ? "" : "\n  passed gate: " + passed.joined(separator: ", ")))
 }
 
