@@ -44,13 +44,14 @@ struct RunState: Codable {
     }
 
     // MARK: transitions
-    // Returns true when the event is an offer that should be evaluated (a run is active).
+    // Returns true when the event is an offer to evaluate: every NEW_OFFER (solo verdict while IDLE,
+    // stacking verdict while ACTIVE).
     mutating func apply(_ e: ScreenEvent) -> Bool {
         let key = e.platform.rawValue
         switch e.type {
         case .newOffer:
             pendingOffers[key] = e
-            return active
+            return true
         case .orderAccepted:
             let src = (e.pay != nil ? e : pendingOffers[key]) ?? e
             orders.append(RunOrder(platform: e.platform, restaurant: src.restaurant ?? e.restaurant,

@@ -216,5 +216,31 @@ function judgeOffer(matrix, orders, opts={}){
   return {verdict, addedMin, rate:rate!=null?Math.round(rate*100)/100:null, text:(opts.offline?"Offline estimate · ":"")+text, totalMin:withOffer.totalMin, offline:!!opts.offline};
 }
 
-return { WINDOW_MIN, slidingWindowMin, STACK_GREEN_MAX_MIN, STACK_ORANGE_MAX_MIN, PICKUP_DWELL_MIN, DROPOFF_DWELL_MIN, planStack, buildOfferStack, DEFAULT_MIN_RATE, judgeOffer };
+// ── Solo verdict (no run yet): is this offer worth it on its own? ───────────────────────────────────
+// £/hr = pay ÷ (trip minutes + one pickup and one drop-off dwell buffer), against the driver's
+// average (opts.minRate, default £15/hr). ✅ at or above it · 🟠 below it · ❌ under 60% of it.
+const POOR_FRACTION = 0.6;
+function judgeSolo(pay, minutes, opts={}){
+  if(!(pay>0)||!(minutes>0)) return null;
+  const totalMin=Math.round(minutes+PICKUP_DWELL_MIN+DROPOFF_DWELL_MIN);
+  const rate=pay/(totalMin/60);
+  const avg=opts.minRate>0 ? opts.minRate : DEFAULT_MIN_RATE;
+  const money=v=>"£"+v.toFixed(2);
+  const base=`${money(pay)} for ${totalMin} min = ${money(rate)}/hr`;
+  let verdict, text;
+  if(rate>=avg)                     { verdict="green";  text=`✅ Good offer: ${base}`; }
+  else if(rate>=avg*POOR_FRACTION)  { verdict="orange"; text=`🟠 Below your average: ${base} (avg £${Math.round(avg)}/hr)`; }
+  else                              { verdict="red";    text=`❌ Poor: ${base}`; }
+  if(opts.approx) text+=" · restaurant approx";
+  return {verdict, totalMin, rate:Math.round(rate*100)/100, text:(opts.offline?"Offline estimate · ":"")+text, offline:!!opts.offline};
+}
+
+// Offer labels every verdict ends with, in this order, when the card shows them.
+const VERDICT_FLAGS = ["Must verify ID","Customer verification","Heavy","Age-restricted","Exclusive","Package"];
+function appendFlags(text, flags){
+  const shown=VERDICT_FLAGS.filter(f=>(flags||[]).includes(f));
+  return shown.length ? `${text} · ${shown.join(" · ")}` : text;
+}
+
+return { WINDOW_MIN, slidingWindowMin, STACK_GREEN_MAX_MIN, STACK_ORANGE_MAX_MIN, PICKUP_DWELL_MIN, DROPOFF_DWELL_MIN, planStack, buildOfferStack, DEFAULT_MIN_RATE, judgeOffer, POOR_FRACTION, judgeSolo, VERDICT_FLAGS, appendFlags };
 })();

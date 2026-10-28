@@ -2,7 +2,8 @@ import Foundation
 import JavaScriptCore
 import UserNotifications
 
-// NEW_OFFER during a run → verdict notification.
+// Every NEW_OFFER → verdict notification. IDLE: solo £/hr (on the device for Uber/Just Eat). ACTIVE:
+// stacking verdict.
 //   1. POST /evaluate (live Mapbox times on the server), 3s budget.
 //   2. Otherwise an on-device estimate: the SAME engine (StackEngine.js, generated from
 //      src/stackEngine.js) run in JavaScriptCore on straight-line times, labelled "Offline estimate".
@@ -36,23 +37,89 @@ final class OfferEvaluator {
 
     static let reconnectText = "Open MOdelivr to reconnect"
 
+    // Every NEW_OFFER gets a verdict: solo ("is it worth it") while IDLE, stacking while a run is active.
+    // Offer flags are always appended.
+    func verdictText(offer: ScreenEvent, run: [RunOrder]) -> String {
+        let verdict = run.isEmpty ? soloVerdict(offer) : stackVerdict(offer: offer, run: run)
+        var flags = offer.flags
+        if offer.offerType == OfferType.package { flags.append(OfferType.package) }
+        return loadEngine()?.invokeMethod("appendFlags", withArguments: [verdict, flags])?.toString() ?? verdict
+    }
+
     private func run(offer: ScreenEvent, run: [RunOrder]) {
+        notify(verdictText(offer: offer, run: run), offer: offer)
+    }
+
+    private func liveBody(offer: ScreenEvent, run: [RunOrder]) -> [String: Any] {
         var body: [String: Any] = ["offer": Self.wire(offer), "run": run.map(Self.wire), "minRate": ScreenReaderStore.minRate()]
         // The driver's own position (rounded ~100 m) when the app had a fix in the last 2 minutes.
         if let f = ScreenReaderStore.freshFix() { body["here"] = ["lat": f.lat, "lng": f.lng] }
-        let live = postEvaluate(body)
+        return body
+    }
+
+    // ACTIVE: /evaluate (3s), else the on-device estimate. A sign-in problem is said, never swallowed.
+    private func stackVerdict(offer: ScreenEvent, run: [RunOrder]) -> String {
+        let live = postEvaluate(liveBody(offer: offer, run: run))
         if case .verdict(let reply) = live, let text = reply["text"] as? String {
             rememberLocations(reply, offer: offer, run: run)
-            notify(text, id: offer.seq)
-            return
+            return text
         }
-        // No live verdict: the on-device estimate. If the reason was sign-in, say so rather than fail quietly.
         let estimate = offlineEstimate(offer: offer, run: run)
-        if live == .reconnect {
-            notify(estimate.map { "\($0)\n\(Self.reconnectText)" } ?? Self.reconnectText, id: offer.seq)
-        } else {
-            notify(estimate ?? "Offline: can't check this offer (no drop-off postcode on the card)", id: offer.seq)
+        if live == .reconnect { return estimate.map { "\($0)\n\(Self.reconnectText)" } ?? Self.reconnectText }
+        return estimate ?? "Offline: can't check this offer (no drop-off postcode on the card)"
+    }
+
+    // IDLE: Uber and Just Eat cards give the trip time, so this needs no network at all. Deliveroo cards
+    // don't: /evaluate routes it (3s), else an offline estimate.
+    func soloVerdict(_ offer: ScreenEvent) -> String {
+        if let minutes = Self.tripMinutes(offer), let text = solo(pay: offer.pay, minutes: minutes, offline: false) { return text }
+        let live = postEvaluate(liveBody(offer: offer, run: []))
+        if case .verdict(let reply) = live, let text = reply["text"] as? String {
+            rememberLocations(reply, offer: offer, run: [])
+            return text
         }
+        let estimate = offlineSoloEstimate(offer)
+        if live == .reconnect { return estimate.map { "\($0)\n\(Self.reconnectText)" } ?? Self.reconnectText }
+        return estimate ?? "Offline: can't check this offer (no drop-off postcode on the card)"
+    }
+
+    // Trip minutes from the card: Uber prints them; Just Eat prints the drop-off ETA (minutes = ETA − when
+    // the offer appeared), else miles at average speed. Deliveroo prints neither → nil.
+    static func tripMinutes(_ e: ScreenEvent) -> Double? {
+        if let m = e.minutes, m > 0 { return Double(m) }
+        if let eta = e.dropETA, let m = minutesUntil(eta, from: e.at) { return m }
+        if let mi = e.miles, mi > 0 { return mi * 1609.34 / 8.3 / 60 }
+        return nil
+    }
+
+    static func minutesUntil(_ eta: String, from start: Date) -> Double? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "h:mm a"
+        guard let t = f.date(from: eta.uppercased()) else { return nil }
+        let cal = Calendar.current
+        let hm = cal.dateComponents([.hour, .minute], from: t)
+        guard var when = cal.date(bySettingHour: hm.hour ?? 0, minute: hm.minute ?? 0, second: 0, of: start) else { return nil }
+        if when < start.addingTimeInterval(-5 * 60) { when = when.addingTimeInterval(24 * 3600) }   // ETA past midnight
+        let m = when.timeIntervalSince(start) / 60
+        return m > 0 && m < 180 ? m : nil
+    }
+
+    private func solo(pay: Double?, minutes: Double, offline: Bool) -> String? {
+        guard let engine = loadEngine(), let pay = pay else { return nil }
+        let r = engine.invokeMethod("judgeSolo", withArguments: [pay, minutes, ["minRate": ScreenReaderStore.minRate(), "offline": offline]])
+        return r?.isObject == true ? r?.forProperty("text").toString() : nil
+    }
+
+    // Deliveroo with no signal: straight-line route (driver → pickup → drop-off) at average speed.
+    func offlineSoloEstimate(_ offer: ScreenEvent) -> String? {
+        let cache = GeoCache.load()
+        guard let d = coord(postcode: offer.dropPostcode, cache: cache) else { return nil }
+        let p = coord(postcode: offer.pickupPostcode, cache: cache) ?? offer.restaurant.flatMap { cache.restaurants[$0.lowercased()] } ?? d
+        let drop = ["lat": d[0], "lng": d[1]], pickup = ["lat": p[0], "lng": p[1]]
+        var metres = Self.haversine(pickup, drop)
+        if let f = ScreenReaderStore.freshFix() { metres += Self.haversine(["lat": f.lat, "lng": f.lng], pickup) }
+        return solo(pay: offer.pay, minutes: metres * 1.3 / 8.3 / 60, offline: true)
     }
 
     // Called about once a minute while broadcasting: renews the ID token when it has < 10 min left, so an
@@ -198,12 +265,19 @@ final class OfferEvaluator {
 
     // MARK: - notification
 
-    private func notify(_ text: String, id: Int?) {
+    static func platformName(_ p: Platform) -> String {
+        switch p { case .uber: return "Uber Eats"; case .justEat: return "Just Eat"; case .deliveroo: return "Deliveroo" }
+    }
+
+    // Time-sensitive, with sound. One per offer: the id is the offer's dedupe key, so a repeat replaces
+    // the earlier banner instead of stacking a second one.
+    private func notify(_ text: String, offer: ScreenEvent) {
         let c = UNMutableNotificationContent()
-        c.title = "Offer check"
+        c.title = "Delivr · " + Self.platformName(offer.platform)
         c.body = text
         c.sound = .default
-        let req = UNNotificationRequest(identifier: "offer-\(id ?? Int(Date().timeIntervalSince1970))", content: c, trigger: nil)
+        c.interruptionLevel = .timeSensitive
+        let req = UNNotificationRequest(identifier: "offer|" + offer.dedupeKey, content: c, trigger: nil)
         UNUserNotificationCenter.current().add(req)
         ScreenReaderStore.set(ScreenReaderStore.Key.lastVerdict, text)
     }

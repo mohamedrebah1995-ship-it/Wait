@@ -101,6 +101,7 @@ enum Parse {
         if s.has("customer verification") { f.append(Flag.customerVerification) }
         if s.has("age-restricted") || s.has("age restricted") { f.append(Flag.ageRestricted) }
         if s.has("includes bonus") { f.append(Flag.includesBonus) }
+        if s.has("heavy") { f.append(Flag.heavy) }                      // Uber "Heavy order"; no fixture yet
         return f
     }
 

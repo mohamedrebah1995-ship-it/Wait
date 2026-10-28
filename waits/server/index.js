@@ -9,7 +9,7 @@ import { createServer } from 'http';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { buildOfferStack, judgeOffer } from '../src/stackEngine.js';   // the one stacking engine
+import { buildOfferStack, judgeOffer, judgeSolo } from '../src/stackEngine.js';   // the one stacking engine
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const JWT_SECRET = process.env.JWT_SECRET || 'delivr_jwt_2024_change_in_prod';
@@ -455,10 +455,25 @@ app.post('/evaluate', async (req, res) => {
   if (!MAPBOX_TOKEN) return res.status(503).json({ error: 'routing unavailable' });
   const offer = cleanEvalOrder(req.body?.offer);
   const run = (Array.isArray(req.body?.run) ? req.body.run : []).slice(0, 6).map(cleanEvalOrder).filter(Boolean);
-  if (!offer?.dropPostcode || !run.length) return res.status(400).json({ error: 'need an offer with a drop-off postcode and a run' });
-
+  if (!offer?.dropPostcode) return res.status(400).json({ error: 'need an offer with a drop-off postcode' });
   const here = cleanHere(req.body?.here);
   const minRate = typeof req.body?.minRate === 'number' && req.body.minRate > 0 && req.body.minRate < 200 ? req.body.minRate : undefined;
+
+  // No run yet: solo verdict from route time (driver → pickup → drop-off, or pickup → drop-off without a
+  // fresh position). The extension only asks for this when the card shows no minutes (Deliveroo).
+  if (!run.length) {
+    const near = here || (await geocodePostcode(offer.pickupPostcode)) || (await geocodePostcode(offer.dropPostcode));
+    const loc = await locateOrder(offer, near);
+    if (!loc) return res.status(422).json({ error: 'postcode not found' });
+    const pts = [...(here ? [here] : []), loc.pickup, loc.drop];
+    const g = await mapboxJSON(`https://api.mapbox.com/directions-matrix/v1/mapbox/driving-traffic/${pts.map(p => `${p.lng},${p.lat}`).join(';')}?annotations=duration,distance&access_token=${MAPBOX_TOKEN}`);
+    if (!g?.durations) return res.status(502).json({ error: 'routing failed' });
+    let sec = 0; for (let i = 1; i < pts.length; i++) sec += g.durations[i - 1][i] || 0;
+    const result = judgeSolo(offer.pay || 0, sec / 60, { minRate, approx: loc.approx });
+    if (!result) return res.status(422).json({ error: 'no pay on the card' });
+    return res.json({ ...result, source: 'live', mode: 'solo', located: { start: here, run: [], offer: loc } });
+  }
+
   // Search restaurants near the driver; with no fresh position, near the run's first stop.
   const near = here || (await geocodePostcode(run[0].pickupPostcode)) || (await geocodePostcode(run[0].dropPostcode));
   const located = await Promise.all([...run, offer].map(o => locateOrder(o, near)));

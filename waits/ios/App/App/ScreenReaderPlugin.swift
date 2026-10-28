@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import ReplayKit
+import UserNotifications
 import Capacitor
 
 // ── SCREEN READER — Start shift + status (Phase 1) ───────────────────────────
@@ -41,6 +42,14 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func startShift(_ call: CAPPluginCall) {
+        // Verdicts arrive as notifications from the extension, so ask first (iOS only shows this once;
+        // after that it's a no-op and the driver manages it in Settings).
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
+            self.presentBroadcastPicker(call)
+        }
+    }
+
+    private func presentBroadcastPicker(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             guard let host = self.bridge?.viewController?.view else {
                 call.reject("Could not open the screen broadcast sheet")
@@ -66,7 +75,16 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func status(_ call: CAPPluginCall) {
-        call.resolve(ScreenReaderStore.snapshot())
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            var snap = ScreenReaderStore.snapshot()
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral: snap["notifications"] = "allowed"
+            case .denied: snap["notifications"] = "denied"
+            default: snap["notifications"] = "not asked"
+            }
+            snap["timeSensitive"] = settings.timeSensitiveSetting == .enabled
+            call.resolve(snap)
+        }
     }
 
     // The extension calls /evaluate signed in as the driver. The app stores Firebase's refresh token in the

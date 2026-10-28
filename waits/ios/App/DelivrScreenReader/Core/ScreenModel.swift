@@ -27,6 +27,7 @@ enum Flag {
     static let customerVerification = "Customer verification"
     static let ageRestricted = "Age-restricted"
     static let includesBonus = "Includes bonus"
+    static let heavy = "Heavy"
 }
 
 // Offers only. Package pickups are often a private home: those never get a restaurant name, postcode only.
