@@ -24,7 +24,8 @@ import { showStatsBanner, hideStatsBanner, ADMOB_BANNER_SLOT_PX } from "./admob"
 import { track, identify, initAnalytics, EV } from "./analytics";   // usage reporting (inert until Analytics is enabled)
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
-import ScreenReaderButton from "./ScreenReaderButton";   // 1.1 screen reader — small "Start shift" pill next to STACK CHECK (iOS only)
+import ScreenReaderButton from "./ScreenReaderButton";
+import { cachedMatrix, storeMatrix } from "./routeCache";   // offline: past Mapbox travel times + estimates   // 1.1 screen reader — small "Start shift" pill next to STACK CHECK (iOS only)
 
 // Chat is the heaviest screen and rarely the landing tab — load it (and firebase/storage)
 // on demand the first time a driver opens CHAT, not on first paint.
@@ -1069,15 +1070,25 @@ async function geocodeText(q,lat,lng){
 
 // Mapbox Matrix API — one call returns pairwise driving durations (s) + distances (m) for all points.
 // driving-traffic (live traffic) allows ≤10 coords; above that fall back to plain driving (≤25).
+// Offline / slow signal: answers from routeCache (past Mapbox results, else a distance estimate) so
+// Stack Check never dead-ends. Every live result is stored for next time.
+const MATRIX_TIMEOUT_MS=3000;
 async function mapboxMatrix(points){
-  if(!MAPBOX_TOKEN||!points||points.length<2)return null;
+  if(!points||points.length<2)return null;
+  if(!MAPBOX_TOKEN||(typeof navigator!=="undefined"&&navigator.onLine===false))return cachedMatrix(points);
   const coords=points.map(p=>`${p.lng},${p.lat}`).join(";");
   const profile=points.length<=10?"driving-traffic":"driving";
+  const ctl=typeof AbortController!=="undefined"?new AbortController():null;
+  const timer=ctl&&setTimeout(()=>ctl.abort(),MATRIX_TIMEOUT_MS);
   try{
-    const res=await fetch(`https://api.mapbox.com/directions-matrix/v1/mapbox/${profile}/${coords}?annotations=duration,distance&access_token=${MAPBOX_TOKEN}`);
+    const res=await fetch(`https://api.mapbox.com/directions-matrix/v1/mapbox/${profile}/${coords}?annotations=duration,distance&access_token=${MAPBOX_TOKEN}`,ctl?{signal:ctl.signal}:undefined);
     const g=await res.json();
-    return (g.durations&&g.distances)?{dur:g.durations,dist:g.distances}:null;
-  }catch(e){return null;}
+    if(!(g.durations&&g.distances))return cachedMatrix(points);
+    const m={dur:g.durations,dist:g.distances};
+    storeMatrix(points,m);
+    return m;
+  }catch{return cachedMatrix(points);}
+  finally{ if(timer)clearTimeout(timer); }
 }
 
 // Small numbered pin element for the map (P1 = order-1 pickup, D1 = order-1 drop, …).
@@ -1186,6 +1197,8 @@ function VerdictBanner({res,isAdmin,onOpen}){
           {/* Admin-only numbers. Kept in --ink rather than a grey: on these pale tints grey lands at
               ~4:1, so the step down to secondary comes from size and weight instead. */}
           {isAdmin&&<span style={{...M,fontSize:10,fontWeight:600,color:"var(--ink)",marginLeft:3,fontVariantNumeric:"tabular-nums"}}>{res.totalMin}m · {res.totalMiles}mi</span>}
+          {/* No signal and at least one leg never fetched: times are distance-based, so say so. */}
+          {res.offline&&<span style={{...B,fontSize:9,fontWeight:800,color:"#2b1a00",background:"#f5a623",borderRadius:999,padding:"1px 6px",marginLeft:3,whiteSpace:"nowrap"}}>Offline estimate</span>}
         </span>
       </span>
       <Chevron/>
@@ -4790,7 +4803,7 @@ function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
       if(points.length>25){setErr("Too many stops — keep it to about 6 orders.");setLoading(false);return;}
       const m=await mapboxMatrix(points);
       if(!m){setErr("Routing is unavailable right now — try again.");setLoading(false);return;}
-      onConsume&&onConsume();   // a request was actually spent — count it against today's budget
+      if(!m.cached&&onConsume)onConsume();   // a Mapbox request was actually spent — count it against today's budget
       track(EV.stackCheck,{orders:orders.length});
       // Dwell per stop: pickup = real restaurant wait if enough samples exist, else flat PICKUP_DWELL_MIN;
       // drop-off = flat DROPOFF_DWELL_MIN. Applied per stop, so N orders = N pickup + N drop buffers.
@@ -4824,7 +4837,7 @@ function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
           }
         }
       }catch(e){}
-      setRes({...plan,usedWait});
+      setRes({...plan,usedWait,offline:!!m.offline});
     }catch(e){setErr("Something went wrong — try again.");}
     setLoading(false);
   }
