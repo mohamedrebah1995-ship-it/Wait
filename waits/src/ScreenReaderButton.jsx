@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { SCREEN_READER_SUPPORTED, startShift, screenReaderStatus, recentEvents } from "./screenReader";
+import { SCREEN_READER_SUPPORTED, startShift, screenReaderStatus, recentEvents, endRun } from "./screenReader";
 
 const B = { fontFamily:"'Poppins',sans-serif" };
 const M = { fontFamily:"'Nunito',sans-serif" };
@@ -47,7 +47,8 @@ export default function ScreenReaderButton(){
 
   async function onTap(){
     if(pressRef.current.fired){ pressRef.current.fired=false; return; }   // the long-press already handled it
-    if(live||busy) return;
+    if(live){ setDebugOpen(true); return; }   // while reading, tap = run status + End run
+    if(busy) return;
     setBusy(true); setFailed(false);
     try{ await startShift(); }
     catch{ setFailed(true); }
@@ -120,6 +121,13 @@ function DebugSheet({status,onClose}){
           <button type="button" onClick={onClose} style={{...B,background:"none",border:"none",color:"var(--muted)",fontSize:13,fontWeight:700,padding:"6px 2px",cursor:"pointer"}}>Close</button>
         </div>
         <div style={row}><span>State</span><span style={{color:"var(--ink)"}}>{status?.live?"Reading":status?.state||"—"}{status?.error?" · "+status.error:""}</span></div>
+        <div style={{...row,alignItems:"center"}}><span>Run</span>
+          <span style={{display:"flex",alignItems:"center",gap:8,color:"var(--ink)"}}>
+            {status?.runOrders>0?`Active · ${status.runOrders} order${status.runOrders>1?"s":""}`:"Idle"}
+            {status?.runOrders>0&&<button type="button" onClick={()=>{endRun().catch(()=>{});}}
+              style={{...B,fontSize:11,fontWeight:800,padding:"4px 10px",borderRadius:999,border:"1px solid #ef4444",background:"transparent",color:"#ef4444",cursor:"pointer"}}>End run</button>}
+          </span></div>
+        {status?.lastVerdict&&<div style={row}><span>Last offer check</span><span style={{color:"var(--ink)",textAlign:"right"}}>{status.lastVerdict}</span></div>}
         {/* The funnel: every frame → bottom changed → delivery-app button seen (gate) → OCR → event.
             Frames that stop before "passed gate" were never read. */}
         <div style={row}><span>Frames</span><span style={{color:"var(--ink)"}}>{status?.ticks??0}</span></div>

@@ -21,6 +21,11 @@ enum ScreenReaderStore {
         static let logVersion = "sr.logVersion"  // event-log format the stored log was written in
         static let passedGate = "sr.passedGate"  // changed frames that showed a delivery-app button
         static let seq = "sr.seq"                // last event sequence number (never reset)
+        static let runOrders = "sr.runOrders"    // orders in the current run (0 = IDLE)
+        static let runEndedAt = "sr.runEndedAt"  // epoch ms the driver tapped End run
+        static let lastVerdict = "sr.lastVerdict" // text of the last offer notification
+        static let evalURL = "sr.evalURL"        // server base URL for /evaluate (from the app)
+        static let evalToken = "sr.evalToken"    // Firebase ID token for /evaluate (from the app, ~1h life)
     }
 
     // Monotonic per-device event number. Survives restarts and log clears, so a later sync can
@@ -55,6 +60,8 @@ enum ScreenReaderStore {
             "changedFrames": d.integer(forKey: Key.changedFrames),
             "error": d.string(forKey: Key.error) ?? "",
             "passedGate": d.integer(forKey: Key.passedGate),
+            "runOrders": d.integer(forKey: Key.runOrders),
+            "lastVerdict": d.string(forKey: Key.lastVerdict) ?? "",
             "ocrPasses": d.integer(forKey: Key.ocrPasses),
             "events": d.integer(forKey: Key.events),
             "peakMB": d.double(forKey: Key.peakMB),

@@ -21,6 +21,8 @@ class SampleHandler: RPBroadcastSampleHandler {
     private var events = 0
     private var peakMB: Double = 0
     private var debouncer = Debouncer()
+    private var runState = RunState.load()
+    private let evaluator = OfferEvaluator()
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         ticks = 0; changedFrames = 0; passedGate = 0; ocrPasses = 0; events = 0
@@ -53,6 +55,8 @@ class SampleHandler: RPBroadcastSampleHandler {
         }
 
         ticks += 1
+        let endRequested = UserDefaults(suiteName: ScreenReaderStore.appGroup)?.double(forKey: ScreenReaderStore.Key.runEndedAt) ?? 0
+        if runState.expireIfNeeded(endRequestedAt: endRequested) { runState.save() }
         if detector.changed(cells) {
             changedFrames += 1
             if let accent = PlatformGate.signature(pixelBuffer) {
@@ -79,6 +83,9 @@ class SampleHandler: RPBroadcastSampleHandler {
             if var event = result.event, debouncer.accept(event) {
                 event.seq = ScreenReaderStore.nextSeq()
                 EventLog.append(event)
+                // Run state + offer verdict. Evaluation runs off this queue; the frame is already released.
+                if runState.apply(event) { evaluator.evaluate(offer: event, run: runState.orders) }
+                runState.save()
                 events += 1
                 ScreenReaderStore.set(ScreenReaderStore.Key.events, events)
             }

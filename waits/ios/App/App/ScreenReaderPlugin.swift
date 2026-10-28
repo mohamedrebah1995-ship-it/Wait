@@ -26,6 +26,8 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "startShift", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "recentEvents", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setEvaluateAuth", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "endRun", returnType: CAPPluginReturnPromise),
     ]
 
     // Older logs could contain street addresses (Uber package pickups). Delete them once on upgrade.
@@ -63,6 +65,25 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func status(_ call: CAPPluginCall) {
         call.resolve(ScreenReaderStore.snapshot())
+    }
+
+    // The extension calls /evaluate with the driver's Firebase ID token. The app refreshes it whenever
+    // Firebase does (~hourly while the app is open); an expired token just means an offline estimate.
+    @objc func setEvaluateAuth(_ call: CAPPluginCall) {
+        ScreenReaderStore.set(ScreenReaderStore.Key.evalURL, call.getString("url") ?? "")
+        ScreenReaderStore.set(ScreenReaderStore.Key.evalToken, call.getString("token") ?? "")
+        call.resolve()
+    }
+
+    // Manual End run. The extension also checks this flag every second, so a running broadcast resets.
+    @objc func endRun(_ call: CAPPluginCall) {
+        ScreenReaderStore.set(ScreenReaderStore.Key.runEndedAt, ScreenReaderStore.nowMs())
+        ScreenReaderStore.set(ScreenReaderStore.Key.runOrders, 0)
+        if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: ScreenReaderStore.appGroup)?
+            .appendingPathComponent("run-state.json") {
+            try? FileManager.default.removeItem(at: url)
+        }
+        call.resolve()
     }
 
     // Last N events from the App Group log (newest last). Debug sheet only.

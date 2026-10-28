@@ -3,11 +3,29 @@
 // Nothing here reads or stores screen content. The extension only reports state, a heartbeat and counters.
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
+import { onIdTokenChanged } from "firebase/auth";
+import { auth } from "./firebase";
 
 const IS_IOS = Capacitor.getPlatform() === "ios";
 const ScreenReader = IS_IOS ? registerPlugin("ScreenReader") : null;
 
 export const SCREEN_READER_SUPPORTED = IS_IOS;
+
+// Hand the extension what it needs to call /evaluate: the server URL and the driver's Firebase ID token.
+// Firebase refreshes the token about hourly while the app is open; each refresh is passed on.
+if (ScreenReader) {
+  const url = import.meta.env.VITE_API_URL || "";
+  onIdTokenChanged(auth, async user => {
+    try {
+      const token = user ? await user.getIdToken() : "";
+      await ScreenReader.setEvaluateAuth({ url, token });
+    } catch { /* no token → the extension falls back to offline estimates */ }
+  });
+}
+
+export async function endRun() {
+  if (ScreenReader) await ScreenReader.endRun();
+}
 
 // A heartbeat older than this means the extension is no longer running (broadcast ended or app killed).
 const LIVE_WINDOW_MS = 5000;
