@@ -1,0 +1,153 @@
+// stackEngine.js — THE stacking engine. One source, three runtimes:
+//   • the app (Stack Check, src/App.jsx)
+//   • the server (/evaluate, server/index.js)
+//   • the screen-reader extension (bundled for JavaScriptCore by scripts/build-engine.mjs)
+// Pure: no imports, no DOM, no network. Callers supply a travel-time matrix and dwell times.
+
+export const WINDOW_MIN = 45;                        // dropoff window (min): flag only when STACKING pushes completion past max(45, solo journey)
+// The sliding dropoff window, in minutes: 45·60·75·90… (+15 per +15 the solo run exceeds 37). Single
+// definition — the verdict maths and the at-risk notification schedule both size their window from
+// here, so the two can never drift apart. Formula unchanged from where it was first written.
+export const slidingWindowMin = soloMin => WINDOW_MIN + 15*Math.max(0,Math.ceil((soloMin-37)/15));
+export const STACK_GREEN_MAX_MIN  = 13;             // pickup-detour delta: <13 min = green
+export const STACK_ORANGE_MAX_MIN = 17;             // pickup-detour delta: 13–17 = orange, >17 = red; also the far-pickup exempt cutoff + ⚠ line
+// Stack Check time-budget assumptions. TEMPORARY flat values — once waitEngine.js has enough
+// real samples for a restaurant+hour, that average OVERRIDES the flat PICKUP_DWELL_MIN below.
+export const PICKUP_DWELL_MIN  = 5;                 // per pickup: parking + walking in + waiting if not ready + walking back
+export const DROPOFF_DWELL_MIN = 2;                 // per drop-off: parking + walking to the door + handover
+
+// Plan a stack of N orders (each = optional pickup + a drop-off) from your current spot (matrix
+// index 0). Finds the best legal stop order (each order's pickup before its own drop) and checks
+// every order delivers within the window (pickup→drop, or now→drop if already in hand). Branch-and-
+// bound with a safety cap so it stays fast for the realistic 2–6 orders.
+export function planStack(m, orders, dwell){
+  const D=m.dur, X=m.dist;
+  dwell=dwell||{};                                                          // {stopIdx: seconds spent at that stop} — pickup dwell (real wait or flat) + drop dwell (flat)
+  const stopIdxs=[]; orders.forEach(o=>{ if(o.pickupIdx!=null)stopIdxs.push(o.pickupIdx); stopIdxs.push(o.dropIdx); });
+  const dropToPickup={}; orders.forEach(o=>{ if(o.pickupIdx!=null)dropToPickup[o.dropIdx]=o.pickupIdx; });
+  const windowsOK=()=>true;   // no flat window gate — pick the fastest stacked route; each order is judged vs its own solo baseline afterwards
+  let best=null, count=0; const CAP=300000;
+  (function rec(seq,used,time,arr){
+    if(count>CAP)return;
+    if(seq.length===stopIdxs.length){
+      count++;
+      const ok=windowsOK(arr), total=Math.max(0,...stopIdxs.map(i=>arr[i]));
+      const cand={seq:seq.slice(),ok,total,arr:{...arr}};
+      if(!best||(cand.ok&&!best.ok)||(cand.ok===best.ok&&cand.total<best.total))best=cand;
+      return;
+    }
+    const last=seq.length?seq[seq.length-1]:0;
+    for(const s of stopIdxs){
+      if(used.has(s))continue;
+      if(dropToPickup[s]!==undefined&&!used.has(dropToPickup[s]))continue;   // can't drop before its pickup
+      const t=time+(dwell[last]||0)+D[last][s];                             // + dwell at the stop you're leaving (real wait / flat pickup / flat drop)
+      if(best&&best.ok&&t>=best.total)continue;                             // prune slower partials
+      used.add(s);arr[s]=t;seq.push(s);
+      rec(seq,used,t,arr);
+      seq.pop();used.delete(s);delete arr[s];
+    }
+  })([],new Set(),0,{});
+  if(!best)return null;
+  const arr=best.arr;
+  const label={}; orders.forEach((o,i)=>{ if(o.pickupIdx!=null)label[o.pickupIdx]="P"+(i+1); label[o.dropIdx]="D"+(i+1); });
+
+  // Stacking-detour guard — measures the EXTRA driving that STACKING imposes, not raw distance.
+  // For each pickup: (a) solo = drive straight from You to it alone; (b) via route = cumulative drive
+  // from You along the optimized sequence to reach it. added = (b − a). Only when 2+ orders are stacked,
+  // and only added > STACK_ORANGE_MAX_MIN flags — a lone far pickup adds nothing, so it never triggers.
+  const stacked = orders.length >= 2;                                      // no stacking ⇒ no detour to check
+  const pickupSet=new Set(orders.filter(o=>o.pickupIdx!=null).map(o=>o.pickupIdx));
+  const detourWarnings=[];
+  const legs=[];                                                            // leg-by-leg breakdown of the optimized route (diagnostic)
+  const addedDetour={};                                                    // {pickupIdx: EXTRA drive seconds stacking adds vs going straight there}
+  { let prev=0, cum=0;                                                      // cum = cumulative DRIVE time from You (start) along the route, dwell excluded
+    for(const s of best.seq){
+      const secs=D[prev][s];
+      cum += (secs!=null?secs:0);                                           // (b) running drive time from the start to this stop
+      const endsAtPickup=pickupSet.has(s);
+      let added=null, overCap=false;
+      if(endsAtPickup){
+        const solo=D[0][s];                                                 // (a) direct You → this pickup, alone
+        added = (solo!=null) ? (cum-solo) : null;                          // (b − a): extra driving stacking adds to reach it
+        addedDetour[s]=added;
+        overCap = stacked && added!=null && added>STACK_ORANGE_MAX_MIN*60 && (solo==null||solo/60<=STACK_ORANGE_MAX_MIN);  // >17 EXTRA min ⇒ red, UNLESS the pickup is already >17min away (far-pickup exempt)
+        if(overCap) detourWarnings.push({to:label[s], mins:Math.round(added/60)});
+      }
+      legs.push({from:prev===0?"You":label[prev], to:label[s], legMins:secs!=null?Math.round(secs/60*10)/10:null, cumMins:Math.round(cum/60*10)/10, soloMins:endsAtPickup&&D[0][s]!=null?Math.round(D[0][s]/60*10)/10:null, addedMins:added!=null?Math.round(added/60*10)/10:null, checked:endsAtPickup, overCap});
+      prev=s;
+    }
+  }
+
+  // Per-order verdict — ONLY for a real stack (2+ orders). TWO SEPARATE checks, never mixed:
+  //   Check 1 — PICKUP DETOUR (13/17): delta = via-route drive to the pickup − direct You→pickup drive.
+  //             <13 green · 13–17 orange · >17 red. PICKUPS ONLY — never drops, never P→D or D→D legs.
+  //             Far-pickup exemption: if You→pickup already exceeds the red cap, the platform accepted
+  //             that distance, so it's shown as info and never flagged.
+  //   Check 2 — 45-MIN DROPOFF WINDOW: flag only when STACKING pushes completion past max(45, solo
+  //             journey). A long solo journey (distance) extends the window and never flags on its own.
+  // A single order gets no verdict at all (colours/banner = null).
+  const RANK={green:0,orange:1,red:2}, worseColor=(a,b)=>RANK[a]>=RANK[b]?a:b;
+  const pickupColor=o=>{                                                    // Check 1 — pickup detour only
+    if(o.pickupIdx==null) return "green";                                             // in-hand: no pickup leg
+    if((D[0][o.pickupIdx]||0)/60 > STACK_ORANGE_MAX_MIN) return "green";               // far pickup (>17min away) → exempt, info only
+    const ad=addedDetour[o.pickupIdx]; if(ad==null) return "green";
+    const d=ad/60;                                                                     // detour delta (min): via-route − solo direct
+    return d<STACK_GREEN_MAX_MIN ? "green" : d<=STACK_ORANGE_MAX_MIN ? "orange" : "red";
+  };
+  // Check 2 — SLIDING dropoff window (formula + thresholds UNCHANGED). windowSecOf() exposes the sized
+  // window so the incoming-order check below can read each EXISTING order's remaining slack. Window = the
+  // SOLO run (You→P + pickup dwell + P→D) sized 45·60·75·90… (+15min per +15min the solo run exceeds 37).
+  const windowSecOf=o=>{
+    const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0;
+    const soloSec=o.pickupIdx!=null ? D[0][o.pickupIdx]+dwellP+D[o.pickupIdx][o.dropIdx] : D[0][o.dropIdx];  // solo total run to drop arrival
+    return slidingWindowMin(soloSec/60)*60;
+  };
+  const windowColor=o=> arr[o.dropIdx] > windowSecOf(o) ? "red" : "green";                                  // over its own window (diagnostic only)
+
+  // ── INCOMING-ORDER VERDICT ────────────────────────────────────────────────────────────────────
+  // The driver has already committed to the EXISTING chain (every order except the most recently added),
+  // so those are never judged — always green. Only the INCOMING order (last added) gets a verdict, based
+  // purely on how taking it affects the existing orders' delivery windows in the optimized route:
+  //   green  = no existing order is affected
+  //   orange = it brings an existing order within EXISTING_TIGHT_MIN of its window (tight but possible)
+  //   red    = it pushes an existing order past its window (would break a committed order)
+  const incomingIdx=orders.length-1;                                     // most recently added = the order being evaluated
+  const EXISTING_TIGHT_MIN=10;                                           // within 10min of an existing order's window ⇒ orange
+  let incomingColor="green";
+  orders.forEach((eo,i)=>{
+    if(i===incomingIdx) return;                                          // existing chain only
+    const slackMin=(windowSecOf(eo)-arr[eo.dropIdx])/60;                 // room this committed order still has in the stacked route
+    incomingColor=worseColor(incomingColor, slackMin<0 ? "red" : slackMin<=EXISTING_TIGHT_MIN ? "orange" : "green");
+  });
+
+  const perOrder=orders.map((o,i)=>{
+    const dwellP=o.pickupIdx!=null?(dwell[o.pickupIdx]||0):0, dwellD=dwell[o.dropIdx]||0;
+    const baseline=o.pickupIdx!=null                                       // solo journey: You→P + pickup dwell + P→D + drop dwell
+      ? D[0][o.pickupIdx]+dwellP+D[o.pickupIdx][o.dropIdx]+dwellD
+      : D[0][o.dropIdx]+dwellD;                                            //  in-hand: You→D + drop dwell
+    const actual=arr[o.dropIdx]+dwellD;                                    // completion time within the full stacked route
+    const ad=o.pickupIdx!=null?addedDetour[o.pickupIdx]:null;             // pickup-detour delta (info)
+    const detourMin=ad!=null?ad/60:null;
+    // Existing chain = always green (already committed). Incoming order = its impact on the chain.
+    const color=stacked ? (i===incomingIdx ? incomingColor : "green") : null;
+    return {n:i+1, incoming:i===incomingIdx, hasPickup:o.pickupIdx!=null, color, timeColor:windowColor(o), pickColor:pickupColor(o),
+            baselineMin:Math.round(baseline/60), actualMin:Math.round(actual/60), overMin:Math.round((actual-baseline)/60*10)/10,
+            detourMin:detourMin!=null?Math.round(detourMin*10)/10:null};
+  });
+  const bannerColor=stacked?incomingColor:null;                          // the whole stack's verdict = the incoming order's verdict
+
+  let d=0,last=0; for(const s of best.seq){ d+=X[last][s]; last=s; }
+  const totalPay=orders.reduce((s,o)=>s+(o.pay||0),0);
+  return {
+    feasible:best.ok,
+    bannerColor,                                                            // "green" | "orange" | "red" — worst order colour across the stack
+    perOrder,
+    order:["You",...best.seq.map(i=>label[i])],
+    totalMin:Math.round(best.total/60),
+    totalMiles:Math.round(d/1609.34*10)/10,
+    rate: totalPay>0&&best.total>0?Math.round(totalPay/(best.total/3600)):null,
+    detourWarnings,                                                          // [{to,mins}] pickups where stacking adds > the cap in EXTRA driving
+    stacked,                                                                 // true when 2+ orders → the detour check is active
+    legs,                                                                    // [{from,to,legMins,cumMins,soloMins,addedMins,checked,overCap}] every leg
+  };
+}
