@@ -24,8 +24,9 @@ import { showStatsBanner, hideStatsBanner, ADMOB_BANNER_SLOT_PX } from "./admob"
 import { track, identify, initAnalytics, EV } from "./analytics";   // usage reporting (inert until Analytics is enabled)
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
-import ScreenReaderButton from "./ScreenReaderButton";
-import { cachedMatrix, storeMatrix } from "./routeCache";   // offline: past Mapbox travel times + estimates   // 1.1 screen reader — small "Start shift" pill next to STACK CHECK (iOS only)
+import ScreenReaderButton from "./ScreenReaderButton";   // 1.1 screen reader — small "Start shift" pill next to STACK CHECK (iOS only)
+import { shareFix, shareAverageRate } from "./screenReader";   // screen reader: rounded position + your £/hour for offer checks
+import { cachedMatrix, storeMatrix } from "./routeCache";   // offline: past Mapbox travel times + estimates
 import { planStack, slidingWindowMin, WINDOW_MIN, STACK_ORANGE_MAX_MIN, PICKUP_DWELL_MIN, DROPOFF_DWELL_MIN } from "./stackEngine";   // the one stacking engine (also /evaluate + extension)
 
 // Chat is the heaviest screen and rarely the landing tab — load it (and firebase/storage)
@@ -951,6 +952,7 @@ function useGPS() {
     const onPos=p=>{
       hasFix.current=true;
       store.set("delivr_geo_granted",true);   // remember consent so we never gate this user again
+      shareFix(p.coords.latitude,p.coords.longitude);   // screen reader: rounded run start for offer checks (iOS only)
       setG(x=>({...x,lat:p.coords.latitude,lng:p.coords.longitude,accuracy:Math.round(p.coords.accuracy),speedKmh:p.coords.speed!=null?Math.round(p.coords.speed*3.6):null,status:"active",denied:false}));
     };
     const onErr=e=>setG(x=>{
@@ -2410,6 +2412,8 @@ function MyStats({earningsLog,activeOrders,now,shiftsLog,activeShift,myName}){
       weekStart:sow, weekEnd:eow,
     };
   },[earningsLog,dayKey,nowMs,shiftsLog,activeShift,weekOffset]);
+  // Offer checks call an offer "slow" below this all-time £/hour (kept on the device for the extension).
+  useEffect(()=>{ shareAverageRate(all.overallRate); },[all.overallRate]);
 
   // Manual-delivery cap: max 20 per-delivery manual adds per day (bulk-platform totals don't count).
   const manualToday=entries.today.filter(e=>e.manual&&!e.bulk).length;

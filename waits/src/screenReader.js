@@ -23,6 +23,23 @@ if (ScreenReader) {
   });
 }
 
+// The driver's own position for offer checks: rounded to 3 dp (~100 m), at most every 15 s.
+// The extension uses it as the run start while it's under 2 minutes old.
+let lastFixSent = 0;
+export function shareFix(lat, lng) {
+  if (!ScreenReader || lat == null || lng == null || Date.now() - lastFixSent < 15000) return;
+  lastFixSent = Date.now();
+  const r = v => Math.round(v * 1000) / 1000;
+  ScreenReader.setFix({ lat: r(lat), lng: r(lng) }).catch(() => {});
+}
+
+// Your all-time £/hour from My Stats. Offer checks call an offer "slow" when its marginal £/hour is
+// below this (£15/hr until there's history).
+export function shareAverageRate(rate) {
+  if (!ScreenReader || !(rate > 0)) return;
+  ScreenReader.setAverageRate({ rate: Math.round(rate * 100) / 100 }).catch(() => {});
+}
+
 export async function endRun() {
   if (ScreenReader) await ScreenReader.endRun();
 }

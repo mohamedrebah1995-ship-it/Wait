@@ -174,6 +174,13 @@ function buildOfferStack(start, run, offer){
 }
 
 // Verdict for the incoming (last) order against the run, plus the notification line.
+// Tiers, worst wins:
+//   red    — an accepted order misses its deadline, or a pickup detour goes past the red cap
+//   orange — an accepted order ends within 10 min of its deadline, a detour is in the orange band,
+//            or the offer's marginal £/hour (its pay over the time it adds) is below opts.minRate
+//   green  — otherwise
+// opts: { minRate: £/hr threshold (driver's average, default 15), offline: true → "Offline estimate" }
+const DEFAULT_MIN_RATE = 15;
 function judgeOffer(matrix, orders, opts={}){
   const dwell={};
   orders.forEach(o=>{ if(o.pickupIdx!=null)dwell[o.pickupIdx]=PICKUP_DWELL_MIN*60; dwell[o.dropIdx]=DROPOFF_DWELL_MIN*60; });
@@ -181,16 +188,33 @@ function judgeOffer(matrix, orders, opts={}){
   const without=orders.length>1 ? planStack(matrix, orders.slice(0,-1), dwell) : null;
   if(!withOffer) return null;
   const offer=orders[orders.length-1];
+  const pay=offer.pay||0;
   const addedMin=Math.max(0, withOffer.totalMin-(without?without.totalMin:0));
-  const verdict=withOffer.bannerColor||"green";                           // single order: nothing to break
+  const rate=addedMin>0 ? pay/(addedMin/60) : null;                    // marginal £/hr of the added time
+  const minRate=opts.minRate>0 ? opts.minRate : DEFAULT_MIN_RATE;
+  const money=v=>"£"+v.toFixed(2);
+  const rateTxt=rate!=null ? `(${money(rate)}/hr)` : "(no extra time)";
+  const gain=`+${money(pay)} for +${addedMin} min ${rateTxt}`;
+
+  // Deadlines: the tightest accepted order in the stacked route.
   const existing=withOffer.perOrder.filter(o=>!o.incoming);
   const tightest=existing.reduce((a,o)=>a&&a.slackMin<=o.slackMin?a:o, null);
-  const pay="+£"+(offer.pay||0).toFixed(2);
-  const text = verdict==="red"    ? `❌ Skip: breaks order ${tightest?tightest.n:1} deadline`
-             : verdict==="orange" ? `⚠️ Tight: ${pay}, +${addedMin} min, order ${tightest?tightest.n:1} close to its deadline`
-             :                      `✅ Fits: ${pay}, +${addedMin} min, deadlines safe`;
-  return {verdict, addedMin, text:(opts.offline?"Offline estimate · ":"")+text, totalMin:withOffer.totalMin, offline:!!opts.offline};
+  const late=tightest&&tightest.slackMin<0, tight=tightest&&!late&&tightest.slackMin<=10;
+  // Pickup detours: the engine's own tiers (<13 green · 13–17 orange · >17 red, far pickups exempt).
+  const RANK={green:0,orange:1,red:2};
+  const worstPick=withOffer.perOrder.reduce((a,o)=>RANK[o.pickColor]>RANK[a.pickColor]?o:a, withOffer.perOrder[0]);
+  const detourMin=worstPick&&worstPick.detourMin!=null?Math.round(worstPick.detourMin):null;
+
+  let verdict, text;
+  if(late)                                { verdict="red";    text=`❌ Skip: breaks order ${tightest.n} deadline by ${Math.ceil(-tightest.slackMin)} min`; }
+  else if(worstPick.pickColor==="red")    { verdict="red";    text=`❌ Skip: pickup detour +${detourMin} min`; }
+  else if(tight)                          { verdict="orange"; text=`🟠 Tight: ${gain}, order ${tightest.n} only ${Math.floor(tightest.slackMin)} min from its deadline`; }
+  else if(worstPick.pickColor==="orange") { verdict="orange"; text=`🟠 Long detour: ${gain}, pickup adds ${detourMin} min`; }
+  else if(rate!=null&&rate<minRate)       { verdict="orange"; text=`🟠 Fits but slow: ${gain}`; }
+  else                                    { verdict="green";  text=`✅ Fits: ${gain}, all deadlines safe`; }
+  if(opts.approx) text+=" · restaurant approx";
+  return {verdict, addedMin, rate:rate!=null?Math.round(rate*100)/100:null, text:(opts.offline?"Offline estimate · ":"")+text, totalMin:withOffer.totalMin, offline:!!opts.offline};
 }
 
-return { WINDOW_MIN, slidingWindowMin, STACK_GREEN_MAX_MIN, STACK_ORANGE_MAX_MIN, PICKUP_DWELL_MIN, DROPOFF_DWELL_MIN, planStack, buildOfferStack, judgeOffer };
+return { WINDOW_MIN, slidingWindowMin, STACK_GREEN_MAX_MIN, STACK_ORANGE_MAX_MIN, PICKUP_DWELL_MIN, DROPOFF_DWELL_MIN, planStack, buildOfferStack, DEFAULT_MIN_RATE, judgeOffer };
 })();

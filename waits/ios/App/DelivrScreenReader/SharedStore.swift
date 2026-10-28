@@ -26,6 +26,22 @@ enum ScreenReaderStore {
         static let lastVerdict = "sr.lastVerdict" // text of the last offer notification
         static let evalURL = "sr.evalURL"        // server base URL for /evaluate (from the app)
         static let evalToken = "sr.evalToken"    // Firebase ID token for /evaluate (from the app, ~1h life)
+        static let fix = "sr.fix"                // [lat, lng, epoch ms]: driver's position, rounded ~100 m
+        static let avgRate = "sr.avgRate"        // driver's all-time £/hour from My Stats
+    }
+
+    static let defaultMinRate = 15.0             // £/hr threshold until the driver has stats
+
+    static func minRate() -> Double {
+        let r = defaults?.double(forKey: Key.avgRate) ?? 0
+        return r > 0 ? r : defaultMinRate
+    }
+
+    // The driver's position if the app recorded one in the last `maxAge` seconds.
+    static func freshFix(maxAge: TimeInterval = 120) -> (lat: Double, lng: Double)? {
+        guard let a = defaults?.array(forKey: Key.fix) as? [Double], a.count == 3,
+              nowMs() - a[2] < maxAge * 1000 else { return nil }
+        return (a[0], a[1])
     }
 
     // Monotonic per-device event number. Survives restarts and log clears, so a later sync can

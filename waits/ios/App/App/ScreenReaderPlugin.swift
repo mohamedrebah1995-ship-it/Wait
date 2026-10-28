@@ -28,6 +28,8 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "recentEvents", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setEvaluateAuth", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "endRun", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setFix", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setAverageRate", returnType: CAPPluginReturnPromise),
     ]
 
     // Older logs could contain street addresses (Uber package pickups). Delete them once on upgrade.
@@ -72,6 +74,18 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func setEvaluateAuth(_ call: CAPPluginCall) {
         ScreenReaderStore.set(ScreenReaderStore.Key.evalURL, call.getString("url") ?? "")
         ScreenReaderStore.set(ScreenReaderStore.Key.evalToken, call.getString("token") ?? "")
+        call.resolve()
+    }
+
+    // Driver's own position, already rounded to ~100 m by the web layer, with the time it was taken.
+    @objc func setFix(_ call: CAPPluginCall) {
+        guard let lat = call.getDouble("lat"), let lng = call.getDouble("lng") else { return call.reject("lat/lng required") }
+        ScreenReaderStore.set(ScreenReaderStore.Key.fix, [lat, lng, ScreenReaderStore.nowMs()])
+        call.resolve()
+    }
+
+    @objc func setAverageRate(_ call: CAPPluginCall) {
+        if let r = call.getDouble("rate"), r > 0 { ScreenReaderStore.set(ScreenReaderStore.Key.avgRate, r) }
         call.resolve()
     }
 

@@ -394,49 +394,85 @@ async function geocodePostcode(pc) {
   if (v) geoCache.set(k, v);
   return v;
 }
+// Restaurant by name near the driver (or the run start): up to 5 branches, the closest wins. More than
+// one branch means we can't be sure which one the app meant, so the result is marked approx.
+function distKm(a, b) {
+  const tr = x => x * Math.PI / 180, dLat = tr(b.lat - a.lat), dLng = tr(b.lng - a.lng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(tr(a.lat)) * Math.cos(tr(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
 async function geocodeRestaurant(name, near) {
   if (!name || !near) return null;
   const k = `name:${name.toLowerCase()}@${near.lat.toFixed(2)},${near.lng.toFixed(2)}`; if (geoCache.has(k)) return geoCache.get(k);
-  const g = await mapboxJSON(`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(name)}&proximity=${near.lng},${near.lat}&country=gb&limit=1&access_token=${MAPBOX_TOKEN}`);
-  const c = g?.features?.[0]?.geometry?.coordinates;
-  const v = c ? { lat: c[1], lng: c[0] } : null;
-  if (v) geoCache.set(k, v);
+  const g = await mapboxJSON(`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(name)}&proximity=${near.lng},${near.lat}&country=gb&types=poi&limit=5&access_token=${MAPBOX_TOKEN}`);
+  const hits = (g?.features || []).map(f => f.geometry?.coordinates).filter(Boolean).map(c => ({ lat: c[1], lng: c[0] }));
+  if (!hits.length) return null;
+  hits.sort((a, b) => distKm(near, a) - distKm(near, b));
+  const v = { ...hits[0], approx: hits.length > 1 };
+  geoCache.set(k, v);
   return v;
 }
 // Pickup: its own postcode when the app shows one (Just Eat, Deliveroo), else the restaurant name
-// searched near the drop-off (Uber shows only the name), else the drop-off itself.
-async function locateOrder(o) {
+// searched near the driver / run start (Uber shows only the name), else the drop-off itself.
+async function locateOrder(o, near) {
   const drop = await geocodePostcode(o.dropPostcode);
   if (!drop) return null;
   if (o.pickedUp) return { pickup: null, drop, pay: o.pay || 0 };
-  const pickup = (await geocodePostcode(o.pickupPostcode)) || (await geocodeRestaurant(o.restaurant, drop)) || drop;
-  return { pickup, drop, pay: o.pay || 0 };
+  const byPc = await geocodePostcode(o.pickupPostcode);
+  const byName = byPc ? null : await geocodeRestaurant(o.restaurant, near);
+  const pickup = byPc || (byName && { lat: byName.lat, lng: byName.lng }) || drop;
+  return { pickup, drop, pay: o.pay || 0, approx: !!byName?.approx };
+}
+
+// The driver's own position (sent rounded to ~100 m), only if it's plausibly in the UK.
+function cleanHere(h) {
+  const ok = h && typeof h.lat === 'number' && typeof h.lng === 'number' && h.lat > 49 && h.lat < 61 && h.lng > -9 && h.lng < 2.5;
+  return ok ? { lat: Math.round(h.lat * 1000) / 1000, lng: Math.round(h.lng * 1000) / 1000 } : null;
+}
+
+// Per-driver rate limit: 30 checks per 10 minutes. A real shift sees a few offers an hour; this only
+// stops a leaked token from running up the Mapbox bill. In memory: resets if the server restarts.
+const EVAL_LIMIT = 30, EVAL_WINDOW_MS = 10 * 60 * 1000;
+const evalHits = new Map();   // uid → [timestamps]
+function evalAllowed(uid) {
+  const now = Date.now();
+  const hits = (evalHits.get(uid) || []).filter(t => now - t < EVAL_WINDOW_MS);
+  if (hits.length >= EVAL_LIMIT) { evalHits.set(uid, hits); return false; }
+  hits.push(now); evalHits.set(uid, hits);
+  if (evalHits.size > 5000) for (const [k, v] of evalHits) if (!v.some(t => now - t < EVAL_WINDOW_MS)) evalHits.delete(k);
+  return true;
 }
 
 app.post('/evaluate', async (req, res) => {
   const devNoAuth = !PROD && process.env.EVALUATE_DEV_NOAUTH === '1';
+  let uid = 'dev';
   if (!devNoAuth) {
     if (!adminReady) return res.status(503).json({ error: 'auth unavailable' });
     const h = req.headers.authorization || '';
-    try { await adminAuth.verifyIdToken(h.slice(7)); } catch { return res.status(401).json({ error: 'unauthorised' }); }
+    try { uid = (await adminAuth.verifyIdToken(h.slice(7))).uid; } catch { return res.status(401).json({ error: 'unauthorised' }); }
   }
+  if (!evalAllowed(uid)) return res.status(429).json({ error: 'too many checks — try again shortly' });
   if (!MAPBOX_TOKEN) return res.status(503).json({ error: 'routing unavailable' });
   const offer = cleanEvalOrder(req.body?.offer);
   const run = (Array.isArray(req.body?.run) ? req.body.run : []).slice(0, 6).map(cleanEvalOrder).filter(Boolean);
   if (!offer?.dropPostcode || !run.length) return res.status(400).json({ error: 'need an offer with a drop-off postcode and a run' });
 
-  const located = await Promise.all([...run, offer].map(locateOrder));
+  const here = cleanHere(req.body?.here);
+  const minRate = typeof req.body?.minRate === 'number' && req.body.minRate > 0 && req.body.minRate < 200 ? req.body.minRate : undefined;
+  // Search restaurants near the driver; with no fresh position, near the run's first stop.
+  const near = here || (await geocodePostcode(run[0].pickupPostcode)) || (await geocodePostcode(run[0].dropPostcode));
+  const located = await Promise.all([...run, offer].map(o => locateOrder(o, near)));
   if (located.some(x => !x)) return res.status(422).json({ error: 'postcode not found' });
   const runLoc = located.slice(0, -1), offerLoc = located[located.length - 1];
-  // No GPS is sent: the run's next stop stands in for "where you are now".
+  // Run start: the driver's own position when the app had a fresh fix, else the run's next stop.
   const first = runLoc[0];
-  const start = first.pickup || first.drop;
+  const start = here || first.pickup || first.drop;
   const { points, orders } = buildOfferStack(start, runLoc, offerLoc);
   if (points.length > 10) return res.status(400).json({ error: 'too many stops' });
   const coords = points.map(p => `${p.lng},${p.lat}`).join(';');
   const g = await mapboxJSON(`https://api.mapbox.com/directions-matrix/v1/mapbox/driving-traffic/${coords}?annotations=duration,distance&access_token=${MAPBOX_TOKEN}`);
   if (!g?.durations || !g?.distances) return res.status(502).json({ error: 'routing failed' });
-  const result = judgeOffer({ dur: g.durations, dist: g.distances }, orders);
+  const result = judgeOffer({ dur: g.durations, dist: g.distances }, orders, { minRate, approx: offerLoc.approx });
   if (!result) return res.status(500).json({ error: 'no plan' });
   // Coordinates go back so the extension can cache them for its own offline estimates.
   res.json({ ...result, source: 'live', located: { start, run: runLoc, offer: offerLoc } });

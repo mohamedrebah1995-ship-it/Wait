@@ -34,7 +34,9 @@ final class OfferEvaluator {
     // MARK: - flow
 
     private func run(offer: ScreenEvent, run: [RunOrder]) {
-        let body: [String: Any] = ["offer": Self.wire(offer), "run": run.map(Self.wire)]
+        var body: [String: Any] = ["offer": Self.wire(offer), "run": run.map(Self.wire), "minRate": ScreenReaderStore.minRate()]
+        // The driver's own position (rounded ~100 m) when the app had a fix in the last 2 minutes.
+        if let f = ScreenReaderStore.freshFix() { body["here"] = ["lat": f.lat, "lng": f.lng] }
         let live = postEvaluate(body)
         if let text = live?["text"] as? String {
             rememberLocations(live, offer: offer, run: run)
@@ -123,13 +125,16 @@ final class OfferEvaluator {
               !runPlaced.isEmpty, !runPlaced.contains(where: { $0 == nil }) else { return nil }
         let runList = runPlaced.compactMap { $0 }
         let first = runList[0]
-        let start = (first["pickup"] as? [String: Double]) ?? (first["drop"] as! [String: Double])
+        // Start: the driver's fresh fix, else the run's next stop (same rule as /evaluate).
+        let start = ScreenReaderStore.freshFix().map { ["lat": $0.lat, "lng": $0.lng] }
+            ?? (first["pickup"] as? [String: Double]) ?? (first["drop"] as! [String: Double])
 
         guard let engine = loadEngine(),
               let built = engine.invokeMethod("buildOfferStack", withArguments: [start, runList, offerPlaced]),
               let points = built.forProperty("points").toArray() as? [[String: Double]] else { return nil }
         let matrix = Self.estimateMatrix(points)
-        let verdict = engine.invokeMethod("judgeOffer", withArguments: [matrix, built.forProperty("orders") as Any, ["offline": true]])
+        let verdict = engine.invokeMethod("judgeOffer", withArguments: [matrix, built.forProperty("orders") as Any,
+                                                                         ["offline": true, "minRate": ScreenReaderStore.minRate()]])
         return verdict?.forProperty("text").toString()
     }
 
