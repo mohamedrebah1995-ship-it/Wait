@@ -9,6 +9,7 @@ import { createServer } from 'http';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { buildOfferStack, judgeOffer } from '../src/stackEngine.js';   // the one stacking engine
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const JWT_SECRET = process.env.JWT_SECRET || 'delivr_jwt_2024_change_in_prod';
@@ -356,6 +357,91 @@ app.post('/auth/reset-password', async (req, res) => {
 
 // Total registered drivers (true sign-up count, via Firebase Admin)
 let _driverCountCache = { n: 0, at: 0 };
+// ── /evaluate — stacking verdict for a screen-read offer (Delivr 1.1) ───────────────────────────────
+// Called by the screen-reader extension. Accepts ONLY postcodes, restaurant names, pay, minutes and
+// miles (plus whether each run order is already collected); anything else in the body is ignored.
+// The verdict comes from src/stackEngine.js, the same engine the app and the extension run.
+const MAPBOX_TOKEN = (process.env.MAPBOX_TOKEN || '').trim();
+const PC_RE = /^[A-Z]{1,2}[0-9][A-Z0-9]? [0-9][A-Z]{2}$/;
+const geoCache = new Map();   // "pc:CM7 1AA" / "name:mcdonald's@lat,lng" → {lat,lng}
+
+function cleanEvalOrder(o) {
+  if (!o || typeof o !== 'object') return null;
+  const pc = v => (typeof v === 'string' && PC_RE.test(v.trim().toUpperCase())) ? v.trim().toUpperCase() : null;
+  const num = (v, max) => (typeof v === 'number' && isFinite(v) && v >= 0 && v <= max) ? v : null;
+  return {
+    restaurant: typeof o.restaurant === 'string' ? o.restaurant.slice(0, 80) : null,
+    pickupPostcode: pc(o.pickupPostcode),
+    dropPostcode: pc(o.dropPostcode),
+    pay: num(o.pay, 500),
+    minutes: num(o.minutes, 300),
+    miles: num(o.miles, 200),
+    pickedUp: o.pickedUp === true,
+  };
+}
+
+async function mapboxJSON(url) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 2500);
+  try { const r = await fetch(url, { signal: ctl.signal }); return r.ok ? await r.json() : null; }
+  catch { return null; } finally { clearTimeout(t); }
+}
+async function geocodePostcode(pc) {
+  if (!pc) return null;
+  const k = 'pc:' + pc; if (geoCache.has(k)) return geoCache.get(k);
+  const g = await mapboxJSON(`https://api.mapbox.com/search/geocode/v6/forward?q=${encodeURIComponent(pc)}&types=postcode&country=gb&limit=1&access_token=${MAPBOX_TOKEN}`);
+  const c = g?.features?.[0]?.geometry?.coordinates;
+  const v = c ? { lat: c[1], lng: c[0] } : null;
+  if (v) geoCache.set(k, v);
+  return v;
+}
+async function geocodeRestaurant(name, near) {
+  if (!name || !near) return null;
+  const k = `name:${name.toLowerCase()}@${near.lat.toFixed(2)},${near.lng.toFixed(2)}`; if (geoCache.has(k)) return geoCache.get(k);
+  const g = await mapboxJSON(`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(name)}&proximity=${near.lng},${near.lat}&country=gb&limit=1&access_token=${MAPBOX_TOKEN}`);
+  const c = g?.features?.[0]?.geometry?.coordinates;
+  const v = c ? { lat: c[1], lng: c[0] } : null;
+  if (v) geoCache.set(k, v);
+  return v;
+}
+// Pickup: its own postcode when the app shows one (Just Eat, Deliveroo), else the restaurant name
+// searched near the drop-off (Uber shows only the name), else the drop-off itself.
+async function locateOrder(o) {
+  const drop = await geocodePostcode(o.dropPostcode);
+  if (!drop) return null;
+  if (o.pickedUp) return { pickup: null, drop, pay: o.pay || 0 };
+  const pickup = (await geocodePostcode(o.pickupPostcode)) || (await geocodeRestaurant(o.restaurant, drop)) || drop;
+  return { pickup, drop, pay: o.pay || 0 };
+}
+
+app.post('/evaluate', async (req, res) => {
+  const devNoAuth = !PROD && process.env.EVALUATE_DEV_NOAUTH === '1';
+  if (!devNoAuth) {
+    if (!adminReady) return res.status(503).json({ error: 'auth unavailable' });
+    const h = req.headers.authorization || '';
+    try { await adminAuth.verifyIdToken(h.slice(7)); } catch { return res.status(401).json({ error: 'unauthorised' }); }
+  }
+  if (!MAPBOX_TOKEN) return res.status(503).json({ error: 'routing unavailable' });
+  const offer = cleanEvalOrder(req.body?.offer);
+  const run = (Array.isArray(req.body?.run) ? req.body.run : []).slice(0, 6).map(cleanEvalOrder).filter(Boolean);
+  if (!offer?.dropPostcode || !run.length) return res.status(400).json({ error: 'need an offer with a drop-off postcode and a run' });
+
+  const located = await Promise.all([...run, offer].map(locateOrder));
+  if (located.some(x => !x)) return res.status(422).json({ error: 'postcode not found' });
+  const runLoc = located.slice(0, -1), offerLoc = located[located.length - 1];
+  // No GPS is sent: the run's next stop stands in for "where you are now".
+  const first = runLoc[0];
+  const start = first.pickup || first.drop;
+  const { points, orders } = buildOfferStack(start, runLoc, offerLoc);
+  if (points.length > 10) return res.status(400).json({ error: 'too many stops' });
+  const coords = points.map(p => `${p.lng},${p.lat}`).join(';');
+  const g = await mapboxJSON(`https://api.mapbox.com/directions-matrix/v1/mapbox/driving-traffic/${coords}?annotations=duration,distance&access_token=${MAPBOX_TOKEN}`);
+  if (!g?.durations || !g?.distances) return res.status(502).json({ error: 'routing failed' });
+  const result = judgeOffer({ dur: g.durations, dist: g.distances }, orders);
+  if (!result) return res.status(500).json({ error: 'no plan' });
+  // Coordinates go back so the extension can cache them for its own offline estimates.
+  res.json({ ...result, source: 'live', located: { start, run: runLoc, offer: offerLoc } });
+});
+
 app.get('/stats/drivers', async (_req, res) => {
   if (!adminAuth) return res.json({ count: 0 });
   if (Date.now() - _driverCountCache.at < 60000) return res.json({ count: _driverCountCache.n }); // 60s cache

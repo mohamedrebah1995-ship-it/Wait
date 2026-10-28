@@ -132,7 +132,8 @@ export function planStack(m, orders, dwell){
     const color=stacked ? (i===incomingIdx ? incomingColor : "green") : null;
     return {n:i+1, incoming:i===incomingIdx, hasPickup:o.pickupIdx!=null, color, timeColor:windowColor(o), pickColor:pickupColor(o),
             baselineMin:Math.round(baseline/60), actualMin:Math.round(actual/60), overMin:Math.round((actual-baseline)/60*10)/10,
-            detourMin:detourMin!=null?Math.round(detourMin*10)/10:null};
+            detourMin:detourMin!=null?Math.round(detourMin*10)/10:null,
+            slackMin:Math.round((windowSecOf(o)-arr[o.dropIdx])/60*10)/10};   // room left in its own window (used by judgeOffer)
   });
   const bannerColor=stacked?incomingColor:null;                          // the whole stack's verdict = the incoming order's verdict
 
@@ -150,4 +151,41 @@ export function planStack(m, orders, dwell){
     stacked,                                                                 // true when 2+ orders → the detour check is active
     legs,                                                                    // [{from,to,legMins,cumMins,soloMins,addedMins,checked,overCap}] every leg
   };
+}
+
+// ── Offer verdict (screen reader) ────────────────────────────────────────────────────────────────────
+// Shared by /evaluate (live Mapbox times) and the extension (offline estimate), so both say exactly the
+// same thing for the same times. Inputs are coordinates only; who resolves postcodes/names is the caller.
+//   start: {lat,lng}   where the run currently is (the extension has no GPS: next stop of the run)
+//   run:   [{pickup:{lat,lng}|null (null once collected), drop:{lat,lng}, pay}]   accepted orders, oldest first
+//   offer: {pickup:{lat,lng}|null, drop:{lat,lng}, pay}
+// Returns the points to fetch a matrix for, and the orders in planStack's shape (offer last = "incoming").
+export function buildOfferStack(start, run, offer){
+  const points=[start], orders=[];
+  for(const o of [...run, offer]){
+    let pickupIdx=null;
+    if(o.pickup){ points.push(o.pickup); pickupIdx=points.length-1; }
+    points.push(o.drop);
+    orders.push({pickupIdx, dropIdx:points.length-1, pay:o.pay||0});
+  }
+  return {points, orders};
+}
+
+// Verdict for the incoming (last) order against the run, plus the notification line.
+export function judgeOffer(matrix, orders, opts={}){
+  const dwell={};
+  orders.forEach(o=>{ if(o.pickupIdx!=null)dwell[o.pickupIdx]=PICKUP_DWELL_MIN*60; dwell[o.dropIdx]=DROPOFF_DWELL_MIN*60; });
+  const withOffer=planStack(matrix, orders, dwell);
+  const without=orders.length>1 ? planStack(matrix, orders.slice(0,-1), dwell) : null;
+  if(!withOffer) return null;
+  const offer=orders[orders.length-1];
+  const addedMin=Math.max(0, withOffer.totalMin-(without?without.totalMin:0));
+  const verdict=withOffer.bannerColor||"green";                           // single order: nothing to break
+  const existing=withOffer.perOrder.filter(o=>!o.incoming);
+  const tightest=existing.reduce((a,o)=>a&&a.slackMin<=o.slackMin?a:o, null);
+  const pay="+£"+(offer.pay||0).toFixed(2);
+  const text = verdict==="red"    ? `❌ Skip: breaks order ${tightest?tightest.n:1} deadline`
+             : verdict==="orange" ? `⚠️ Tight: ${pay}, +${addedMin} min, order ${tightest?tightest.n:1} close to its deadline`
+             :                      `✅ Fits: ${pay}, +${addedMin} min, deadlines safe`;
+  return {verdict, addedMin, text:(opts.offline?"Offline estimate · ":"")+text, totalMin:withOffer.totalMin, offline:!!opts.offline};
 }
