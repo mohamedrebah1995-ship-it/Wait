@@ -13,6 +13,7 @@ final class OfferEvaluator {
     private var engine: JSValue?           // StackEngine, created on first offline estimate
     private var context: JSContext?
     private let resourceDir: URL?          // nil = the extension bundle; a folder for the Mac test
+    private var tokens = TokenProvider()
 
     init(resourceDir: URL? = nil) { self.resourceDir = resourceDir }
 
@@ -33,21 +34,31 @@ final class OfferEvaluator {
 
     // MARK: - flow
 
+    static let reconnectText = "Open MOdelivr to reconnect"
+
     private func run(offer: ScreenEvent, run: [RunOrder]) {
         var body: [String: Any] = ["offer": Self.wire(offer), "run": run.map(Self.wire), "minRate": ScreenReaderStore.minRate()]
         // The driver's own position (rounded ~100 m) when the app had a fix in the last 2 minutes.
         if let f = ScreenReaderStore.freshFix() { body["here"] = ["lat": f.lat, "lng": f.lng] }
         let live = postEvaluate(body)
-        if let text = live?["text"] as? String {
-            rememberLocations(live, offer: offer, run: run)
+        if case .verdict(let reply) = live, let text = reply["text"] as? String {
+            rememberLocations(reply, offer: offer, run: run)
             notify(text, id: offer.seq)
             return
         }
-        if let text = offlineEstimate(offer: offer, run: run) {
-            notify(text, id: offer.seq)
+        // No live verdict: the on-device estimate. If the reason was sign-in, say so rather than fail quietly.
+        let estimate = offlineEstimate(offer: offer, run: run)
+        if live == .reconnect {
+            notify(estimate.map { "\($0)\n\(Self.reconnectText)" } ?? Self.reconnectText, id: offer.seq)
         } else {
-            notify("Offline: can't check this offer (no drop-off postcode on the card)", id: offer.seq)
+            notify(estimate ?? "Offline: can't check this offer (no drop-off postcode on the card)", id: offer.seq)
         }
+    }
+
+    // Called about once a minute while broadcasting: renews the ID token when it has < 10 min left, so an
+    // offer never waits on Google.
+    func refreshTokenIfDue() {
+        queue.async { var t = self.tokens; t.minRemainingMs = 10 * 60 * 1000; _ = t.idToken() }
     }
 
     // The privacy contract: these fields and nothing else.
@@ -63,26 +74,40 @@ final class OfferEvaluator {
 
     // MARK: - live
 
-    private func postEvaluate(_ body: [String: Any]) -> [String: Any]? {
-        let d = UserDefaults(suiteName: ScreenReaderStore.appGroup)
-        guard let base = d?.string(forKey: ScreenReaderStore.Key.evalURL), !base.isEmpty,
-              let token = d?.string(forKey: ScreenReaderStore.Key.evalToken), !token.isEmpty,
+    enum LiveResult: Equatable {
+        case verdict([String: Any])
+        case reconnect          // no usable sign-in: tell the driver
+        case unavailable        // offline, timeout, server error
+
+        static func == (a: LiveResult, b: LiveResult) -> Bool {
+            switch (a, b) { case (.reconnect, .reconnect), (.unavailable, .unavailable), (.verdict, .verdict): return true; default: return false }
+        }
+    }
+
+    private func postEvaluate(_ body: [String: Any]) -> LiveResult {
+        let started = Date()
+        guard let base = UserDefaults(suiteName: ScreenReaderStore.appGroup)?.string(forKey: ScreenReaderStore.Key.evalURL), !base.isEmpty,
               let url = URL(string: base + "/evaluate"),
-              let json = try? JSONSerialization.data(withJSONObject: body) else { return nil }
-        var req = URLRequest(url: url, timeoutInterval: Self.timeout)
+              let json = try? JSONSerialization.data(withJSONObject: body) else { return .unavailable }
+        let token: String
+        switch tokens.idToken() {
+        case .token(let t): token = t
+        case .reconnect: return .reconnect
+        case .offline: return .unavailable
+        }
+        // Whatever the token refresh used comes out of the same 3s budget.
+        let left = Self.timeout - Date().timeIntervalSince(started)
+        guard left > 0.3 else { return .unavailable }
+        var req = URLRequest(url: url, timeoutInterval: left)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         req.httpBody = json
-        var result: [String: Any]?
-        let done = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: req) { data, resp, _ in
-            if (resp as? HTTPURLResponse)?.statusCode == 200, let data = data {
-                result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            }
-            done.signal()
-        }.resume()
-        return done.wait(timeout: .now() + Self.timeout) == .success ? result : nil
+        let (data, status) = TokenProvider.syncPost(req)
+        if status == 401 { return .reconnect }
+        guard status == 200, let data = data,
+              let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .unavailable }
+        return .verdict(reply)
     }
 
     // Coordinates the server resolved, cached for later offline estimates (postcode / restaurant → lat,lng).

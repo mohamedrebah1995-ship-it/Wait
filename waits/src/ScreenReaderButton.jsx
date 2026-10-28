@@ -127,6 +127,8 @@ function DebugSheet({status,onClose}){
             {status?.runOrders>0&&<button type="button" onClick={()=>{endRun().catch(()=>{});}}
               style={{...B,fontSize:11,fontWeight:800,padding:"4px 10px",borderRadius:999,border:"1px solid #ef4444",background:"transparent",color:"#ef4444",cursor:"pointer"}}>End run</button>}
           </span></div>
+        <div style={row}><span>Server sign-in</span><span style={{color:status?.authState==="reconnect"?"#ef4444":"var(--ink)"}}>
+          {status?.authState==="ok"?"Connected":status?.authState==="offline"?"No signal (offline estimates)":status?.authState==="reconnect"?"Open MOdelivr to reconnect":"—"}</span></div>
         {status?.lastVerdict&&<div style={row}><span>Last offer check</span><span style={{color:"var(--ink)",textAlign:"right"}}>{status.lastVerdict}</span></div>}
         {/* The funnel: every frame → bottom changed → delivery-app button seen (gate) → OCR → event.
             Frames that stop before "passed gate" were never read. */}

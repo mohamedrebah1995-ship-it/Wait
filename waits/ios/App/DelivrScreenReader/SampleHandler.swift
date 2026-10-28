@@ -57,6 +57,7 @@ class SampleHandler: RPBroadcastSampleHandler {
         }
 
         ticks += 1
+        if ticks % 60 == 1 { evaluator.refreshTokenIfDue() }   // keep the server sign-in fresh all shift
         let endRequested = UserDefaults(suiteName: ScreenReaderStore.appGroup)?.double(forKey: ScreenReaderStore.Key.runEndedAt) ?? 0
         if runState.expireIfNeeded(endRequestedAt: endRequested) { runState.save() }
         if detector.changed(cells) {

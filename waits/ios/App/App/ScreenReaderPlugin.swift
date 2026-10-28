@@ -69,11 +69,23 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(ScreenReaderStore.snapshot())
     }
 
-    // The extension calls /evaluate with the driver's Firebase ID token. The app refreshes it whenever
-    // Firebase does (~hourly while the app is open); an expired token just means an offline estimate.
+    // The extension calls /evaluate signed in as the driver. The app stores Firebase's refresh token in the
+    // shared keychain (see SharedAuth.swift); the extension mints fresh ID tokens from it for the whole
+    // shift. An empty refresh token (signed out) deletes it.
     @objc func setEvaluateAuth(_ call: CAPPluginCall) {
         ScreenReaderStore.set(ScreenReaderStore.Key.evalURL, call.getString("url") ?? "")
-        ScreenReaderStore.set(ScreenReaderStore.Key.evalToken, call.getString("token") ?? "")
+        ScreenReaderStore.set("sr.evalToken", nil)   // older builds kept the ID token here; it now lives in the keychain
+        let refresh = call.getString("refreshToken") ?? ""
+        if refresh.isEmpty {
+            SharedAuth.save(nil)
+            ScreenReaderStore.set(ScreenReaderStore.Key.authState, "reconnect")
+        } else {
+            let saved = SharedAuth.save(SharedAuth.Tokens(refreshToken: refresh, idToken: call.getString("token") ?? "",
+                                                          expiresAt: call.getDouble("expiresAt") ?? 0, apiKey: call.getString("apiKey") ?? ""))
+            // Read back what the extension will read, so "ok" means the shared keychain really has it.
+            let readable = saved && SharedAuth.load()?.refreshToken == refresh
+            ScreenReaderStore.set(ScreenReaderStore.Key.authState, readable ? "ok" : "keychain-failed")
+        }
         call.resolve()
     }
 

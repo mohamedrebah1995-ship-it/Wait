@@ -11,15 +11,20 @@ const ScreenReader = IS_IOS ? registerPlugin("ScreenReader") : null;
 
 export const SCREEN_READER_SUPPORTED = IS_IOS;
 
-// Hand the extension what it needs to call /evaluate: the server URL and the driver's Firebase ID token.
-// Firebase refreshes the token about hourly while the app is open; each refresh is passed on.
+// Hand the extension what it needs to call /evaluate for a whole shift: the server URL and the driver's
+// Firebase refresh token (+ current ID token). The native side keeps them in the shared keychain and the
+// extension mints new ID tokens itself, so the app never has to be reopened. Signing out clears them.
 if (ScreenReader) {
   const url = import.meta.env.VITE_API_URL || "";
   onIdTokenChanged(auth, async user => {
     try {
-      const token = user ? await user.getIdToken() : "";
-      await ScreenReader.setEvaluateAuth({ url, token });
-    } catch { /* no token → the extension falls back to offline estimates */ }
+      if (!user) { await ScreenReader.setEvaluateAuth({ url, refreshToken: "" }); return; }
+      const r = await user.getIdTokenResult();
+      await ScreenReader.setEvaluateAuth({
+        url, token: r.token, expiresAt: Date.parse(r.expirationTime),
+        refreshToken: user.refreshToken, apiKey: auth.app.options.apiKey,
+      });
+    } catch { /* the extension falls back to offline estimates */ }
   });
 }
 

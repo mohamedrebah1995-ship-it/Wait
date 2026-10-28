@@ -25,7 +25,7 @@ enum ScreenReaderStore {
         static let runEndedAt = "sr.runEndedAt"  // epoch ms the driver tapped End run
         static let lastVerdict = "sr.lastVerdict" // text of the last offer notification
         static let evalURL = "sr.evalURL"        // server base URL for /evaluate (from the app)
-        static let evalToken = "sr.evalToken"    // Firebase ID token for /evaluate (from the app, ~1h life)
+        static let authState = "sr.authState"    // "ok" | "offline" | "reconnect" — server sign-in (tokens live in the keychain)
         static let fix = "sr.fix"                // [lat, lng, epoch ms]: driver's position, rounded ~100 m
         static let avgRate = "sr.avgRate"        // driver's all-time £/hour from My Stats
     }
@@ -78,6 +78,7 @@ enum ScreenReaderStore {
             "passedGate": d.integer(forKey: Key.passedGate),
             "runOrders": d.integer(forKey: Key.runOrders),
             "lastVerdict": d.string(forKey: Key.lastVerdict) ?? "",
+            "authState": d.string(forKey: Key.authState) ?? "",
             "ocrPasses": d.integer(forKey: Key.ocrPasses),
             "events": d.integer(forKey: Key.events),
             "peakMB": d.double(forKey: Key.peakMB),
