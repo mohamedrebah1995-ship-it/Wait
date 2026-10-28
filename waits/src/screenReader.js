@@ -17,7 +17,15 @@ export async function startShift() {
   await ScreenReader.startShift();
 }
 
-// { state, live, ticks, changedFrames, error }. `live` is true only while the extension is heartbeating.
+// Last `limit` detected events from the extension's App Group log, newest first. Debug sheet only.
+export async function recentEvents(limit = 5) {
+  if (!ScreenReader) return [];
+  const { events } = await ScreenReader.recentEvents({ limit });
+  return (events || []).slice().reverse();
+}
+
+// { state, live, ticks, changedFrames, ocrPasses, events, peakMB, lastMB, error }.
+// `live` is true only while the extension is heartbeating.
 export async function screenReaderStatus() {
   if (!ScreenReader) return { state: "unsupported", live: false, ticks: 0, changedFrames: 0, error: "" };
   const s = await ScreenReader.status();

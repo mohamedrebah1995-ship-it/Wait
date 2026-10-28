@@ -14,7 +14,27 @@ enum ScreenReaderStore {
         static let ticks = "sr.ticks"            // samples taken since start
         static let changedFrames = "sr.changed"  // samples that differed from the previous one
         static let error = "sr.error"            // human-readable reason when state == "failed"
+        static let ocrPasses = "sr.ocrPasses"    // frames sent to OCR since start
+        static let events = "sr.events"          // events written to the log since start
+        static let peakMB = "sr.peakMB"          // extension memory peak (phys_footprint) since start
+        static let lastMB = "sr.lastMB"          // memory after the latest OCR pass
+        static let logVersion = "sr.logVersion"  // event-log format the stored log was written in
+        static let passedGate = "sr.passedGate"  // changed frames that showed a delivery-app button
+        static let seq = "sr.seq"                // last event sequence number (never reset)
     }
+
+    // Monotonic per-device event number. Survives restarts and log clears, so a later sync can
+    // de-duplicate on it.
+    static func nextSeq() -> Int {
+        let n = int(Key.seq) + 1
+        set(Key.seq, n)
+        return n
+    }
+
+    // v2: postcodes only, never street addresses. Logs written before that are wiped once.
+    static let currentLogVersion = 2
+
+    static func int(_ key: String) -> Int { defaults?.integer(forKey: key) ?? 0 }
 
     private static var defaults: UserDefaults? { UserDefaults(suiteName: appGroup) }
 
@@ -34,6 +54,11 @@ enum ScreenReaderStore {
             "ticks": d.integer(forKey: Key.ticks),
             "changedFrames": d.integer(forKey: Key.changedFrames),
             "error": d.string(forKey: Key.error) ?? "",
+            "passedGate": d.integer(forKey: Key.passedGate),
+            "ocrPasses": d.integer(forKey: Key.ocrPasses),
+            "events": d.integer(forKey: Key.events),
+            "peakMB": d.double(forKey: Key.peakMB),
+            "lastMB": d.double(forKey: Key.lastMB),
         ]
     }
 }

@@ -4,26 +4,38 @@ import CoreVideo
 
 // Broadcast Upload Extension. iOS runs this in its own process with a ~50MB memory cap.
 //
-// Phase 1 behaviour: sample ~1 frame/sec, skip frames identical to the previous sample, and throw the
-// frame away. Nothing is written to disk or sent anywhere. Phase 2 (Vision OCR) plugs in where marked.
+// Every ~1s, three steps, each cheaper than the next:
+//   1. Has the bottom 45% (where offer and status cards sit) changed?          no → skip
+//   2. Gate: does it show a delivery app's button (Uber/Just Eat/Deliveroo)?   no → discard unread
+//   3. OCR (Vision, on device) + rules. Recognised screens become typed events in the App Group log.
+// Frames, OCR text, street addresses and customer names are never stored or sent anywhere.
 class SampleHandler: RPBroadcastSampleHandler {
 
     private let sampleInterval: TimeInterval = 1.0
-    private let grid = 64                       // 64×64 = 4096 sampled bytes per frame, cheap and fine enough to see text changes
     private var lastSampleAt: TimeInterval = 0
-    private var lastHash: UInt64?
+    private var detector = ChangeDetector()
     private var ticks = 0
     private var changedFrames = 0
+    private var passedGate = 0
+    private var ocrPasses = 0
+    private var events = 0
+    private var peakMB: Double = 0
+    private var debouncer = Debouncer()
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
-        ticks = 0
-        changedFrames = 0
-        lastHash = nil
+        ticks = 0; changedFrames = 0; passedGate = 0; ocrPasses = 0; events = 0
         lastSampleAt = 0
+        detector = ChangeDetector()
+        debouncer = Debouncer()
+        peakMB = MemoryProbe.footprintMB()
         ScreenReaderStore.set(ScreenReaderStore.Key.error, "")
         ScreenReaderStore.set(ScreenReaderStore.Key.startedAt, ScreenReaderStore.nowMs())
         ScreenReaderStore.set(ScreenReaderStore.Key.ticks, 0)
         ScreenReaderStore.set(ScreenReaderStore.Key.changedFrames, 0)
+        ScreenReaderStore.set(ScreenReaderStore.Key.passedGate, 0)
+        ScreenReaderStore.set(ScreenReaderStore.Key.ocrPasses, 0)
+        ScreenReaderStore.set(ScreenReaderStore.Key.events, 0)
+        ScreenReaderStore.set(ScreenReaderStore.Key.peakMB, peakMB)
         ScreenReaderStore.set(ScreenReaderStore.Key.state, "reading")
     }
 
@@ -35,23 +47,49 @@ class SampleHandler: RPBroadcastSampleHandler {
         lastSampleAt = now
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        guard let hash = fingerprint(pixelBuffer) else {
+        guard let cells = ChangeDetector.cells(pixelBuffer) else {
             fail("Unsupported screen format")
             return
         }
 
         ticks += 1
-        if hash != lastHash {
+        if detector.changed(cells) {
             changedFrames += 1
-            lastHash = hash
-            // Phase 2: hand the pixel buffer to the Vision OCR classifier here.
-            // It must not be retained after this method returns.
+            if let accent = PlatformGate.signature(pixelBuffer) {
+                passedGate += 1
+                ScreenReaderStore.set(ScreenReaderStore.Key.passedGate, passedGate)
+                read(pixelBuffer, accent: accent)
+            }
+            // No delivery-app button: the frame is dropped here, never OCR'd, nothing logged.
         }
 
         // Heartbeat every sample, changed or not. The app uses this to tell "reading" from "dead".
         ScreenReaderStore.set(ScreenReaderStore.Key.ticks, ticks)
         ScreenReaderStore.set(ScreenReaderStore.Key.changedFrames, changedFrames)
         ScreenReaderStore.set(ScreenReaderStore.Key.lastTickAt, ScreenReaderStore.nowMs())
+    }
+
+    // Runs synchronously on ReplayKit's callback queue: one frame in flight at a time, released when
+    // this returns. Frames ReplayKit delivers meanwhile are simply skipped.
+    private func read(_ pixelBuffer: CVPixelBuffer, accent: Accent) {
+        ocrPasses += 1
+        autoreleasepool {
+            let lines = OCR.recognize(pixelBuffer)
+            let result = ScreenReaderRules.read(lines, accent: accent)
+            if var event = result.event, debouncer.accept(event) {
+                event.seq = ScreenReaderStore.nextSeq()
+                EventLog.append(event)
+                events += 1
+                ScreenReaderStore.set(ScreenReaderStore.Key.events, events)
+            }
+        }
+        let mb = MemoryProbe.footprintMB()
+        if mb > peakMB {
+            peakMB = mb
+            ScreenReaderStore.set(ScreenReaderStore.Key.peakMB, peakMB)
+        }
+        ScreenReaderStore.set(ScreenReaderStore.Key.lastMB, mb)
+        ScreenReaderStore.set(ScreenReaderStore.Key.ocrPasses, ocrPasses)
     }
 
     override func broadcastPaused() {
@@ -66,37 +104,11 @@ class SampleHandler: RPBroadcastSampleHandler {
         ScreenReaderStore.set(ScreenReaderStore.Key.state, "stopped")
     }
 
-    // Record the reason in the App Group first, so the app's card can show it, then end the broadcast.
+    // Record the reason in the App Group first, so the app can show it, then end the broadcast.
     private func fail(_ reason: String) {
         ScreenReaderStore.set(ScreenReaderStore.Key.state, "failed")
         ScreenReaderStore.set(ScreenReaderStore.Key.error, reason)
         finishBroadcastWithError(NSError(domain: "DelivrScreenReader", code: 1,
             userInfo: [NSLocalizedDescriptionKey: reason]))
-    }
-
-    // Hash of a coarse grid of luma-like bytes. Two frames with the same hash are treated as identical.
-    private func fingerprint(_ pixelBuffer: CVPixelBuffer) -> UInt64? {
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-
-        // ReplayKit usually delivers planar YpCbCr: plane 0 is luma. Packed formats (BGRA) have no planes.
-        let planar = CVPixelBufferIsPlanar(pixelBuffer)
-        let base = planar ? CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) : CVPixelBufferGetBaseAddress(pixelBuffer)
-        let width = planar ? CVPixelBufferGetWidthOfPlane(pixelBuffer, 0) : CVPixelBufferGetWidth(pixelBuffer)
-        let height = planar ? CVPixelBufferGetHeightOfPlane(pixelBuffer, 0) : CVPixelBufferGetHeight(pixelBuffer)
-        let bytesPerRow = planar ? CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0) : CVPixelBufferGetBytesPerRow(pixelBuffer)
-        guard let base = base, width > 0, height > 0 else { return nil }
-
-        let bytes = base.assumingMemoryBound(to: UInt8.self)
-        var hash: UInt64 = 0xcbf29ce484222325           // FNV-1a offset basis
-        for gy in 0..<grid {
-            let y = (gy * height) / grid
-            for gx in 0..<grid {
-                let x = (gx * width) / grid
-                hash ^= UInt64(bytes[y * bytesPerRow + x])
-                hash = hash &* 0x100000001b3            // FNV-1a prime
-            }
-        }
-        return hash
     }
 }

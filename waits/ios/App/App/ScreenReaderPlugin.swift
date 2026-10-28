@@ -25,7 +25,16 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "startShift", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "recentEvents", returnType: CAPPluginReturnPromise),
     ]
+
+    // Older logs could contain street addresses (Uber package pickups). Delete them once on upgrade.
+    override public func load() {
+        if ScreenReaderStore.int(ScreenReaderStore.Key.logVersion) < ScreenReaderStore.currentLogVersion {
+            EventLog.clear()
+            ScreenReaderStore.set(ScreenReaderStore.Key.logVersion, ScreenReaderStore.currentLogVersion)
+        }
+    }
 
     @objc func startShift(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -54,5 +63,11 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func status(_ call: CAPPluginCall) {
         call.resolve(ScreenReaderStore.snapshot())
+    }
+
+    // Last N events from the App Group log (newest last). Debug sheet only.
+    @objc func recentEvents(_ call: CAPPluginCall) {
+        let n = max(1, min(call.getInt("limit") ?? 5, 50))
+        call.resolve(["events": EventLog.last(n)])
     }
 }
