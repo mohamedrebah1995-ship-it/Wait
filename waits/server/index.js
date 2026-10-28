@@ -478,6 +478,17 @@ app.post('/evaluate', async (req, res) => {
   res.json({ ...result, source: 'live', located: { start, run: runLoc, offer: offerLoc } });
 });
 
+// Health check: readiness only, never values. evaluate=true means /evaluate can answer for real.
+app.get('/health', (_req, res) => {
+  res.json({
+    ok: true,
+    evaluate: !!MAPBOX_TOKEN && adminReady,
+    mapboxConfigured: !!MAPBOX_TOKEN,
+    firebaseAdmin: adminReady,
+    commit: (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null,
+  });
+});
+
 app.get('/stats/drivers', async (_req, res) => {
   if (!adminAuth) return res.json({ count: 0 });
   if (Date.now() - _driverCountCache.at < 60000) return res.json({ count: _driverCountCache.n }); // 60s cache
