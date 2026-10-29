@@ -1,6 +1,7 @@
 import Foundation
 import JavaScriptCore
 import UserNotifications
+import AudioToolbox
 
 // Every NEW_OFFER → verdict notification. IDLE: solo £/hr (on the device for Uber/Just Eat). ACTIVE:
 // stacking verdict.
@@ -46,8 +47,23 @@ final class OfferEvaluator {
         return loadEngine()?.invokeMethod("appendFlags", withArguments: [verdict, flags])?.toString() ?? verdict
     }
 
+    // One notification and one chime per order. OCR reads the same card slightly differently from frame
+    // to frame (miles, name, a missing postcode), so the order is keyed on platform + pay — the headline,
+    // read most reliably. A later frame only matters if it brings the drop-off postcode the first lacked;
+    // then the same notification is updated in place, silently.
+    private var notified: [String: (at: Date, hadPostcode: Bool)] = [:]
+
+    static func orderKey(_ e: ScreenEvent) -> String {
+        e.platform.rawValue + "|" + (e.pay.map { String(format: "%.2f", $0) } ?? e.restaurant ?? "")
+    }
+
     private func run(offer: ScreenEvent, run: [RunOrder]) {
-        notify(verdictText(offer: offer, run: run), offer: offer)
+        let key = Self.orderKey(offer), now = Date()
+        notified = notified.filter { now.timeIntervalSince($0.value.at) < 5 * 60 }
+        let seen = notified[key]
+        if let s = seen, s.hadPostcode || offer.dropPostcode == nil { return }
+        notified[key] = (now, offer.dropPostcode != nil)
+        notify(verdictText(offer: offer, run: run), offer: offer, key: key, alert: seen == nil)
     }
 
     private func liveBody(offer: ScreenEvent, run: [RunOrder]) -> [String: Any] {
@@ -78,7 +94,7 @@ final class OfferEvaluator {
     // IDLE: Uber and Just Eat cards give the trip time, so this needs no network at all. Deliveroo cards
     // don't: /evaluate routes it (3s), else an offline estimate.
     func soloVerdict(_ offer: ScreenEvent) -> String {
-        if let minutes = Self.tripMinutes(offer), let text = solo(pay: offer.pay, minutes: minutes, offline: false) { return text }
+        if let minutes = Self.tripMinutes(offer), let text = solo(pay: offer.pay, minutes: minutes, miles: offer.miles, offline: false) { return text }
         let live = postEvaluate(liveBody(offer: offer, run: []))
         if case .verdict(let reply) = live, let text = reply["text"] as? String {
             rememberLocations(reply, offer: offer, run: [])
@@ -111,9 +127,12 @@ final class OfferEvaluator {
         return m > 0 && m < 180 ? m : nil
     }
 
-    private func solo(pay: Double?, minutes: Double, offline: Bool) -> String? {
+    // With the card's miles the verdict is £/mile (the app's own time estimate is ignored); else £/hr.
+    private func solo(pay: Double?, minutes: Double, miles: Double? = nil, offline: Bool) -> String? {
         guard let engine = loadEngine(), let pay = pay else { return nil }
-        let r = engine.invokeMethod("judgeSolo", withArguments: [pay, minutes, ["minRate": ScreenReaderStore.minRate(), "offline": offline]])
+        var opts: [String: Any] = ["minRate": ScreenReaderStore.minRate(), "offline": offline]
+        if let mi = miles, mi > 0 { opts["miles"] = mi }
+        let r = engine.invokeMethod("judgeSolo", withArguments: [pay, minutes, opts])
         return r?.isObject == true ? r?.forProperty("text").toString() : nil
     }
 
@@ -278,20 +297,29 @@ final class OfferEvaluator {
         switch p { case .uber: return "Uber Eats"; case .justEat: return "Just Eat"; case .deliveroo: return "Deliveroo" }
     }
 
-    // Time-sensitive, with the Delivr offer chime (delivr_offer.caf, bundled in this extension).
-    // One per offer: the id is the offer's dedupe key, so a repeat replaces the earlier banner
-    // instead of stacking a second one.
-    private func notify(_ text: String, offer: ScreenEvent) {
+    // The verdict notification (one per order: the id is the order key, so an update replaces it).
+    // iOS silences notification sounds and banners while the screen is recorded — which is always, here —
+    // so the extension plays the Delivr chime and vibrates itself. `alert` is false for a silent update.
+    private func notify(_ text: String, offer: ScreenEvent, key: String, alert: Bool) {
         let c = UNMutableNotificationContent()
         c.title = "Delivr · " + Self.platformName(offer.platform)
         c.body = text
         _ = Self.installSound
-        c.sound = UNNotificationSound(named: UNNotificationSoundName("delivr_offer.caf"))
-        c.interruptionLevel = .timeSensitive
-        let req = UNNotificationRequest(identifier: "offer|" + offer.dedupeKey, content: c, trigger: nil)
+        c.sound = alert ? UNNotificationSound(named: UNNotificationSoundName("delivr_offer.caf")) : nil
+        c.interruptionLevel = .active   // broadcast extensions can't hold the time-sensitive entitlement
+        let req = UNNotificationRequest(identifier: "offer|" + key, content: c, trigger: nil)
         UNUserNotificationCenter.current().add(req)
+        if alert { AudioServicesPlayAlertSound(Self.chime) }   // sound + vibration; vibration only on silent
         ScreenReaderStore.set(ScreenReaderStore.Key.lastVerdict, text)
     }
+
+    private static let chime: SystemSoundID = {
+        var id = SystemSoundID(kSystemSoundID_Vibrate)
+        if let url = Bundle.main.url(forResource: "delivr_offer", withExtension: "caf") {
+            AudioServicesCreateSystemSoundID(url as CFURL, &id)
+        }
+        return id
+    }()
 
     // Copy the chime into the App Group's Library/Sounds once — a sound named by a notification an
     // extension posts is looked up there as well as in bundles, so this works either way.

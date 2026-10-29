@@ -476,7 +476,7 @@ app.post('/evaluate', async (req, res) => {
     const g = await mapboxJSON(`https://api.mapbox.com/directions-matrix/v1/mapbox/driving-traffic/${pts.map(p => `${p.lng},${p.lat}`).join(';')}?annotations=duration,distance&access_token=${MAPBOX_TOKEN}`);
     if (!g?.durations) return res.status(502).json({ error: 'routing failed' });
     let sec = 0; for (let i = 1; i < pts.length; i++) sec += g.durations[i - 1][i] || 0;
-    const result = judgeSolo(offer.pay || 0, sec / 60, { minRate, approx: loc.approx });
+    const result = judgeSolo(offer.pay || 0, sec / 60, { minRate, approx: loc.approx, miles: offer.miles });
     if (!result) return res.status(422).json({ error: 'no pay on the card' });
     return res.json({ ...result, source: 'live', mode: 'solo', located: { start: here, run: [], offer: loc } });
   }

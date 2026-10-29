@@ -217,15 +217,29 @@ function judgeOffer(matrix, orders, opts={}){
 }
 
 // ── Solo verdict (no run yet): is this offer worth it on its own? ───────────────────────────────────
-// £/hr = pay ÷ (trip minutes + one pickup and one drop-off dwell buffer), against the driver's
-// average (opts.minRate, default £15/hr). ✅ at or above it · 🟠 below it · ❌ under 60% of it.
+// With the card's miles (opts.miles): £/mile, ignoring the app's own time estimate — drivers beat it.
+//   ✅ ≥ £2.00/mi (pay at least double the miles) · 🟠 ≥ £1.50/mi · ❌ below.
+// Without miles (Deliveroo): £/hr = pay ÷ (trip minutes + one pickup and one drop-off dwell buffer),
+// against the driver's average (opts.minRate, default £15/hr). ✅ at or above it · 🟠 below it ·
+// ❌ under 60% of it.
 const POOR_FRACTION = 0.6;
+const GOOD_PER_MILE = 2.0, OK_PER_MILE = 1.5;
 function judgeSolo(pay, minutes, opts={}){
-  if(!(pay>0)||!(minutes>0)) return null;
+  if(!(pay>0)||(!(minutes>0)&&!(opts.miles>0))) return null;
+  const money=v=>"£"+v.toFixed(2);
+  if(opts.miles>0){
+    const perMile=pay/opts.miles;
+    const base=`${money(pay)} for ${opts.miles.toFixed(1)} mi = ${money(perMile)}/mi`;
+    let verdict, text;
+    if(perMile>=GOOD_PER_MILE)    { verdict="green";  text=`✅ Good offer: ${base}`; }
+    else if(perMile>=OK_PER_MILE) { verdict="orange"; text=`🟠 OK: ${base} (good is ${money(GOOD_PER_MILE)}/mi)`; }
+    else                          { verdict="red";    text=`❌ Poor: ${base}`; }
+    if(opts.approx) text+=" · restaurant approx";
+    return {verdict, perMile:Math.round(perMile*100)/100, text:(opts.offline?"Offline estimate · ":"")+text, offline:!!opts.offline};
+  }
   const totalMin=Math.round(minutes+PICKUP_DWELL_MIN+DROPOFF_DWELL_MIN);
   const rate=pay/(totalMin/60);
   const avg=opts.minRate>0 ? opts.minRate : DEFAULT_MIN_RATE;
-  const money=v=>"£"+v.toFixed(2);
   const base=`${money(pay)} for ${totalMin} min = ${money(rate)}/hr`;
   let verdict, text;
   if(rate>=avg)                     { verdict="green";  text=`✅ Good offer: ${base}`; }
@@ -242,5 +256,5 @@ function appendFlags(text, flags){
   return shown.length ? `${text} · ${shown.join(" · ")}` : text;
 }
 
-return { WINDOW_MIN, slidingWindowMin, STACK_GREEN_MAX_MIN, STACK_ORANGE_MAX_MIN, PICKUP_DWELL_MIN, DROPOFF_DWELL_MIN, planStack, buildOfferStack, DEFAULT_MIN_RATE, judgeOffer, POOR_FRACTION, judgeSolo, VERDICT_FLAGS, appendFlags };
+return { WINDOW_MIN, slidingWindowMin, STACK_GREEN_MAX_MIN, STACK_ORANGE_MAX_MIN, PICKUP_DWELL_MIN, DROPOFF_DWELL_MIN, planStack, buildOfferStack, DEFAULT_MIN_RATE, judgeOffer, POOR_FRACTION, GOOD_PER_MILE, judgeSolo, VERDICT_FLAGS, appendFlags };
 })();

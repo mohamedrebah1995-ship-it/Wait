@@ -129,7 +129,7 @@ class SampleHandler: RPBroadcastSampleHandler {
         c.title = "MOdelivr stopped reading offers"
         c.body = "Screen sharing ended. Open MOdelivr and tap Start to keep checking offers."
         c.sound = .default
-        c.interruptionLevel = .timeSensitive
+        c.interruptionLevel = .active   // broadcast extensions can't hold the time-sensitive entitlement
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "screen-reader-stopped", content: c, trigger: nil))
     }
 

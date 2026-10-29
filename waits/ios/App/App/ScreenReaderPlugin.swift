@@ -83,6 +83,11 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
             default: snap["notifications"] = "not asked"
             }
             snap["timeSensitive"] = settings.timeSensitiveSetting == .enabled
+            // What actually decides a pop-up: "allowed" alone also covers Deliver Quietly.
+            snap["quiet"] = settings.authorizationStatus == .provisional
+            snap["banners"] = settings.alertSetting == .enabled
+            snap["sounds"] = settings.soundSetting == .enabled
+            snap["summary"] = settings.scheduledDeliverySetting == .enabled
             call.resolve(snap)
         }
     }
