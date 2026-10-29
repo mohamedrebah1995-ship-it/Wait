@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		181C777EFAEDFFC1F9199105 /* Debouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAA6165880B87D3B32CC0A69 /* Debouncer.swift */; };
+		D31F0A0E5C0FFEE5A1B2C304 /* LiveCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31F0A0E5C0FFEE5A1B2C303 /* LiveCheck.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		3BCACBCA03B059682B152A03 /* StackPlansPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9E095411FC6D8FE1B33E09B /* StackPlansPlugin.swift */; };
 		3FD37972329184DF8DFDAE96 /* EventLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652BFCEB53E36E649E6F2ECD /* EventLog.swift */; };
@@ -100,6 +101,7 @@
 		D6656C1AB187036905414B41 /* OfferEvaluator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OfferEvaluator.swift; sourceTree = "<group>"; };
 		DA27829FE8D03D4D4A12E90D /* ScreenRules.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScreenRules.swift; sourceTree = "<group>"; };
 		EAA6165880B87D3B32CC0A69 /* Debouncer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Debouncer.swift; sourceTree = "<group>"; };
+		D31F0A0E5C0FFEE5A1B2C303 /* LiveCheck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCheck.swift; sourceTree = "<group>"; };
 		FC64498ECA523871767899EA /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -157,6 +159,7 @@
 				A136B0E057F81CAE7A54E1B2 /* ScreenModel.swift */,
 				DA27829FE8D03D4D4A12E90D /* ScreenRules.swift */,
 				EAA6165880B87D3B32CC0A69 /* Debouncer.swift */,
+				D31F0A0E5C0FFEE5A1B2C303 /* LiveCheck.swift */,
 				43C7D15AA4B6537CA5454FE1 /* MemoryProbe.swift */,
 				BDCE24A6B6CEAB64DC533535 /* ChangeDetector.swift */,
 				7D8CD59FE1D77C03417DE3A9 /* PlatformGate.swift */,
@@ -355,6 +358,7 @@
 				9027A2ED1BE165A812144646 /* ScreenModel.swift in Sources */,
 				71B52C870430E293B04758F4 /* ScreenRules.swift in Sources */,
 				181C777EFAEDFFC1F9199105 /* Debouncer.swift in Sources */,
+				D31F0A0E5C0FFEE5A1B2C304 /* LiveCheck.swift in Sources */,
 				EB3070DE318CD214E6D88F53 /* MemoryProbe.swift in Sources */,
 				3FD37972329184DF8DFDAE96 /* EventLog.swift in Sources */,
 				B8247E8027C2C4C6546783CE /* ChangeDetector.swift in Sources */,

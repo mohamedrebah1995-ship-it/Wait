@@ -3,7 +3,7 @@ import Foundation
 // The current run, kept in the extension (the app may be asleep). Persisted to the App Group so it
 // survives the extension restarting. Postcodes, restaurant names and numbers only.
 //
-// IDLE until the first ORDER_ACCEPTED → ACTIVE. Back to IDLE when every order is delivered or
+// IDLE until the first ORDER_ACCEPTED (or an ARRIVED with none seen) → ACTIVE. Back to IDLE when every order is delivered or
 // cancelled, after 60 minutes with no change, or when the driver taps End run in the app.
 struct RunOrder: Codable {
     var platform: Platform
@@ -15,12 +15,18 @@ struct RunOrder: Codable {
     var miles: Double?
     var pickedUp = false
     var acceptedAt: Date
+    var arrivedAt: Date? = nil
+    var pickedUpAt: Date? = nil
+
+    // Stable for the order's life: the server keys its record of the run on it.
+    var id: String { platform.rawValue + "-" + String(Int(acceptedAt.timeIntervalSince1970 * 1000)) }
 }
 
 struct RunState: Codable {
     var orders: [RunOrder] = []
     var lastChange = Date()
     var pendingOffers: [String: ScreenEvent] = [:]     // last NEW_OFFER per platform, until accepted/declined
+    var touched: RunOrder? = nil                        // the order the last apply() changed (reported to the server)
 
     static let idleTimeout: TimeInterval = 60 * 60
     var active: Bool { !orders.isEmpty }
@@ -48,6 +54,7 @@ struct RunState: Codable {
     // stacking verdict while ACTIVE).
     mutating func apply(_ e: ScreenEvent) -> Bool {
         let key = e.platform.rawValue
+        touched = nil
         switch e.type {
         case .newOffer:
             pendingOffers[key] = e
@@ -58,14 +65,26 @@ struct RunState: Codable {
                                    pickupPostcode: src.pickupPostcode, dropPostcode: src.dropPostcode,
                                    pay: src.pay, minutes: src.minutes, miles: src.miles, acceptedAt: e.at))
             pendingOffers[key] = nil
+            touched = orders.last
+        case .arrived:
+            // No accepted order seen (screen reading started mid-run): the arrival starts one.
+            if !orders.contains(where: { $0.platform == e.platform && !$0.pickedUp && $0.arrivedAt == nil }) {
+                orders.append(RunOrder(platform: e.platform, restaurant: e.restaurant, acceptedAt: e.at))
+            }
+            let i = orders.firstIndex(where: { $0.platform == e.platform && !$0.pickedUp && $0.arrivedAt == nil })!
+            orders[i].arrivedAt = e.at
+            if orders[i].restaurant == nil { orders[i].restaurant = e.restaurant }
+            touched = orders[i]
         case .pickedUp:
-            if let i = orders.firstIndex(where: { $0.platform == e.platform && !$0.pickedUp }) { orders[i].pickedUp = true }
+            if let i = orders.firstIndex(where: { $0.platform == e.platform && !$0.pickedUp }) {
+                orders[i].pickedUp = true; orders[i].pickedUpAt = e.at; touched = orders[i]
+            }
         case .delivered:
             if let i = orders.firstIndex(where: { $0.platform == e.platform && $0.pickedUp }) ?? orders.firstIndex(where: { $0.platform == e.platform }) {
-                orders.remove(at: i)
+                touched = orders.remove(at: i)
             }
         case .cancelled:
-            if let i = orders.firstIndex(where: { $0.platform == e.platform }) { orders.remove(at: i) }
+            if let i = orders.firstIndex(where: { $0.platform == e.platform }) { touched = orders.remove(at: i) }
         case .offerDeclined:
             if e.pending != true { pendingOffers[key] = nil }
         default:

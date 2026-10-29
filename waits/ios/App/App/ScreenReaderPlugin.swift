@@ -27,6 +27,7 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "startShift", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "recentEvents", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "runOrders", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setEvaluateAuth", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "endRun", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setFix", returnType: CAPPluginReturnPromise),
@@ -133,6 +134,23 @@ public class ScreenReaderPlugin: CAPPlugin, CAPBridgedPlugin {
             try? FileManager.default.removeItem(at: url)
         }
         call.resolve()
+    }
+
+    // The extension's current run (run-state.json), for the Stack Check map. Dates come out as epoch ms;
+    // `id` is the extension's RunOrder.id (platform + accepted ms), stable for the order's life.
+    @objc func runOrders(_ call: CAPPluginCall) {
+        guard let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: ScreenReaderStore.appGroup)?
+                .appendingPathComponent("run-state.json"),
+              let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let orders = obj["orders"] as? [[String: Any]] else { call.resolve(["orders": []]); return }
+        let ms = { (v: Any?) -> Double? in (v as? Double).map { ($0 + Date.timeIntervalBetween1970AndReferenceDate) * 1000 } }
+        call.resolve(["orders": orders.map { o -> [String: Any] in
+            var r = o
+            for k in ["acceptedAt", "arrivedAt", "pickedUpAt"] { r[k] = ms(o[k]) }
+            r["id"] = "\(o["platform"] as? String ?? "")-\(Int(ms(o["acceptedAt"]) ?? 0))"
+            return r.compactMapValues { $0 is NSNull ? nil : $0 }
+        }])
     }
 
     // Last N events from the App Group log (newest last). Debug sheet only.

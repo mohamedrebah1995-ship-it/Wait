@@ -83,12 +83,14 @@ async function tickWaitReminders() {
       const ageMin = (Date.now() - new Date(w.startedAt).getTime()) / 60000;
       let st = waitNotifyState.get(uid);
       if (!st || st.startedAt !== w.startedAt) { st = { startedAt: w.startedAt, sent: new Set() }; waitNotifyState.set(uid, st); }
+      // A wait the screen reader started ends on its own when it sees the pickup — no "tap GOT IT" nags.
+      const fromScreen = w.source === 'screen';
       for (const [m, msg] of REMINDER_MARKS) {
-        if (ageMin >= m && !st.sent.has(m)) { st.sent.add(m); await sendWaitPush(fs, uid, 'DELIVR — Wait reminder', msg(name)); }
+        if (ageMin >= m && !st.sent.has(m)) { st.sent.add(m); if (!fromScreen) await sendWaitPush(fs, uid, 'DELIVR — Wait reminder', msg(name)); }
       }
       if (ageMin >= 60 && !st.sent.has(60)) {
         st.sent.add(60);
-        await sendWaitPush(fs, uid, 'DELIVR', `Your wait at ${name} was not completed and has been removed. No data was logged.`);
+        if (!fromScreen) await sendWaitPush(fs, uid, 'DELIVR', `Your wait at ${name} was not completed and has been removed. No data was logged.`);
         try { await fs.collection('activeWaits').doc(uid).delete(); } catch (_) {}
         waitNotifyState.delete(uid);
       }
@@ -502,6 +504,129 @@ app.post('/evaluate', async (req, res) => {
   // located.run lines up index-for-index with the request's run (null = left out).
   const note = skipped ? ` · ${skipped} order${skipped === 1 ? '' : 's'} without a postcode left out` : '';
   res.json({ ...result, text: result.text + note, source: 'live', located: { start, run: located.slice(0, -1), offer: offerLoc } });
+});
+
+// ── /screen-event — the screen reader logs a run as it happens (Delivr 1.1) ─────────────────────────
+// ORDER_ACCEPTED → remembered · ARRIVED → "waiting now" at that restaurant (activeWaits) · PICKED_UP → the
+// wait goes into waitLogs, exactly as the app's own ARRIVED → COLLECTED does · DELIVERED → the order's pay
+// is banked in the driver's earnings (STATS) · CANCELLED → forgotten. Each event carries the time it was
+// seen, so one sent late (no signal) still logs the right times. Same privacy contract as /evaluate.
+const SCREEN_TYPES = new Set(['ORDER_ACCEPTED', 'ARRIVED', 'PICKED_UP', 'DELIVERED', 'CANCELLED']);
+const PLATFORM_NAMES = { UBER_EATS: 'Uber Eats', JUST_EAT: 'Just Eat', DELIVEROO: 'Deliveroo' };
+const MIN_WAIT_MINS = 0.5, MAX_WAIT_MINS = 90;   // outside this a pairing is a misread, not a wait
+
+// Local (UK) hour/day — the app buckets waits by the driver's clock, and the server runs on UTC.
+function ukTime(ms) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: 'numeric', hourCycle: 'h23', weekday: 'short' })
+    .formatToParts(new Date(ms)).map(x => [x.type, x.value]));
+  return { hour: Number(p.hour), dow: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday) };
+}
+// Same buckets as timePeriod() in src/App.jsx.
+function timePeriod(h) {
+  if (h >= 5 && h < 10) return 'morning';
+  if (h >= 10 && h < 14) return 'lunch';
+  if (h >= 14 && h < 17) return 'afternoon';
+  if (h >= 17 && h < 21) return 'evening';
+  if (h >= 21) return 'late night';
+  return 'early morning';
+}
+// The restaurant as the app knows it: its Mapbox place id (what the app's cards use), found by name near
+// the driver / the order's postcodes. Chains merge by name in the app anyway; with no location at all an
+// independent gets a name-based id.
+async function resolveRestaurant(name, near) {
+  if (near && MAPBOX_TOKEN) {
+    const g = await mapboxJSON(`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(name)}&proximity=${near.lng},${near.lat}&country=gb&types=poi&limit=5&access_token=${MAPBOX_TOKEN}`);
+    const hits = (g?.features || []).map(f => ({ id: f.properties?.mapbox_id, c: f.geometry?.coordinates })).filter(h => h.id && h.c);
+    hits.sort((a, b) => distKm(near, { lat: a.c[1], lng: a.c[0] }) - distKm(near, { lat: b.c[1], lng: b.c[0] }));
+    if (hits[0] && distKm(near, { lat: hits[0].c[1], lng: hits[0].c[0] }) < 15) return { id: hits[0].id, name };
+  }
+  return { id: 'screen:' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60), name };
+}
+
+const screenHits = new Map();   // uid → [timestamps]; 120 events / 10 min (a busy shift sends ~20 an hour)
+app.post('/screen-event', async (req, res) => {
+  const devNoAuth = !PROD && process.env.EVALUATE_DEV_NOAUTH === '1';
+  if (!adminReady) return res.status(503).json({ error: 'auth unavailable' });
+  let uid = 'dev';
+  if (!devNoAuth) {
+    const h = req.headers.authorization || '';
+    try { uid = (await adminAuth.verifyIdToken(h.slice(7))).uid; } catch { return res.status(401).json({ error: 'unauthorised' }); }
+  }
+  const now = Date.now();
+  const hits = (screenHits.get(uid) || []).filter(t => now - t < 10 * 60 * 1000);
+  if (hits.length >= 120) return res.status(429).json({ error: 'too many events' });
+  hits.push(now); screenHits.set(uid, hits);
+
+  const b = req.body || {};
+  const type = String(b.type || '');
+  const platform = PLATFORM_NAMES[b.platform] || null;
+  const orderId = typeof b.orderId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(b.orderId) ? b.orderId : null;
+  if (!SCREEN_TYPES.has(type) || !platform || !orderId) return res.status(400).json({ error: 'bad event' });
+  const at = typeof b.at === 'number' && b.at > now - 6 * 3600e3 && b.at < now + 120e3 ? b.at : now;
+  const o = cleanEvalOrder(b);   // restaurant / postcodes / pay, validated the same way as /evaluate
+  const here = cleanHere(b.here);
+
+  const fs = admin.firestore();
+  const userRef = fs.collection('users').doc(uid);
+  const orderRef = userRef.collection('screenOrders').doc(orderId);
+  const waitRef = fs.collection('activeWaits').doc(uid);
+  const snap = await orderRef.get();
+  const prev = snap.exists ? snap.data() : {};
+  const iso = ms => new Date(ms).toISOString();
+
+  if (type === 'ORDER_ACCEPTED') {
+    await orderRef.set({ platform, restaurant: o.restaurant, pay: o.pay, acceptedAt: at }, { merge: true });
+    return res.json({ ok: true });
+  }
+  if (type === 'CANCELLED') {
+    await orderRef.delete();
+    if (prev.arrivedAt && !prev.pickedUpAt) await waitRef.delete().catch(() => {});
+    return res.json({ ok: true });
+  }
+  if (type === 'ARRIVED') {
+    const name = o.restaurant || prev.restaurant;
+    if (!name) return res.json({ ok: true, skipped: 'no restaurant name' });
+    const near = here || (await geocodePostcode(o.pickupPostcode)) || (await geocodePostcode(o.dropPostcode));
+    const r = await resolveRestaurant(name, near);
+    const username = (await userRef.get()).data()?.username || 'anon';
+    await orderRef.set({ platform, restaurant: name, restaurantId: r.id, arrivedAt: at, pay: o.pay ?? prev.pay ?? null }, { merge: true });
+    await waitRef.set({ restaurantId: r.id, restaurantName: name, startedAt: iso(at), username, source: 'screen' });
+    return res.json({ ok: true, restaurantId: r.id });
+  }
+  if (type === 'PICKED_UP') {
+    await orderRef.set({ pickedUpAt: at }, { merge: true });
+    const w = await waitRef.get();
+    if (w.exists && w.data().source === 'screen' && w.data().restaurantId === prev.restaurantId) await waitRef.delete();
+    if (!prev.arrivedAt) return res.json({ ok: true, skipped: 'no arrival seen' });
+    const waitMins = Math.round((at - prev.arrivedAt) / 6000) / 10;
+    if (waitMins < MIN_WAIT_MINS || waitMins > MAX_WAIT_MINS) return res.json({ ok: true, skipped: 'implausible wait' });
+    const { hour, dow } = ukTime(at);
+    const username = (await userRef.get()).data()?.username || 'anon';
+    await fs.collection('waitLogs').add({
+      id: String(at), restaurantId: prev.restaurantId, restaurantName: prev.restaurant || '', waitMins,
+      ts: iso(at), hour, dow, period: timePeriod(hour), username, source: 'screen',
+      ...(here ? { pLat: Math.round(here.lat * 100) / 100, pLng: Math.round(here.lng * 100) / 100 } : {}),
+    });
+    await userRef.update({ logCount: admin.firestore.FieldValue.increment(1) }).catch(() => {});
+    await orderRef.set({ waitMins }, { merge: true });
+    return res.json({ ok: true, waitMins });
+  }
+  // DELIVERED: bank the order's pay (STATS), then forget it.
+  const pay = prev.pay ?? o.pay;
+  if (pay > 0) {
+    const start = prev.arrivedAt || prev.pickedUpAt || prev.acceptedAt || at;
+    const tsMs = prev.pickedUpAt || at;
+    const { hour, dow } = ukTime(tsMs);
+    await userRef.collection('earnings').add({
+      platform, payout: pay, tip: 0,
+      restaurantId: prev.restaurantId || null, restaurantName: prev.restaurant || o.restaurant || '',
+      waitMins: prev.waitMins ?? null, cycleMins: Math.round((at - start) / 6000) / 10,
+      arrivedAt: prev.arrivedAt ? iso(prev.arrivedAt) : null, deliveredAt: iso(at),
+      ts: iso(tsMs), hour, dow, period: timePeriod(hour), source: 'screen',
+    });
+  }
+  await orderRef.delete();
+  res.json({ ok: true, banked: pay > 0 ? pay : 0 });
 });
 
 // Health check: readiness only, never values. evaluate=true means /evaluate can answer for real.

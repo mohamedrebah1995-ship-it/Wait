@@ -64,6 +64,13 @@ export async function recentEvents(limit = 5) {
   return (events || []).slice().reverse();
 }
 
+// The screen reader's current run: [{ id, platform, restaurant, pickupPostcode, dropPostcode, pay, pickedUp,
+// acceptedAt, arrivedAt, pickedUpAt }] (times in ms). Empty when there is no run or no screen reader.
+export async function runOrders() {
+  if (!ScreenReader) return [];
+  try { return (await ScreenReader.runOrders()).orders || []; } catch { return []; }
+}
+
 // { state, live, ticks, changedFrames, ocrPasses, events, peakMB, lastMB, error }.
 // `live` is true only while the extension is heartbeating.
 export async function screenReaderStatus() {

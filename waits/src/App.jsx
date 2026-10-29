@@ -25,7 +25,7 @@ import { track, identify, initAnalytics, EV } from "./analytics";   // usage rep
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
 import ScreenReaderButton from "./ScreenReaderButton";   // 1.1 screen reader — small "Start shift" pill next to STACK CHECK (iOS only)
-import { shareFix, shareAverageRate } from "./screenReader";   // screen reader: rounded position + your £/hour for offer checks
+import { shareFix, shareAverageRate, runOrders, SCREEN_READER_SUPPORTED } from "./screenReader";   // screen reader: rounded position + your £/hour for offer checks
 import { cachedMatrix, storeMatrix } from "./routeCache";   // offline: past Mapbox travel times + estimates
 import { planStack, slidingWindowMin, WINDOW_MIN, STACK_ORANGE_MAX_MIN, PICKUP_DWELL_MIN, DROPOFF_DWELL_MIN } from "./stackEngine";   // the one stacking engine (also /evaluate + extension)
 
@@ -4286,6 +4286,8 @@ function cancelNotifs(orderId,keys){
 
 // Where an order is in its life: nothing = still being built, then accepted → picked → gone on delivery.
 const isActive=o=>o.status==="accepted"||o.status==="picked";
+// The untouched first row of a fresh screen — replaced, not kept, when the screen reader adds an order.
+const isBlankOrder=o=>!o.status&&!o.srId&&!o.pickup&&!o.drop&&!(o.pText||"").trim()&&!(o.dText||"").trim()&&!String(o.pay||"").trim();
 // (The minsLeft/fmtLeft countdown helpers were removed with the on-card clocks — timing is carried
 // entirely by the background notifications now, so nothing counts down in front of the driver.)
 function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
@@ -4606,6 +4608,7 @@ function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
     syncStart();   // pins and route lines stay exactly as they are — nothing about the geometry changed
   }
   function rejectOrder(id){
+    dismissSr(orders.find(o=>o.id===id)?.srId);
     closePinMenuRef.current(); disarmPinRef.current();
     cancelNotifs(String(id));
     setOrders(os=>{ const next=os.filter(o=>o.id!==id); return next.length?next:[blankOrder()]; });
@@ -4620,6 +4623,7 @@ function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
     pendingRecheckRef.current=true;   // pickup pin + its leg drop out, so re-time the run from here
   }
   function markDelivered(id){
+    dismissSr(orders.find(o=>o.id===id)?.srId);
     closePinMenuRef.current(); disarmPinRef.current();
     cancelNotifs(String(id));   // done — nothing further fires for this order
     setOrders(os=>{ const next=os.filter(o=>o.id!==id); return next.length?next:[blankOrder()]; });
@@ -4637,6 +4641,7 @@ function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
   // the map too: the pin effect removes every marker no order still wants, and the route effect drops
   // the line layer when there's no result. Then forget the saved session so nothing restores.
   function clearAll(){
+    orders.forEach(o=>dismissSr(o.srId));   // the reader's orders too — Clear all means clear
     closePinMenuRef.current(); disarmPinRef.current();   // no pins left for the menu to point at
     store.del("delivr_stack_state");
     store.del(NOTIF_SCHED_KEY);   // the whole stack is gone — no order left to warn about
@@ -4726,6 +4731,54 @@ function StackScreen({gps,isAdmin,quota,onConsume,onUpgrade}){
     if(!routable.length){ setRes(null); return; }   // nothing left to route — clear the old lines
     if(res&&!loading)check();
   },[orders]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Orders the screen reader accepted in Uber / Just Eat / Deliveroo join this stack by themselves: placed
+  // from their postcodes (pickup by restaurant name when the card shows no postcode), turned PICKED UP
+  // and taken off on delivery as the reader sees it. Hand-built orders are never touched. One the driver
+  // marks delivered or removes here stays gone (srDismissed), even while the reader still has it.
+  const ordersRef=useRef(orders); ordersRef.current=orders;
+  const gpsRef=useRef(gps); gpsRef.current=gps;
+  const srFailedRef=useRef(new Set());   // drop-off postcodes that wouldn't geocode — not retried every poll
+  useEffect(()=>{
+    if(!SCREEN_READER_SUPPORTED)return;
+    let alive=true, busy=false;
+    const sync=async()=>{
+      if(busy)return; busy=true;
+      try{
+        const dismissed=new Set(store.get("delivr_sr_dismissed")||[]);
+        const run=(await runOrders()).filter(r=>!dismissed.has(r.id));
+        const g=gpsRef.current, lat=g.status==="active"?g.lat:null, lng=g.status==="active"?g.lng:null;
+        const known=new Set(ordersRef.current.filter(o=>o.srId).map(o=>o.srId));
+        const added=[];
+        for(const r of run){
+          if(known.has(r.id)||!r.dropPostcode||srFailedRef.current.has(r.dropPostcode))continue;   // CHECK needs a drop-off
+          const drop=await geocodeText(r.dropPostcode,lat,lng);
+          if(!drop){ srFailedRef.current.add(r.dropPostcode); continue; }
+          const pick=r.pickedUp?null:await geocodeText(r.pickupPostcode||r.restaurant||"",lat,lng);
+          added.push({srId:r.id,pickup:pick,drop,pText:r.restaurant||r.pickupPostcode||"",dText:r.dropPostcode,
+            pay:r.pay!=null?String(r.pay):"",status:r.pickedUp?"picked":"accepted",addedAt:r.acceptedAt,
+            acceptedAt:new Date(r.acceptedAt).toISOString(),...(r.pickedUp?{pickedUpAt:new Date(r.pickedUpAt||Date.now()).toISOString()}:{})});
+        }
+        if(!alive)return;
+        const inRun=new Map(run.map(r=>[r.id,r]));
+        const os=ordersRef.current;
+        let next=os.filter(o=>!o.srId||inRun.has(o.srId))   // delivered / cancelled in the delivery app → gone
+          .map(o=>o.srId&&inRun.get(o.srId).pickedUp&&o.status!=="picked"?{...o,status:"picked",pickedUpAt:new Date(inRun.get(o.srId).pickedUpAt||Date.now()).toISOString()}:o);
+        const fresh=added.filter(a=>!next.some(o=>o.srId===a.srId)).map(a=>({...a,id:idRef.current++}));
+        if(fresh.length)next=[...next.filter(o=>!isBlankOrder(o)),...fresh];
+        if(!next.length)next=[blankOrder()];
+        if(next.length===os.length&&next.every((o,i)=>o===os[i]))return;
+        setOrders(next);
+        if(!next.some(o=>o.id===placingRef.current.id))setPlacing({id:next[0].id,kind:next[0].pickup?"drop":"pickup"});
+        syncStart();
+        pendingRecheckRef.current=true;   // the run changed — re-time it if a route is on screen
+      }finally{ busy=false; }
+    };
+    sync();
+    const id=setInterval(sync,4000);
+    return ()=>{ alive=false; clearInterval(id); };
+  },[]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const dismissSr=srId=>{ if(srId)store.set("delivr_sr_dismissed",[...(store.get("delivr_sr_dismissed")||[]),srId].slice(-50)); };
 
   // Countdowns tick every second only while something is actually running.
   const hasLive=orders.some(isActive);

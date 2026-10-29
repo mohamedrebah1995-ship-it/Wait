@@ -58,7 +58,7 @@ class SampleHandler: RPBroadcastSampleHandler {
         }
 
         ticks += 1
-        if ticks % 60 == 1 { evaluator.refreshTokenIfDue() }   // keep the server sign-in fresh all shift
+        if ticks % 60 == 1 { evaluator.refreshTokenIfDue(); evaluator.flushOutbox() }   // keep the server sign-in fresh all shift; resend queued events
         let endRequested = UserDefaults(suiteName: ScreenReaderStore.appGroup)?.double(forKey: ScreenReaderStore.Key.runEndedAt) ?? 0
         if runState.expireIfNeeded(endRequestedAt: endRequested) { runState.save() }
         if detector.changed(cells) {
@@ -87,6 +87,8 @@ class SampleHandler: RPBroadcastSampleHandler {
         ocrPasses += 1
         autoreleasepool {
             let lines = OCR.recognize(pixelBuffer)
+            // A screenshot of an offer (Photos, a chat) is not a live offer: its clock gives it away.
+            if LiveCheck.showsOldClock(lines) { return }
             let result = ScreenReaderRules.read(lines, accent: accent)
             if result.platform != nil { lastDeliverySeenAt = Date().timeIntervalSince1970 }
             if var event = result.event, debouncer.accept(event) {
@@ -94,6 +96,8 @@ class SampleHandler: RPBroadcastSampleHandler {
                 EventLog.append(event)
                 // Run state + offer verdict. Evaluation runs off this queue; the frame is already released.
                 if runState.apply(event) { evaluator.evaluate(offer: event, run: runState.orders) }
+                // Accepted / arrived / picked up / delivered: logged live on the server (waits, STATS).
+                if let order = runState.touched { evaluator.report(event, order: order) }
                 runState.save()
                 events += 1
                 ScreenReaderStore.set(ScreenReaderStore.Key.events, events)

@@ -44,7 +44,13 @@ final class OfferEvaluator {
         let verdict = run.isEmpty ? soloVerdict(offer) : stackVerdict(offer: offer, run: run)
         var flags = offer.flags
         if offer.offerType == OfferType.package { flags.append(OfferType.package) }
-        return loadEngine()?.invokeMethod("appendFlags", withArguments: [verdict, flags])?.toString() ?? verdict
+        let text = loadEngine()?.invokeMethod("appendFlags", withArguments: [verdict, flags])?.toString() ?? verdict
+        return run.isEmpty ? text : text + "\n" + Self.runSummary(run)
+    }
+
+    // Names the run a stacking verdict was judged against, so a wrong run is obvious (End run in the app).
+    static func runSummary(_ run: [RunOrder]) -> String {
+        "Your run: " + run.map { $0.restaurant ?? platformName($0.platform) }.joined(separator: ", ")
     }
 
     // One notification and one chime per order. OCR reads the same card slightly differently from frame
@@ -163,6 +169,55 @@ final class OfferEvaluator {
                  "pay": o.pay, "minutes": o.minutes, "miles": o.miles, "pickedUp": o.pickedUp])
     }
     private static func compact(_ d: [String: Any?]) -> [String: Any] { d.compactMapValues { $0 } }
+
+    // MARK: - run events → server (waits, "waiting now", earnings)
+
+    // Accepted / arrived / picked up / delivered / cancelled go to /screen-event so the driver's waits and
+    // earnings are logged live. One that can't be sent (no signal at the restaurant) waits in a small outbox
+    // in the App Group and goes with the next; each carries the time it was seen, so late is still exact.
+    func report(_ e: ScreenEvent, order: RunOrder) {
+        var body = Self.compact(["type": e.type.rawValue, "platform": e.platform.rawValue, "orderId": order.id,
+                                 "at": e.at.timeIntervalSince1970 * 1000, "restaurant": order.restaurant ?? e.restaurant,
+                                 "pickupPostcode": order.pickupPostcode, "dropPostcode": order.dropPostcode, "pay": order.pay])
+        if let f = ScreenReaderStore.freshFix() { body["here"] = ["lat": f.lat, "lng": f.lng] }
+        queue.async {
+            var outbox = Self.outbox + [body]
+            while let next = outbox.first, self.postEvent(next) { outbox.removeFirst() }
+            Self.outbox = Array(outbox.suffix(30))
+        }
+    }
+
+    // Retry what's waiting (called about once a minute while broadcasting).
+    func flushOutbox() {
+        queue.async {
+            var outbox = Self.outbox
+            guard !outbox.isEmpty else { return }
+            while let next = outbox.first, self.postEvent(next) { outbox.removeFirst() }
+            Self.outbox = outbox
+        }
+    }
+
+    private static var outbox: [[String: Any]] {
+        get { UserDefaults(suiteName: ScreenReaderStore.appGroup)?.array(forKey: "sr.outbox") as? [[String: Any]] ?? [] }
+        set { UserDefaults(suiteName: ScreenReaderStore.appGroup)?.set(newValue, forKey: "sr.outbox") }
+    }
+
+    // True when the event is done with: accepted, or refused for good (a bad event never gets better).
+    // False keeps it for a retry: no signal, no sign-in, rate limit, server trouble.
+    private func postEvent(_ body: [String: Any]) -> Bool {
+        guard let base = UserDefaults(suiteName: ScreenReaderStore.appGroup)?.string(forKey: ScreenReaderStore.Key.evalURL), !base.isEmpty,
+              let url = URL(string: base + "/screen-event"),
+              let json = try? JSONSerialization.data(withJSONObject: body),
+              case .token(let token) = tokens.idToken() else { return false }
+        var req = URLRequest(url: url, timeoutInterval: 8)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        req.httpBody = json
+        let (_, status) = TokenProvider.syncPost(req)
+        guard let s = status else { return false }
+        return s == 200 || s == 400
+    }
 
     // MARK: - live
 
